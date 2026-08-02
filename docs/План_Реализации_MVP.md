@@ -137,43 +137,117 @@ flowchart LR
 **Цель:** пустой, но настоящий работающий скелет на Railway — прежде чем
 писать бизнес-логику.
 
+### Структура репозитория (утверждена 2026-08-02)
+
+```
+UNUM_news_100/
+├── docs/                              # уже есть
+│
+├── proto/                             # ТЗ §6.6 — контракт с первого коммита
+│   └── scribely/rewrite/v1/
+│       └── rewrite.proto              # EnrichCluster, RewriteCluster, SuggestTags,
+│                                       # GenerateSeoPack, SuggestImageBrief, ResearchKeywords,
+│                                       # RegenerateDraft, SubmitEditFeedback,
+│                                       # GetRewriterStyle/UpsertRewriterStyle, GetPromptVersion
+│
+├── services/                          # 3 независимо деплоящихся Railway-сервиса
+│   ├── api/                           # Backend API + WebSocket + Review UI
+│   │   ├── app/
+│   │   │   ├── routers/               # GET/PATCH /drafts, /publish|reject|needs-fix, /auth
+│   │   │   ├── websocket/             # DraftLock + presence (§4.15)
+│   │   │   ├── ui/                    # Jinja2/HTMX — очередь, SEO/теги/бриф, hotkeys
+│   │   │   ├── auth/                  # Auth & Roles
+│   │   │   ├── publish/               # Publish Adapter (no-op)
+│   │   │   ├── tagsync/               # CreateTag/EnsureCategory на Approve (§4.19) — реально
+│   │   │   └── grpc_client/           # клиент к rewrite (из proto/)
+│   │   ├── tests/
+│   │   └── Dockerfile
+│   ├── worker/                        # Scheduler + Ingestion + Dedup + Filter + Compliance
+│   │   ├── app/
+│   │   │   ├── ingestion/             # RssConnector + ApiConnector'ы + inject-url
+│   │   │   ├── dedup/                 # кросс-языковая кластеризация
+│   │   │   ├── filter/                # темы + приоритет + fairness + TTL-скоринг (§4.3)
+│   │   │   ├── compliance/            # правило-ориент. проверки + similarity-gate (§4.6/§4.20)
+│   │   │   ├── tagsync/               # периодический ListTags/ListCategories → TagCache (§4.19)
+│   │   │   └── grpc_client/           # вызывает RewriteCluster и т.д.
+│   │   ├── tests/
+│   │   └── Dockerfile
+│   └── rewrite/                       # scribely-rewrite — только gRPC (ТЗ §6.6)
+│       ├── app/
+│       │   ├── server.py              # grpc-сервер + health/metrics
+│       │   ├── enrich/                # EnrichCluster → ClusterContext
+│       │   ├── rewrite/               # RewriteCluster + LLM Rotation Manager
+│       │   ├── seo/                   # GenerateSeoPack
+│       │   ├── tags/                  # SuggestTags (только из синхронизированного TagCache)
+│       │   ├── image/                 # SuggestImageBrief
+│       │   ├── keywords/              # ResearchKeywords + KeywordResearchProvider (mock/…)
+│       │   ├── feedback/              # SubmitEditFeedback + GetRewriterStyle facade
+│       │   ├── prompt/                # PromptVersion, промпт из стайл-гайда + глоссарий
+│       │   └── generated/             # protoc-вывод из proto/
+│       ├── tests/
+│       └── Dockerfile
+│
+├── libs/                              # общий код — НЕ бизнес-логика
+│   ├── db/                            # SQLAlchemy-модели Content DB (ТЗ §6.4) + session
+│   ├── grpc_gen/                      # единый protoc-вывод, используют все 3 сервиса
+│   └── common/                        # trace_id middleware, логирование, конфиг
+│
+├── migrations/                        # Alembic, versions/
+├── scripts/                           # сид Source из реестра, локальный dry-run rewrite
+├── tests/e2e/                         # сквозной прогон RawItem → ... → PublishRecord
+├── .env.example
+└── pyproject.toml                     # workspace-уровень: ruff, pytest, uv
+```
+
+`rewrite` не импортирует бизнес-логику `api`/`worker` и наоборот (ТЗ
+§6.6) — общее ограничено `libs/` (модели БД, сгенерированные gRPC-стабы,
+инфраструктурные утилиты). Каждый Railway-сервис указывает на свою
+поддиректорию `services/<name>` (root directory в настройках сервиса) со
+своим `Dockerfile`; `libs/`, `proto/`, `migrations/` копируются в образ на
+билде.
+
 Задачи:
 - Репозиторий уже инициализирован как git и подключён к GitHub — здесь
-  только структура кода внутри него (`app/ingestion`, `app/dedup`,
-  `app/rewrite`, `app/compliance`, `app/api`, `app/ui`, `app/common`,
-  `migrations/`, `tests/`).
-- Python-тулинг: менеджер зависимостей (uv/poetry), `ruff` (линт), `pytest`,
-  pre-commit хуки.
+  создаётся структура выше (`services/api`, `services/worker`,
+  `services/rewrite`, `libs/`, `proto/`, `migrations/`, `scripts/`,
+  `tests/e2e/`).
+- Python-тулинг: менеджер зависимостей (uv workspace — один lock-файл на
+  все сервисы + `libs/`), `ruff` (линт), `pytest`, pre-commit хуки.
+  **Без отдельного `.venv` на проект/сервис** — используется системный
+  Python (уточнено 2026-08-02); зависимости ставятся в него напрямую
+  (`uv pip install --system` или аналог), не в изолированное окружение.
 - Railway: создать проект, добавить managed PostgreSQL, создать **3
-  сервиса** — `api` (FastAPI, отвечает на HTTP + WebSocket), `worker`
-  (планировщик/пайплайн, долгоживущий процесс на APScheduler или Railway
-  Cron) и **`rewrite`** (`scribely-rewrite` — отдельный Python gRPC-сервис,
-  ТЗ §6.6).
-- **Скелет `rewrite`**: каталог `proto/scribely/rewrite/v1/*.proto` с
+  сервиса** — `api` (FastAPI, отвечает на HTTP + WebSocket, root dir
+  `services/api`), `worker` (планировщик/пайплайн, root dir
+  `services/worker`) и **`rewrite`** (`scribely-rewrite`, root dir
+  `services/rewrite`, только gRPC, ТЗ §6.6).
+- **Скелет `rewrite`**: `proto/scribely/rewrite/v1/rewrite.proto` с
   первого коммита (`EnrichCluster`, `ResearchKeywords`, `RewriteCluster`,
   `SuggestTags`, `GenerateSeoPack`, `SuggestImageBrief`, `RegenerateDraft`,
   `SubmitEditFeedback`, `GetRewriterStyle`/`UpsertRewriterStyle`,
-  `GetPromptVersion`), пустой gRPC-сервер с `health`/`metrics`. `api`/
-  `worker` получают gRPC-клиент к `rewrite` (даже если методы пока
-  заглушки) — интерфейс проверяется вживую с этой фазы, а не
-  проектируется на бумаге.
+  `GetPromptVersion`) → `libs/grpc_gen` (protoc-вывод, общий для всех
+  сервисов) → пустой gRPC-сервер в `services/rewrite/app/server.py` с
+  `health`/`metrics`. `api`/`worker` получают gRPC-клиент к `rewrite`
+  (`grpc_client/`, даже если методы пока заглушки) — интерфейс
+  проверяется вживую с этой фазы, а не проектируется на бумаге.
 - Внутренний service-token между `api`/`worker` и `rewrite` (Railway
   private networking) — без mTLS в MVP (ТЗ §5, §6.6).
-- Базовое сквозное логирование с `trace_id` (генерируется на входе в
-  пайплайн, прокидывается дальше) — с этой фазы, не добавляется задним
-  числом (ТЗ §4.20).
+- Базовое сквозное логирование с `trace_id` (`libs/common`, генерируется
+  на входе в пайплайн, прокидывается дальше) — с этой фазы, не
+  добавляется задним числом (ТЗ §4.20).
 - Секреты — через Railway Variables: `DATABASE_URL` (авто от Postgres-аддона),
   `OPENROUTER_KEY_1/2/3`, ключи источников по мере надобности (реестр §2).
-- Alembic (миграции) + первая миграция: таблицы `Source`, `RawItem`,
-  `NewsCluster`, `Draft`, `PublishRecord`, `LLMRotationState`, `AuditLog`,
-  `User` (модель данных — ТЗ §6.4), плюс сразу заведённые (даже если пока
-  не заполняются) `ClusterContext`, `DraftRevision`, `PromptVersion`,
-  `DraftLock`, `TagCache`/`CategoryCache`, `RewriterStyleCache`,
-  `KeywordResearchCache` — дешевле завести сейчас, чем мигрировать поверх
-  боевых данных в Фазах 4–8 (ТЗ §6.4).
-- Базовый auth: таблица `User`, логин по паролю (хеш), сессия/JWT — минимум
-  один настоящий аккаунт для реального тестового Rewriter-а из редакции
-  UNUM (не хардкод-заглушка, см. ТЗ §3).
+- Alembic (`migrations/`, модели в `libs/db`) + первая миграция: таблицы
+  `Source`, `RawItem`, `NewsCluster`, `Draft`, `PublishRecord`,
+  `LLMRotationState`, `AuditLog`, `User` (модель данных — ТЗ §6.4), плюс
+  сразу заведённые (даже если пока не заполняются) `ClusterContext`,
+  `DraftRevision`, `PromptVersion`, `DraftLock`, `TagCache`/
+  `CategoryCache`, `RewriterStyleCache`, `KeywordResearchCache` —
+  дешевле завести сейчас, чем мигрировать поверх боевых данных в Фазах
+  4–8 (ТЗ §6.4).
+- Базовый auth: таблица `User`, логин по паролю (хеш), сессия/JWT —
+  минимум один настоящий аккаунт для реального тестового Rewriter-а из
+  редакции UNUM (не хардкод-заглушка, см. ТЗ §3).
 - `GET /health` на `api`/`worker` и gRPC `health` на `rewrite` задеплоены
   на Railway и отвечают — подтверждаем, что пайплайн деплоя реально
   работает для всех трёх сервисов.

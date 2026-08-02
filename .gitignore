@@ -1,0 +1,24 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# gRPC generated code (regenerated from proto/, not hand-edited)
+**/generated/*_pb2.py
+**/generated/*_pb2_grpc.py
+**/generated/*_pb2.pyi
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
