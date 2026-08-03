@@ -257,6 +257,55 @@ UNUM_news_100/
 по приватной сети (пусть и заглушку); можно залогиниться тестовым
 аккаунтом; таблицы существуют в Postgres.
 
+### Статус: ✅ готово, задеплоено на Railway и верифицировано (2026-08-03)
+
+Структура репозитория, `proto/scribely/rewrite/v1/rewrite.proto` (все 11
+методов ТЗ §6.6), `libs/db/models.py` (все 17 таблиц ТЗ §6.4 + первая
+Alembic-миграция, автоприменяется на каждом деплое `api` перед стартом),
+`libs/common` (trace_id, internal service-token, логирование),
+`services/rewrite` (gRPC health + все методы на проводе, осознанно
+возвращают `UNIMPLEMENTED` — логика в Фазе 4), `services/api` (health,
+`/health/rewrite`, `/auth/login`+`/auth/me` на JWT/argon2),
+`services/worker` (health + gRPC-клиент).
+
+Railway: workspace **Unum**, project `api-scribely`
+(id `00d2f337-c04d-41f4-8232-b9c72e2662da`), 3 сервиса (`api-scribely`,
+`worker`, `rewrite` — первый исторически не переименован в `api`, токен
+проекта не даёт прав на rename) + managed Postgres. Публичные домены:
+`api-scribely-production.up.railway.app`,
+`worker-production-2bbc.up.railway.app` (у `rewrite` домена нет и не
+должно быть — только приватная сеть). Все `/health` и `/health/rewrite`
+отвечают 200 на реальных URL.
+
+**Пять реальных багов, пойманы только на живом деплое** (не проявлялись
+локально/в тестах — см. commit-историю 2026-08-03 за деталями):
+1. `libs/common/grpc_client.py` использовал `grpc_health`, а зависимость
+   `grpcio-health-checking` была объявлена только у `rewrite`, не у
+   `libs` — поймано локальной сборкой Docker-образа `rewrite`.
+2. `libs/common/tracing.py` тянул `starlette` ради `TraceIdMiddleware`,
+   хотя `rewrite` — чисто gRPC-сервис без HTTP-зависимостей вообще (ТЗ
+   §6.6). Разнесено на `tracing.py` (протокол-агностичное ядро) и
+   `common/http_middleware.py` (Starlette-часть, только для api/worker).
+3. Managed Postgres от Railway отдаёт `DATABASE_URL` без указания
+   драйвера (`postgresql://...`), SQLAlchemy берёт `psycopg2` по
+   умолчанию — которого нигде не установлено (everywhere `psycopg` v3).
+   Нормализация — в `CommonSettings` (валидатор pydantic).
+4. `RewriteSettings.port` — Railway на каждый сервис сам подставляет
+   `PORT` (под публичный HTTP-прокси), pydantic-settings матчит env-
+   переменные по имени поля регистронезависимо: поле тихо получало
+   значение Railway `PORT` вместо нашего 50051. Переименовано в
+   `grpc_port`; заодно убрано мёртвое одноимённое поле у `api`/`worker`.
+5. gRPC-сервер `rewrite` слушал `0.0.0.0` (только IPv4) — приватная сеть
+   Railway (`*.railway.internal`) IPv6-only. Переключено на `[::]`.
+
+Осознанные отклонения от дерева каталогов в §2 выше: один общий
+`libs/grpc_gen/` вместо дублирующего `services/rewrite/app/generated/`
+(этот же документ в прозе так и описывает — общее ограничено `libs/`);
+устанавливаемое имя Python-пакета `app/` у каждого сервиса переименовано
+на `api_app`/`worker_app`/`rewrite_app` (каталоги на диске не менялись)
+— иначе три сервиса с одинаковым именем пакета `app` перекрывали бы друг
+друга на общем dev-интерпретере и при общем `pytest` с корня репозитория.
+
 ---
 
 ## 3. Фаза 1 — Ingestion (RSS)
@@ -295,6 +344,49 @@ UNUM_news_100/
 N неудач подряд встаёт на паузу с алертом (circuit breaker); у Tier 1
 источника с summary-only RSS в `RawItem` виден полный текст, догруженный
 по fallback.
+
+### Статус: ✅ готово, верифицировано на реальных данных (2026-08-03)
+
+`RssConnector` (`services/worker/app/ingestion/rss_connector.py`,
+`feedparser`+`httpx`, конфигурируемый — не адаптер на источник), circuit
+breaker (5 подряд неудач → пауза на час), fallback полного текста для
+Tier 1 через `libs/common/fulltext.py` (`httpx`+`trafilatura` —
+используется и RSS-фоллбэком, и ручным inject, как общая инфраструктура,
+не бизнес-логика конкретного коннектора), поллинг на `APScheduler` (тик
+60с, каждый `Source` — по своему `poll_interval_seconds`).
+
+`scripts/seed_sources.py` — 9 источников из реестра, живо перепроверенных
+`curl` 2026-08-03 (не просто скопированных как ✅): CoinDesk /
+Cointelegraph / Decrypt / CryptoSlate / Bitcoin Magazine / BeInCrypto /
+NewsBTC (все Tier 1, EN) + **BeInCrypto RU**
+(`ru.beincrypto.com/feed` — найден и подтверждён в процессе, реестр не
+содержал точного URL; закрывает требование Фазы 2 ниже про RU-источник
+для демо кросс-языковой дедупликации) + SEC (Tier 3, регулятор).
+Bloomberg Crypto (пример выше) при живой проверке оказался мёртв (404) —
+понижен до 🔴 в [реестре](Реестр_Источников_Технический_Черновик.md),
+заменён на этот набор.
+
+Локальная демонстрация (не на Railway, реальный интернет): 210 `RawItem`
+за первый цикл поллинга, оба языка (EN+RU, кириллица цела),
+fallback-догрузка полного текста отработала избирательно — именно там,
+где лента даёт только summary (в среднем 3.2k символов на
+fallback-статью против 12k у источников с `content:encoded`). Circuit
+breaker и идемпотентность — покрыты тестами
+(`services/worker/tests/test_poller.py`, `test_circuit_breaker.py`), не
+отдельным ручным прогоном — 5 подряд реальных фейлов означало бы держать
+источник намеренно сломанным лишний час без дополнительной пользы поверх
+теста. Docker-сборки `worker`/`api` с новыми зависимостями проверены
+отдельно; задеплоено и на Railway.
+
+Ручной inject URL (ТЗ §4.1) — **`POST /ingestion/inject` в `api`**, не в
+`services/worker/app/ingestion/` как буквально написано в дереве §2
+Плана. Причина: auth/roles живут в `api` (ТЗ §6.3), а `api`/`worker` —
+два независимых устанавливаемых пакета без общей бизнес-логики между
+собой (только через `libs/`); эндпоинт, требующий роль Rewriter/Admin,
+не мог бы переиспользовать код из `worker_app` без нарушения этой
+границы. Идемпотентен по самому URL (как источник истины вместо guid),
+всегда тянет полный текст (нет RSS-summary, из которого можно было бы не
+дотягивать).
 
 ---
 
