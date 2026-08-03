@@ -1,0 +1,38 @@
+[project]
+name = "unum-worker"
+version = "0.1.0"
+description = "Scheduler + Ingestion + Dedup + Filter + Compliance (ТЗ §6.3)."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "unum-libs",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "sqlalchemy>=2.0",
+    "grpcio>=1.75",
+    "pydantic-settings>=2.5",
+    "httpx>=0.27",
+]
+
+[tool.uv.sources]
+unum-libs = { workspace = true }
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+# Directory stays "app" (matches the approved repo layout); installed
+# package is renamed per-service to avoid colliding with api/rewrite's
+# own "app" package on the shared dev interpreter.
+packages = [
+    "worker_app",
+    "worker_app.ingestion",
+    "worker_app.dedup",
+    "worker_app.filter",
+    "worker_app.compliance",
+    "worker_app.tagsync",
+    "worker_app.grpc_client",
+]
+
+[tool.setuptools.package-dir]
+worker_app = "app"

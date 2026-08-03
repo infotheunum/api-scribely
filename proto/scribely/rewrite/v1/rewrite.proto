@@ -1,0 +1,329 @@
+syntax = "proto3";
+
+// Contract between api/worker (gRPC clients) and the scribely-rewrite
+// service (ТЗ §6.6). scribely-rewrite is the only place that talks to
+// OpenRouter and holds LLM/keyword-provider keys — api/worker never call
+// OpenRouter directly.
+//
+// Standard grpc.health.v1.Health is used for health checks (not modeled
+// here) — see services/rewrite/app/server.py.
+package scribely.rewrite.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// ---------------------------------------------------------------------
+// Shared types
+// ---------------------------------------------------------------------
+
+enum SourceTier {
+  SOURCE_TIER_UNSPECIFIED = 0;
+  SOURCE_TIER_1 = 1;
+  SOURCE_TIER_2 = 2;
+  SOURCE_TIER_3 = 3;
+  SOURCE_TIER_4 = 4;
+  SOURCE_TIER_5 = 5;
+  SOURCE_TIER_6 = 6;
+}
+
+// Reference to one RawItem inside a cluster, as assembled by worker.
+// scribely-rewrite reads RawItem.body (incl. worker's fallback-fetch
+// full text) — it does not re-fetch pages itself (ТЗ §4.12 boundary).
+message SourceRef {
+  string raw_item_id = 1;
+  string title = 2;
+  string url = 3;
+  SourceTier tier = 4;
+  string language = 5; // "en" | "ru" | ... (ТЗ §5, extensible beyond two)
+  string excerpt_or_full_text = 6;
+  bool is_full_text = 7;
+}
+
+// One fact extracted from the cluster's sources (who/what/when/number/quote).
+message ExtractedFact {
+  string kind = 1; // who|what|when|number|quote
+  string text = 2;
+  repeated string supporting_raw_item_ids = 3;
+}
+
+// Enriched cluster context — input to RewriteCluster (ТЗ §4.12, §6.4).
+message ClusterContext {
+  string cluster_id = 1;
+  repeated SourceRef sources = 2;
+  repeated ExtractedFact facts = 3;
+  bool press_release = 4;
+  bool regulated = 5;
+  bool market_sensitive = 6;
+  bool fact_conflict = 7;
+  string fact_conflict_note = 8;
+  string topic = 9;
+  double priority_score = 10;
+  string trace_id = 11;
+}
+
+// Which rewriter's style overlay to apply, if any (ТЗ §4.14 — only after
+// assignee_user_id is set; empty user_id means house style only).
+message RewriterStyleOverlay {
+  string assignee_user_id = 1;
+}
+
+message TagCandidate {
+  string tag_id = 1; // set only if it matches an existing synced tag
+  string slug = 2;
+  string name = 3;
+  bool is_existing = 4;
+}
+
+message SeoPack {
+  string seo_title = 1;
+  string seo_description = 2;
+  string slug = 3;
+  string og_title = 4;
+  string og_description = 5;
+  string focus_keyphrase = 6;
+  repeated string keywords = 7;
+}
+
+message ImageBrief {
+  string image_brief = 1;
+  string image_mood = 2;
+  repeated string image_subjects = 3;
+  string image_style = 4;
+  repeated string image_do_not = 5;
+  string image_alt = 6;
+  string image_caption = 7;
+  string image_source_suggestion = 8;
+}
+
+// Full rewrite output. RewriteCluster returns this in the same round-trip
+// as tags/SEO/image-brief where practical, to save free-tier LLM calls
+// (ТЗ §4.4/§6.6) — SuggestTags/GenerateSeoPack/SuggestImageBrief also
+// exist standalone for RegenerateDraft / partial re-runs.
+message DraftContent {
+  string title_en = 1;
+  string body_en = 2;
+  string title_ru = 3;
+  string body_ru = 4;
+  repeated string title_en_variants = 5;
+  repeated string title_ru_variants = 6;
+  repeated string attribution_urls = 7;
+  bool sponsor_flag = 8;
+  bool press_release_flag = 9;
+  bool disclaimer_flag = 10;
+  double similarity_score = 11;
+  bool fact_conflict = 12;
+  string suggested_category_id = 13;
+  string suggested_category_slug = 14;
+  repeated TagCandidate tags = 15;
+  SeoPack seo_en = 16;
+  SeoPack seo_ru = 17;
+  ImageBrief image_brief = 18;
+}
+
+// Which OpenRouter key/model actually served a call — for audit (ТЗ §4.10).
+// key_alias is "key_1"/"key_2"/"key_3", never the raw secret.
+message LlmUsage {
+  string key_alias = 1;
+  string model = 2;
+  int32 attempt = 3;
+}
+
+// ---------------------------------------------------------------------
+// EnrichCluster
+// ---------------------------------------------------------------------
+
+message EnrichClusterRequest {
+  string cluster_id = 1;
+  repeated SourceRef sources = 2;
+  string trace_id = 3;
+}
+
+message EnrichClusterResponse {
+  ClusterContext context = 1;
+}
+
+// ---------------------------------------------------------------------
+// ResearchKeywords
+// ---------------------------------------------------------------------
+
+message KeywordInsight {
+  string phrase = 1;
+  int64 volume = 2;
+  repeated string related = 3;
+  string provider = 4; // wordstat|dataforseo|mock (ТЗ §4.18)
+  string locale = 5;
+}
+
+message ResearchKeywordsRequest {
+  repeated string seed_phrases = 1;
+  string locale = 2;
+  string trace_id = 3;
+}
+
+message ResearchKeywordsResponse {
+  repeated KeywordInsight insights = 1;
+}
+
+// ---------------------------------------------------------------------
+// RewriteCluster
+// ---------------------------------------------------------------------
+
+message RewriteClusterRequest {
+  ClusterContext context = 1;
+  RewriterStyleOverlay style_overlay = 2;
+  string prompt_version_id = 3; // empty = use currently active version
+  string trace_id = 4;
+}
+
+message RewriteClusterResponse {
+  DraftContent draft = 1;
+  string prompt_version_id = 2;
+  LlmUsage rewrite_usage = 3;
+  LlmUsage translate_usage = 4;
+}
+
+// ---------------------------------------------------------------------
+// SuggestTags / GenerateSeoPack / SuggestImageBrief
+// (standalone versions — RewriteCluster already returns these inline;
+// these exist for RegenerateDraft-adjacent partial re-runs, ТЗ §6.6)
+// ---------------------------------------------------------------------
+
+message SuggestTagsRequest {
+  string cluster_id = 1;
+  string title_en = 2;
+  string body_en = 3;
+  string category_hint = 4;
+  string trace_id = 5;
+}
+
+message SuggestTagsResponse {
+  string suggested_category_id = 1;
+  string suggested_category_slug = 2;
+  repeated TagCandidate tags = 3;
+}
+
+message GenerateSeoPackRequest {
+  string draft_id = 1;
+  string title_en = 2;
+  string body_en = 3;
+  string title_ru = 4;
+  string body_ru = 5;
+  string trace_id = 6;
+}
+
+message GenerateSeoPackResponse {
+  SeoPack seo_en = 1;
+  SeoPack seo_ru = 2;
+}
+
+message SuggestImageBriefRequest {
+  string draft_id = 1;
+  string title_en = 2;
+  string body_en = 3;
+  string trace_id = 4;
+}
+
+message SuggestImageBriefResponse {
+  ImageBrief brief = 1;
+}
+
+// ---------------------------------------------------------------------
+// RegenerateDraft
+// ---------------------------------------------------------------------
+
+message RegenerateDraftRequest {
+  string draft_id = 1;
+  ClusterContext context = 2;
+  string reason = 3; // NeedsFix reason enum value (ТЗ §4.13), as string
+  RewriterStyleOverlay style_overlay = 4;
+  string trace_id = 5;
+}
+
+message RegenerateDraftResponse {
+  DraftContent draft = 1;
+  string prompt_version_id = 2;
+}
+
+// ---------------------------------------------------------------------
+// SubmitEditFeedback / GetRewriterStyle / UpsertRewriterStyle
+// (facade to theunum.io style profile — contract/mock in MVP, ТЗ §4.14)
+// ---------------------------------------------------------------------
+
+message SubmitEditFeedbackRequest {
+  string draft_id = 1;
+  string author_id = 2;
+  string ai_generated_text = 3;
+  string human_final_text = 4;
+  string locale = 5;
+  string trace_id = 6;
+}
+
+message SubmitEditFeedbackResponse {
+  bool accepted = 1;
+}
+
+message RewriterStyleProfile {
+  string user_id = 1;
+  string summary = 2;
+  string preferences_json = 3;
+  string embedding_version = 4;
+  int32 sample_count = 5;
+  // False when theunum.io has no profile yet for this user (or the
+  // integration is still mocked) — caller falls back to house style only.
+  bool available = 6;
+}
+
+message GetRewriterStyleRequest {
+  string user_id = 1;
+}
+
+message GetRewriterStyleResponse {
+  RewriterStyleProfile profile = 1;
+}
+
+message UpsertRewriterStyleRequest {
+  string user_id = 1;
+  string summary = 2;
+  string preferences_json = 3;
+}
+
+message UpsertRewriterStyleResponse {
+  bool accepted = 1;
+}
+
+// ---------------------------------------------------------------------
+// GetPromptVersion
+// ---------------------------------------------------------------------
+
+message PromptVersion {
+  string id = 1;
+  string status = 2; // draft|active|retired
+  string notes = 3;
+  string approved_by = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message GetPromptVersionRequest {
+  string prompt_version_id = 1; // empty = currently active version
+}
+
+message GetPromptVersionResponse {
+  PromptVersion version = 1;
+}
+
+// ---------------------------------------------------------------------
+// Service
+// ---------------------------------------------------------------------
+
+service RewriteService {
+  rpc EnrichCluster(EnrichClusterRequest) returns (EnrichClusterResponse);
+  rpc ResearchKeywords(ResearchKeywordsRequest) returns (ResearchKeywordsResponse);
+  rpc RewriteCluster(RewriteClusterRequest) returns (RewriteClusterResponse);
+  rpc SuggestTags(SuggestTagsRequest) returns (SuggestTagsResponse);
+  rpc GenerateSeoPack(GenerateSeoPackRequest) returns (GenerateSeoPackResponse);
+  rpc SuggestImageBrief(SuggestImageBriefRequest) returns (SuggestImageBriefResponse);
+  rpc RegenerateDraft(RegenerateDraftRequest) returns (RegenerateDraftResponse);
+  rpc SubmitEditFeedback(SubmitEditFeedbackRequest) returns (SubmitEditFeedbackResponse);
+  rpc GetRewriterStyle(GetRewriterStyleRequest) returns (GetRewriterStyleResponse);
+  rpc UpsertRewriterStyle(UpsertRewriterStyleRequest) returns (UpsertRewriterStyleResponse);
+  rpc GetPromptVersion(GetPromptVersionRequest) returns (GetPromptVersionResponse);
+}

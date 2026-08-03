@@ -1,0 +1,13 @@
+# Railway config-as-code for the `api` service. Root Directory for this
+# service should stay at the repo root (so the Docker build context can
+# see sibling libs/ and proto/) — only "Config File Path" in the Railway
+# dashboard should point here, at services/api/railway.toml.
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "services/api/Dockerfile"
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 100
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5

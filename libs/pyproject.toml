@@ -1,0 +1,30 @@
+[project]
+name = "unum-libs"
+version = "0.1.0"
+description = "Shared infra code for UNUM Rewriter Tool: DB models, gRPC stubs, common utilities. No business logic (ТЗ §6.6)."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "sqlalchemy>=2.0",
+    "psycopg[binary]>=3.2",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.5",
+    "protobuf>=5",
+    "grpcio>=1.75",
+    "grpcio-health-checking>=1.75",
+]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+# `scribely.*` is protoc-generated output (ТЗ §6.6) that physically lives
+# under grpc_gen/ but is installed as its own top-level package because
+# grpc_tools' generated `_pb2_grpc.py` imports it as `from scribely...`,
+# matching the proto package name `scribely.rewrite.v1` — not `grpc_gen.*`.
+packages = ["db", "common", "scribely", "scribely.rewrite", "scribely.rewrite.v1"]
+
+[tool.setuptools.package-dir]
+db = "db"
+common = "common"
+scribely = "grpc_gen/scribely"

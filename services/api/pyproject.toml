@@ -1,0 +1,44 @@
+[project]
+name = "unum-api"
+version = "0.1.0"
+description = "Backend API + WebSocket + Review UI (ТЗ §6.3)."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "unum-libs",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "sqlalchemy>=2.0",
+    "grpcio>=1.75",
+    "pydantic-settings>=2.5",
+    "pyjwt>=2.9",
+    "argon2-cffi>=23.1",
+    "jinja2>=3.1",
+    "python-multipart>=0.0.9",
+    "httpx>=0.27",
+    "alembic>=1.13",
+]
+
+[tool.uv.sources]
+unum-libs = { workspace = true }
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+# Directory stays "app" (matches the approved repo layout); installed
+# package is renamed per-service to avoid colliding with worker/rewrite's
+# own "app" package on the shared dev interpreter.
+packages = [
+    "api_app",
+    "api_app.routers",
+    "api_app.websocket",
+    "api_app.ui",
+    "api_app.auth",
+    "api_app.publish",
+    "api_app.tagsync",
+    "api_app.grpc_client",
+]
+
+[tool.setuptools.package-dir]
+api_app = "app"

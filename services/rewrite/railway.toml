@@ -1,0 +1,13 @@
+# Railway config-as-code for the `rewrite` (scribely-rewrite) service.
+# gRPC-only, no HTTP health path — Railway can't active-probe it the way
+# it does api/worker; health is verified via the standard grpc.health.v1
+# check that api/worker perform over the private network (ТЗ §6.6).
+# Root Directory should stay at the repo root; "Config File Path" in the
+# dashboard points here. Never enable a public/TCP proxy for this service.
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "services/rewrite/Dockerfile"
+
+[deploy]
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5

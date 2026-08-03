@@ -13,10 +13,12 @@ venv/
 .ruff_cache/
 .mypy_cache/
 
-# gRPC generated code (regenerated from proto/, not hand-edited)
-**/generated/*_pb2.py
-**/generated/*_pb2_grpc.py
-**/generated/*_pb2.pyi
+# gRPC generated code (regenerated from proto/ via scripts/gen_proto.sh,
+# not hand-edited) — single shared output in libs/grpc_gen/, ТЗ §6.6
+libs/grpc_gen/scribely/**/*_pb2.py
+libs/grpc_gen/scribely/**/*_pb2_grpc.py
+libs/grpc_gen/scribely/**/*_pb2.pyi
+!libs/grpc_gen/scribely/**/__init__.py
 
 # OS / editor
 .DS_Store
