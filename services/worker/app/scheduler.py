@@ -5,6 +5,7 @@ import logging
 from apscheduler.schedulers.background import BackgroundScheduler
 from worker_app.db import new_session
 from worker_app.dedup.clustering import run_clustering_cycle
+from worker_app.filter.pipeline import run_filter_cycle
 from worker_app.ingestion.poller import poll_due_sources
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,19 @@ def _run_poll_tick() -> None:
             logger.info("clustering tick: %s", stats)
     except Exception:
         logger.exception("clustering tick failed unexpectedly")
+    finally:
+        session.close()
+
+    # Topic filter + priority scoring (ТЗ §4.3) — runs right after
+    # clustering, same tick, so a freshly-formed cluster gets a
+    # in-topic/out-of-topic flag and a score before the next poll cycle.
+    session = new_session()
+    try:
+        stats = run_filter_cycle(session)
+        if stats["classified"]:
+            logger.info("filter tick: %s", stats)
+    except Exception:
+        logger.exception("filter tick failed unexpectedly")
     finally:
         session.close()
 
