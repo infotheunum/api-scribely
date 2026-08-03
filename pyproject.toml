@@ -11,6 +11,20 @@ dev-dependencies = [
     "grpcio-tools>=1.75",
 ]
 
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+# worker (sentence-transformers, cross-language clustering ТЗ §4.2) is
+# the only consumer of torch, and Railway containers have no GPU — the
+# default PyPI torch wheel for Linux drags in the full CUDA stack
+# (~3GB+) for nothing. `--torch-backend cpu` only affects `uv pip
+# install`, not workspace `uv lock`/`uv sync` — pinning the index here
+# is what actually makes the CPU-only build stick in the lockfile.
+torch = { index = "pytorch-cpu" }
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"

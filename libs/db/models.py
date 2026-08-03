@@ -108,6 +108,12 @@ class RawItem(Base):
     is_manual_inject: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     cluster_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("news_cluster.id"))
     trace_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    # Multilingual sentence embedding (title + excerpt) for cross-language
+    # clustering (ТЗ §4.2, План §4) — computed locally (sentence-
+    # transformers), not via OpenRouter. Plain float array, not pgvector:
+    # similarity is compared in Python against a small recent-cluster
+    # window, well within scale for ~100-300 items/day (ТЗ §5).
+    embedding: Mapped[list[float] | None] = mapped_column(ARRAY(Float))
 
     source: Mapped[Source] = relationship(back_populates="raw_items")
     cluster: Mapped[NewsCluster | None] = relationship(back_populates="raw_items")
@@ -126,6 +132,11 @@ class NewsCluster(Base):
     priority_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     trace_id: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime] = _created_at()
+    # Centroid embedding — the arriving item's own embedding when the
+    # cluster is created; not recomputed as a running average in MVP
+    # (would need care around drift as unrelated-but-similar items pile
+    # on; the first item's embedding is a fine anchor at this volume).
+    embedding: Mapped[list[float] | None] = mapped_column(ARRAY(Float))
 
     raw_items: Mapped[list[RawItem]] = relationship(back_populates="cluster")
     context: Mapped[ClusterContext | None] = relationship(back_populates="cluster", uselist=False)

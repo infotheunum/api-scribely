@@ -4,6 +4,7 @@ import logging
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from worker_app.db import new_session
+from worker_app.dedup.clustering import run_clustering_cycle
 from worker_app.ingestion.poller import poll_due_sources
 
 logger = logging.getLogger(__name__)
@@ -22,6 +23,19 @@ def _run_poll_tick() -> None:
             logger.info("poll tick: %s", results)
     except Exception:
         logger.exception("poll tick failed unexpectedly")
+    finally:
+        session.close()
+
+    # Cross-language clustering (ТЗ §4.2, План §4) — runs right after
+    # ingestion in the same tick so freshly-polled items don't sit
+    # unclustered until the next cycle.
+    session = new_session()
+    try:
+        stats = run_clustering_cycle(session)
+        if stats["attached"] or stats["created"]:
+            logger.info("clustering tick: %s", stats)
+    except Exception:
+        logger.exception("clustering tick failed unexpectedly")
     finally:
         session.close()
 
