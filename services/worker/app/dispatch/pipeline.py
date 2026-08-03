@@ -24,7 +24,16 @@ logger = logging.getLogger(__name__)
 # the 100±10/day KPI (ТЗ §1) is only approximated for now via this cap
 # plus the already-has-draft filter below — real throughput tuning is
 # deferred past MVP.
-DISPATCH_BATCH_SIZE = 3
+#
+# Set to 1 (not the originally-planned 3) for the first Railway deploy of
+# this dispatcher on purpose: worker had already accumulated ~140
+# undrafted in-topic clusters over Phases 1-3's runtime, and at 3/tick
+# that backlog would burn through free-tier OpenRouter quota in one
+# unattended ~47-minute burst right after deploy. At 1/tick it's ~2.5h
+# instead — safer for the very first live run. Revisit once Admin
+# Settings (ТЗ §4.21, Фаза 5) makes this a runtime-editable AppSetting
+# instead of a code constant, or once steady-state confirms headroom.
+DISPATCH_BATCH_SIZE = 1
 
 
 def _already_drafted_cluster_ids(db: Session) -> set:
