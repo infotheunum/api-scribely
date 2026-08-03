@@ -66,18 +66,50 @@
 
 ## Статус реализации
 
-**Фаза 0 (Фундамент) — готова и верифицирована локально (2026-08-03).**
-Структура репозитория, `proto/scribely/rewrite/v1/rewrite.proto` (все 11
-методов ТЗ §6.6), `libs/db/models.py` (все 17 таблиц ТЗ §6.4 + первая
-Alembic-миграция — up/down проверены на реальном Postgres),
-`libs/common` (trace_id, internal service-token, логирование),
-`services/rewrite` (gRPC health + все методы на проводе, осознанно
-возвращают `UNIMPLEMENTED` — логика в Фазе 4), `services/api` (health,
-`/health/rewrite` — реальный gRPC-вызов к rewrite, `/auth/login`+`/auth/me`
-на JWT/argon2), `services/worker` (health + gRPC-клиент; ingestion — Фаза
-1). Проверено сквозной сетевой проверкой (реальные процессы api+rewrite
-по TCP), 12/12 тестов, ruff чисто, pre-commit установлен. Как запускать —
-см. `README.md`.
+**Фаза 0 (Фундамент) — готова, задеплоена на Railway и полностью
+верифицирована (2026-08-03).** Структура репозитория,
+`proto/scribely/rewrite/v1/rewrite.proto` (все 11 методов ТЗ §6.6),
+`libs/db/models.py` (все 17 таблиц ТЗ §6.4 + первая Alembic-миграция,
+автоприменяется на каждом деплое `api` перед стартом), `libs/common`
+(trace_id, internal service-token, логирование), `services/rewrite`
+(gRPC health + все методы на проводе, осознанно возвращают
+`UNIMPLEMENTED` — логика в Фазе 4), `services/api` (health,
+`/health/rewrite`, `/auth/login`+`/auth/me` на JWT/argon2),
+`services/worker` (health + gRPC-клиент; ingestion — Фаза 1).
+
+Проект на Railway: workspace **Unum**, project `api-scribely`
+(id `00d2f337-c04d-41f4-8232-b9c72e2662da`), 3 сервиса (`api-scribely`,
+`worker`, `rewrite` — первый исторически не переименован в `api`, токен
+проекта не даёт прав на rename) + managed Postgres. Публичные домены:
+`api-scribely-production.up.railway.app`,
+`worker-production-2bbc.up.railway.app` (у `rewrite` домена нет и не
+должно быть — только приватная сеть). Все `/health` и `/health/rewrite`
+отвечают 200 на реальных URL.
+
+**Три реальных бага, пойманы только на живом деплое (локально/в тестах
+не проявлялись) — см. commit-историю за 2026-08-03 для деталей:**
+1. `libs/common/grpc_client.py` использовал `grpc_health`, а зависимость
+   `grpcio-health-checking` была объявлена только у `rewrite`, не у
+   `libs` — поймано локальной сборкой Docker-образа `rewrite` (там нет
+   `unum-api`/`unum-worker`, только `unum-libs`).
+2. `libs/common/tracing.py` тянул `starlette` ради `TraceIdMiddleware`,
+   хотя `rewrite` — чисто gRPC-сервис без HTTP-зависимостей вообще (ТЗ
+   §6.6). Разнёс на `tracing.py` (протокол-агностичное ядро) и новый
+   `common/http_middleware.py` (Starlette-часть, только для api/worker).
+3. Managed Postgres от Railway отдаёт `DATABASE_URL` без указания
+   драйвера (`postgresql://...`), SQLAlchemy в этом случае берёт
+   `psycopg2` по умолчанию — которого нигде не установлено (everywhere
+   `psycopg` v3). Нормализация — в `CommonSettings` (валидатор pydantic),
+   один раз для всех потребителей.
+4. `RewriteSettings.port` — Railway на каждый сервис сам подставляет
+   `PORT` (под публичный HTTP-прокси), а pydantic-settings матчит env-
+   переменные по имени поля регистронезависимо: поле тихо получало
+   значение Railway `PORT` вместо нашего 50051. Переименовано в
+   `grpc_port`; заодно убрано мёртвое одноимённое поле у `api`/`worker`
+   (они всё равно биндятся на shell `$PORT` напрямую в Dockerfile CMD).
+5. gRPC-сервер `rewrite` слушал `0.0.0.0` (только IPv4) — приватная сеть
+   Railway (`*.railway.internal`, через которую api/worker ходят в
+   rewrite) IPv6-only. Переключено на `[::]` (dual-stack на Linux).
 
 Осознанные отклонения от дерева каталогов в Плане §2: один общий
 `libs/grpc_gen/` вместо дублирующего `services/rewrite/app/generated/`
@@ -89,9 +121,6 @@ Python-пакета `app/` у каждого сервиса переименов
 
 **Открыто / нужно от пользователя:**
 
-- [ ] Railway: аккаунт/проект — единственный блокер, чтобы закрыть
-  демо-критерий Фазы 0 «задеплоено и отвечает». Код готов (Dockerfile +
-  `railway.toml` на каждый сервис).
 - [ ] Логин/пароль реального тестового Rewriter-а (роль подтверждена,
   учётки нет) — завести можно в любой момент до Фазы 6.
 - [ ] theunum.io: есть ли API для Tag/Category и контакт на их стороне —
@@ -102,7 +131,7 @@ Python-пакета `app/` у каждого сервиса переименов
 - [ ] SEO-схема theunum.io (hreflang, slug) — до боевой интеграции Publish.
 - [ ] Юридическое подтверждение `human_final` как few-shot — до продакшена.
 
-Следующий шаг по плану — Фаза 1 (Ingestion/RSS).
+Следующий шаг по плану — Фаза 1 (Ingestion/RSS), в работе.
 
 ## Конвенции репозитория
 
