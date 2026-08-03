@@ -12,7 +12,7 @@ TOKEN = "test-token"
 
 @pytest.fixture
 def server_address():
-    settings = RewriteSettings(port=0, internal_service_token=TOKEN)
+    settings = RewriteSettings(grpc_port=0, internal_service_token=TOKEN)
     server = build_server(settings)
     port = server.add_insecure_port("0.0.0.0:0")
     server.start()

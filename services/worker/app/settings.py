@@ -9,4 +9,5 @@ class WorkerSettings(CommonSettings):
     the service deployed and reachable (health + gRPC client to rewrite)."""
 
     service_name: str = "worker"
-    port: int = 8001
+    # No "port" field: same reasoning as ApiSettings — Dockerfile CMD
+    # binds uvicorn to shell $PORT directly.

@@ -5,7 +5,10 @@ from common.settings import CommonSettings
 
 class ApiSettings(CommonSettings):
     service_name: str = "api"
-    port: int = 8000
+    # No "port" field: the Dockerfile CMD binds uvicorn to shell $PORT
+    # directly (Railway-injected) — a Python field here would be unused
+    # dead config at best, and a name collision footgun at worst (see
+    # RewriteSettings.grpc_port for what that footgun looks like live).
 
     # INSECURE default — must be overridden via Railway Variables in any
     # real deployment (ТЗ §5: secrets not committed / not hardcoded).

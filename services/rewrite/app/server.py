@@ -35,7 +35,7 @@ def build_server(settings: RewriteSettings) -> grpc.Server:
     # leaves it unreachable there even though the container itself is
     # healthy. "[::]" is the IPv6 wildcard; on Linux it dual-stacks and
     # also accepts IPv4 connections, so this covers both cases.
-    server.add_insecure_port(f"[::]:{settings.port}")
+    server.add_insecure_port(f"[::]:{settings.grpc_port}")
     return server
 
 
@@ -44,7 +44,7 @@ def serve() -> None:
     configure_logging(settings.service_name, settings.log_level)
     server = build_server(settings)
     server.start()
-    logger.info("scribely-rewrite listening on :%s", settings.port)
+    logger.info("scribely-rewrite listening on :%s", settings.grpc_port)
 
     def _handle_stop(signum, frame):
         logger.info("received signal %s, shutting down", signum)
