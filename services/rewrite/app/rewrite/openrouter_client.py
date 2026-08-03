@@ -1,0 +1,68 @@
+from __future__ import annotations
+
+import json
+import logging
+import re
+
+import httpx
+
+logger = logging.getLogger(__name__)
+
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+_JSON_FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
+
+
+class OpenRouterError(Exception):
+    """A single key's call failed after OpenRouter exhausted its own
+    per-key model fallback (ТЗ §4.5) — the Rotation Manager catches this
+    to cascade to the next key."""
+
+
+def extract_json(content: str) -> dict:
+    """Free models routinely wrap JSON in ```json fences despite
+    instructions not to — stripped here rather than treated as a parse
+    failure, since that would trigger a wasted regenerate for a purely
+    cosmetic issue."""
+    cleaned = _JSON_FENCE.sub("", content.strip())
+    return json.loads(cleaned)
+
+
+def call_openrouter(
+    *,
+    api_key: str,
+    models: list[str],
+    system_prompt: str,
+    user_prompt: str,
+    timeout: float = 90.0,
+) -> tuple[str, str]:
+    """One call to OpenRouter with the free-model fallback list (ТЗ
+    §4.5) — OpenRouter itself retries across `models` on rate-limit/
+    moderation/context/downtime errors, no extra code needed for that
+    part. Returns (raw_content, model_actually_used). Raises
+    OpenRouterError once the whole list is exhausted for this key."""
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    payload = {
+        "models": models,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "response_format": {"type": "json_object"},
+    }
+    try:
+        response = httpx.post(OPENROUTER_URL, headers=headers, json=payload, timeout=timeout)
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise OpenRouterError(f"request failed: {exc}") from exc
+
+    data = response.json()
+    if "error" in data:
+        raise OpenRouterError(f"OpenRouter error: {data['error']}")
+    try:
+        content = data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError) as exc:
+        raise OpenRouterError(f"unexpected response shape: {data}") from exc
+
+    model_used = data.get("model") or models[0]
+    return content, model_used

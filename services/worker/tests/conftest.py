@@ -9,7 +9,14 @@ os.environ.setdefault("REWRITE_GRPC_ADDRESS", "localhost:50098")
 os.environ.setdefault("INTERNAL_SERVICE_TOKEN", "test-service-token")
 
 import pytest  # noqa: E402
-from db.models import NewsCluster, RawItem, Source  # noqa: E402
+from db.models import (  # noqa: E402
+    ClusterContext,
+    Draft,
+    DraftRevision,
+    NewsCluster,
+    RawItem,
+    Source,
+)
 from sqlalchemy import delete  # noqa: E402
 from worker_app.db import _session_factory  # noqa: E402
 
@@ -25,8 +32,11 @@ def db():
 
 
 def _wipe(session):
-    # RawItem first — it FKs both Source and NewsCluster, so it has to
-    # go before either of them.
+    # Children before parents: DraftRevision->Draft->NewsCluster,
+    # ClusterContext->NewsCluster, RawItem->Source+NewsCluster.
+    session.execute(delete(DraftRevision))
+    session.execute(delete(Draft))
+    session.execute(delete(ClusterContext))
     session.execute(delete(RawItem))
     session.execute(delete(Source))
     session.execute(delete(NewsCluster))

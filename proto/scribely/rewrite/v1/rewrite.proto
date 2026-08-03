@@ -36,6 +36,10 @@ message SourceRef {
   string language = 5; // "en" | "ru" | ... (ТЗ §5, extensible beyond two)
   string excerpt_or_full_text = 6;
   bool is_full_text = 7;
+  // Outlet name (Source.name), e.g. "Reuters" — required so the
+  // Rewrite Orchestrator's mandatory attribution (ТЗ §2/§5) names the
+  // real outlet instead of inventing one when none is given.
+  string source_name = 8;
 }
 
 // One fact extracted from the cluster's sources (who/what/when/number/quote).

@@ -48,9 +48,14 @@ def test_missing_service_token_is_rejected(server_address):
         assert exc_info.value.code() == grpc.StatusCode.UNAUTHENTICATED
 
 
-def test_rewrite_cluster_stub_is_unimplemented(server_address):
+def test_suggest_tags_stub_is_unimplemented(server_address):
+    # EnrichCluster/RewriteCluster/GetPromptVersion became real in Phase 4
+    # (see test_enrichment.py/test_orchestrator.py/test_servicer.py for
+    # those) — SuggestTags is one of the standalone methods still
+    # deliberately left as a stub (ТЗ §6.6, RewriteCluster already
+    # returns tags inline).
     with _channel(server_address) as channel:
         stub = rewrite_pb2_grpc.RewriteServiceStub(channel)
         with pytest.raises(grpc.RpcError) as exc_info:
-            stub.RewriteCluster(rewrite_pb2.RewriteClusterRequest(), metadata=_md())
+            stub.SuggestTags(rewrite_pb2.SuggestTagsRequest(), metadata=_md())
         assert exc_info.value.code() == grpc.StatusCode.UNIMPLEMENTED

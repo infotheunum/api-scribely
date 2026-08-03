@@ -5,6 +5,7 @@ import logging
 from apscheduler.schedulers.background import BackgroundScheduler
 from worker_app.db import new_session
 from worker_app.dedup.clustering import run_clustering_cycle
+from worker_app.dispatch.pipeline import run_dispatch_cycle
 from worker_app.filter.pipeline import run_filter_cycle
 from worker_app.ingestion.poller import poll_due_sources
 
@@ -50,6 +51,19 @@ def _run_poll_tick() -> None:
             logger.info("filter tick: %s", stats)
     except Exception:
         logger.exception("filter tick failed unexpectedly")
+    finally:
+        session.close()
+
+    # Enrich+Rewrite dispatch (ТЗ §4.4-§4.13, Фаза 4) — last in the tick
+    # since it depends on this cycle's own filter results, and it's the
+    # slowest stage by far (real OpenRouter free-tier latency).
+    session = new_session()
+    try:
+        stats = run_dispatch_cycle(session)
+        if stats["dispatched"] or stats["failed"]:
+            logger.info("dispatch tick: %s", stats)
+    except Exception:
+        logger.exception("dispatch tick failed unexpectedly")
     finally:
         session.close()
 
