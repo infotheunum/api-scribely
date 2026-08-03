@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,6 +21,20 @@ class CommonSettings(BaseSettings):
     database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/unum_news"
 
     rewrite_grpc_address: str = "localhost:50051"
+
+    @field_validator("database_url")
+    @classmethod
+    def _use_psycopg3_driver(cls, value: str) -> str:
+        """Managed Postgres providers (Railway included) hand out plain
+        postgres://.../postgresql://... URLs with no driver suffix, which
+        makes SQLAlchemy default to psycopg2 — a driver we don't install
+        anywhere (we standardized on psycopg 3, ТЗ §6.3). Normalize here so
+        every caller (services + migrations/env.py) gets a working engine
+        regardless of how the provider formats the URL."""
+        for prefix in ("postgres://", "postgresql://"):
+            if value.startswith(prefix):
+                return "postgresql+psycopg://" + value[len(prefix) :]
+        return value
 
     # Internal service-token auth between api/worker <-> rewrite, over
     # Railway private networking — not mTLS in MVP (ТЗ §5, §6.6, решение 32).
