@@ -30,7 +30,12 @@ def build_server(settings: RewriteSettings) -> grpc.Server:
     health_servicer.set("", health_pb2.HealthCheckResponse.SERVING)
     health_servicer.set(RPC_SERVICE_NAME, health_pb2.HealthCheckResponse.SERVING)
 
-    server.add_insecure_port(f"0.0.0.0:{settings.port}")
+    # Railway's private network (*.railway.internal, used by api/worker to
+    # reach this service) is IPv6-only — binding "0.0.0.0" (IPv4-only)
+    # leaves it unreachable there even though the container itself is
+    # healthy. "[::]" is the IPv6 wildcard; on Linux it dual-stacks and
+    # also accepts IPv4 connections, so this covers both cases.
+    server.add_insecure_port(f"[::]:{settings.port}")
     return server
 
 
