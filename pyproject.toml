@@ -24,7 +24,13 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.ruff.lint.flake8-bugbear]
 # FastAPI's dependency-injection idiom is `param: T = Depends(...)` — not
 # the mutable-default-argument bug B008 otherwise correctly flags.
-extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path", "fastapi.Body"]
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Path",
+    "fastapi.Body",
+    "api_app.auth.dependencies.require_role",
+]
 
 [tool.pytest.ini_options]
 testpaths = [

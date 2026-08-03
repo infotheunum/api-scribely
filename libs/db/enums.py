@@ -6,6 +6,10 @@ import enum
 class SourceType(enum.StrEnum):
     RSS = "rss"
     API = "api"
+    # Pseudo-source RawItem.source_id points to for manually injected
+    # articles (ТЗ §4.1 — "ручной inject URL") — no polling ever runs
+    # against it.
+    MANUAL = "manual"
 
 
 class SourceTier(int, enum.Enum):

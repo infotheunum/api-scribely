@@ -7,6 +7,7 @@ from common.http_middleware import TraceIdMiddleware
 from common.logging import configure_logging
 from fastapi import FastAPI, HTTPException, Request, status
 from worker_app.grpc_client.client import build_rewrite_channel, check_rewrite_health
+from worker_app.scheduler import build_scheduler
 from worker_app.settings import WorkerSettings
 
 settings = WorkerSettings()
@@ -16,10 +17,10 @@ configure_logging(settings.service_name, settings.log_level)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.rewrite_channel = build_rewrite_channel(settings)
-    # Scheduler (poll loop over Source, per poll_interval_seconds) starts
-    # here from Phase 1 onward — Phase 0 only proves the process deploys
-    # and reaches scribely-rewrite (ТЗ §6.3, План Фаза 0/1).
+    app.state.scheduler = build_scheduler()
+    app.state.scheduler.start()
     yield
+    app.state.scheduler.shutdown(wait=False)
     app.state.rewrite_channel.close()
 
 
