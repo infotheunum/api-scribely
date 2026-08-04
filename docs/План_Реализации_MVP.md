@@ -979,6 +979,115 @@ Publish одной статьи.
 изменения видны в работе пайплайна без деплоя; роль Rewriter этот раздел
 UI не видит.
 
+### Статус: ✅ готово, задеплоено на Railway и верифицировано на реальных данных (2026-08-04)
+
+Реализовано в два захода в рамках одной непрерывной ночной сессии
+(явное разрешение заказчика продолжать автономно до утра).
+
+**Часть 1 (core UI, задеплоена и проверена первой — демо-чекпоинт).**
+FastAPI `GET/PATCH /drafts`, `GET /drafts/{id}`,
+`POST /drafts/{id}/publish|reject|needs-fix|snooze`. Cookie-based
+сессия поверх того же JWT, что и JSON API (`extract_token()` сначала
+проверяет `Authorization`-заголовок, потом httponly-куку — один и тот
+же роут обслуживает и программного клиента, и браузер). UI-роуты
+вызывают обычные Python-функции JSON API напрямую
+(`drafts_api.patch_draft(..., db=db, user=user)`), а не через
+`Depends()` — переиспользование валидации и бизнес-логики без
+дублирования. Очередь, экран ревью (EN/RU рядом, SEO-блок с
+SERP-превью, бриф обложки с чекбоксом лицензии, 2–3 варианта
+заголовка, источники кластера с атрибуцией), обязательный enum причины
+на Reject/NeedsFix, ручной inject URL, hotkeys. Оптимистичная
+конкурентность через `Draft.version` (`PATCH` требует известную
+версию, `409` при расхождении).
+
+**Часть 2 (WebSocket presence, TTL-архивация, Admin Settings UI —
+догнано в эту же ночь).**
+
+- **`DraftLock` + WebSocket presence** (`api_app/websocket/`):
+  `Postgres`-таблица `DraftLock` — источник истины (частичный уникальный
+  индекс разрешает не больше одной строки `mode='editing'` на черновик),
+  in-memory pub/sub-хаб (`_Hub`) на одном инстансе `api` рассылает
+  presence браузерам — Redis сознательно не используется (как и
+  зафиксировано в ТЗ). `claim_editing`/`heartbeat`/`release_editing` по
+  WebSocket, TTL 5 минут на heartbeat, `LockHeldByAnother` →
+  `claim_denied` на клиенте. Publish дополнительно проверяет
+  `current_editor()` перед выполнением — блокирует, если черновик
+  сейчас редактирует кто-то другой.
+- **TTL-архивация** (`worker_app/lifecycle/archival.py`): черновик в
+  `ReadyForReview` старше `queue.ttl_archive_hours` (AppSetting,
+  дефолт 72ч) переходит в `Archived` на каждом тике воркера — отдельный
+  шаг с собственным kill-switch (`pipeline.archival_enabled`), как и
+  остальные этапы шедулера.
+- **Admin Settings UI** (`api_app/ui/admin_router.py` +
+  `templates/admin_*.html`): тонкий HTML-слой поверх Admin API из Фазы
+  5, без HTMX-партиалов (обычные form POST + redirect — тот же паттерн,
+  что у остального UI). Источники (добавить/вкл-выкл), темы
+  (добавить/редактировать ключевые слова/вкл-выкл), модели ротации
+  (добавить/вкл-выкл, лимит 3 активных с человеко-читаемой ошибкой),
+  `AppSetting` (инлайн-редактирование значения по ключу, JSON-парсинг
+  через `tojson`-фильтр — иначе Python `True`/`False` при повторном
+  сохранении без правки превращались бы в строки `"True"`/`"False"`),
+  версии промпта (создать как draft, активировать, unified diff против
+  текущей активной версии через `difflib`). Роут-уровневый гейт
+  `_require_admin()`: не залогинен → `/ui/login`, не admin →
+  `/ui/drafts` (307/303-редирект, не 403 — это HTML-навигация, не API).
+- **Редактируемые теги-кандидаты**: `pending_tags` был только
+  read-only-выводом после части 1 — добавлено текстовое поле
+  «через запятую» в форму сохранения черновика, серверный slugify.
+  Реальный `CreateTag` на theunum.io — Фаза 7, здесь только кандидат в
+  БД.
+- **`scripts/seed_admin.py`** — реальный тестовый Admin-аккаунт, тот же
+  паттерн, что `seed_rewriter.py` (креды только из `ADMIN_USERNAME`/
+  `ADMIN_PASSWORD`/`ADMIN_DISPLAY_NAME`, идемпотентно, без дефолтного
+  пароля). Подключён в `Dockerfile` `api` третьим сидом после
+  `seed_sources`/`seed_rewriter`.
+- **Осознанно не сделано**: блок «keyword insights» из задачи —
+  условный пункт ТЗ §4.16 («если провайдер подключён»); ни один
+  keyword-provider не подключён в MVP (реестр источников отмечал риск
+  по LunarCrush), поэтому блока нет — это не пропуск, а нечего
+  показывать.
+
+**Тесты.** 102 мок-теста по `services/api/tests/` + `services/worker/tests/`
+(включая новые: 4 на WebSocket presence/lock — `test_presence.py`,
+6 на Admin Settings UI — `test_admin_ui.py`, 4 на TTL-архивацию —
+`test_archival.py`) — все проходят. `ruff check`/`ruff format` чисты
+по всему репозиторию.
+
+**Docker-сборка и реальный прогон контейнеров (не только build, но и
+run — установленное в сессии правило).** `api` — 984MB (без
+регрессии), `worker` — 3.23GB (без регрессии). Оба контейнера
+запущены локально против реального `unum_dev_pg`: `api` — логин
+админа, все 5 экранов Admin Settings отдают 200 с реальными
+данными; `worker` — реальный тик шедулера в контейнере, живой опрос
+CoinDesk RSS, ни одного исключения в новом шаге архивации.
+
+**Реальная проверка на Railway после деплоя** (`api-scribely` —
+auto-deploy по push; `worker` — вручную через `serviceInstanceDeploy`,
+как и раньше). `ADMIN_USERNAME`/`ADMIN_PASSWORD`/`ADMIN_DISPLAY_NAME`
+заведены как Railway Variables на `api-scribely` (сгенерированный
+пароль, задокументирован не в коде) — без этого Admin Settings UI
+физически некому было бы открыть в проде. После передеплоя (переменные
+окружения тоже триггерят redeploy):
+
+- Admin реально логинится на `api-scribely-production.up.railway.app`,
+  все 5 Admin Settings экранов отдают `200` с реальными живыми данными
+  (реальные источники CoinDesk/Cointelegraph/Decrypt/Manual Inject,
+  реальный список моделей ротации `google/gemma-4-31b-it:free`,
+  `meta-llama/llama-3.1-8b-instruct:free` и т.д. из живой БД).
+  `Rewriter` при попытке зайти на `/ui/admin/sources` получает
+  `303 → /ui/drafts` — ролевой гейт реально работает в проде, не
+  только в тестах.
+- WebSocket presence проверен **реальными одновременными `wss://`-
+  соединениями** к живому Railway (не мок, не `TestClient`) на
+  настоящем черновике из очереди: `Rewriter` открывает черновик,
+  `claim_editing` → presence-рассылка показывает его редактором;
+  второй реальный сокет от `Admin` подключается к тому же черновику —
+  видит `viewer_count: 2` и `editor: 'UNUM Rewriter (test account)'`,
+  его собственная попытка `claim_editing` получает `claim_denied` —
+  конфликт-детект на партиальном уникальном индексе `DraftLock`
+  подтверждён под настоящей конкурентной нагрузкой в проде, не только
+  в `pytest`.
+
 ---
 
 ## 9. Фаза 7 — Публикация (no-op) + CreateTag на Approve + аудит
