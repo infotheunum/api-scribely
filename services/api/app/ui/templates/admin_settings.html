@@ -1,0 +1,51 @@
+{% extends "admin_base.html" %}
+{% block title %}Настройки пайплайна — Admin Settings{% endblock %}
+{% block admin_content %}
+<p class="note">Тонкие/грубые настройки пайплайна (ТЗ §4.21) — значение подхватывается на следующем тике воркера, без редеплоя. Значение можно задать числом, строкой, true/false или JSON.</p>
+
+<div class="card">
+  <h2>Установить / изменить настройку</h2>
+  <form class="inline-form" method="post" action="/ui/admin/settings">
+    <div class="field">
+      <label>Ключ</label>
+      <input type="text" name="key" placeholder="pipeline.dispatch_enabled" required>
+    </div>
+    <div class="field">
+      <label>Значение</label>
+      <input type="text" name="value" placeholder="true / 72 / &quot;текст&quot;" required>
+    </div>
+    <div class="field" style="flex:2;">
+      <label>Описание</label>
+      <input type="text" name="description" placeholder="необязательно">
+    </div>
+    <div class="field field-narrow">
+      <button class="btn btn-primary" type="submit">Сохранить</button>
+    </div>
+  </form>
+</div>
+
+<div class="card" style="padding:0;">
+<table class="admin">
+  <thead>
+    <tr><th>Ключ</th><th>Значение</th><th>Описание</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for s in settings %}
+    <tr>
+      <td>{{ s.key }}</td>
+      <td>{{ s.value }}</td>
+      <td class="note">{{ s.description or '—' }}</td>
+      <td>
+        <form class="form-row" method="post" action="/ui/admin/settings">
+          <input type="hidden" name="key" value="{{ s.key }}">
+          <input type="text" name="value" value="{{ s.value|tojson }}">
+          <input type="hidden" name="description" value="{{ s.description or '' }}">
+          <button class="btn btn-ghost" type="submit">Сохранить</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

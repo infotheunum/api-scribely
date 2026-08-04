@@ -117,9 +117,8 @@
 
 <div class="card">
   <h2>Теги-кандидаты</h2>
-  {% if draft.pending_tags %}
-    {% for t in draft.pending_tags %}<span class="pill flag info">{{ t.name }}</span>{% endfor %}
-  {% else %}<span class="note">нет предложенных тегов</span>{% endif %}
+  <label>Через запятую — реальный CreateTag на theunum.io происходит на Approve (Фаза 7)</label>
+  <input type="text" name="pending_tags" value="{{ draft.pending_tags|map(attribute='name')|join(', ') }}" placeholder="bitcoin, etf, halving">
 </div>
 
 <div class="card">
@@ -186,5 +185,43 @@ document.addEventListener('keydown', function (e) {
   if (e.key === 'n' || e.key === 'N') { window.location.href = '/ui/drafts/next?after={{ draft.id }}'; }
   if (e.key === 's' || e.key === 'S') { document.querySelector('form[action$="/save"] button').click(); }
 });
+
+// Soft-lock + presence (ТЗ §4.15) — claim editing on open, release on
+// leave, heartbeat keeps the DraftLock TTL alive while the tab is open.
+(function () {
+  var presenceEl = document.getElementById('presence');
+  var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  var ws = new WebSocket(proto + '//' + location.host + '/ui/ws/drafts/{{ draft.id }}');
+  var myName = {{ user.display_name|tojson }};
+
+  ws.onopen = function () { ws.send(JSON.stringify({action: 'claim_editing'})); };
+
+  ws.onmessage = function (evt) {
+    var msg = JSON.parse(evt.data);
+    if (msg.type === 'presence') {
+      if (msg.editor && msg.editor !== myName) {
+        presenceEl.innerHTML = '<span class="dot" style="background:var(--red)"></span> редактирует: ' + msg.editor;
+      } else if (msg.editor === myName) {
+        presenceEl.innerHTML = '<span class="dot" style="background:var(--green)"></span> редактируете вы · смотрят: ' + msg.viewer_count;
+      } else {
+        presenceEl.innerHTML = '<span class="dot"></span> ' + msg.viewer_count + ' сейчас смотрит(ят)';
+      }
+    } else if (msg.type === 'claim_denied') {
+      presenceEl.innerHTML = '<span class="dot" style="background:var(--amber)"></span> черновик уже редактируется — правки могут не сохраниться';
+    }
+  };
+
+  var heartbeatId = setInterval(function () {
+    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({action: 'heartbeat'}));
+  }, 60000);
+
+  window.addEventListener('beforeunload', function () {
+    clearInterval(heartbeatId);
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({action: 'release_editing'}));
+      ws.close();
+    }
+  });
+})();
 </script>
 {% endblock %}

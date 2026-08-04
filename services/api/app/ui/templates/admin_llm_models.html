@@ -1,0 +1,52 @@
+{% extends "admin_base.html" %}
+{% block title %}Модели ротации — Admin Settings{% endblock %}
+{% block admin_content %}
+<p class="note">OpenRouter free-модели для ротации Rewrite Orchestrator. Не более {{ max_active }} активных одновременно (лимит массива `models` у самого OpenRouter, ТЗ §4.5 п.6).</p>
+
+<div class="card">
+  <h2>Добавить модель</h2>
+  <form class="inline-form" method="post" action="/ui/admin/llm-models">
+    <div class="field" style="flex:2;">
+      <label>model_id (OpenRouter)</label>
+      <input type="text" name="model_id" placeholder="meta-llama/llama-3.1-8b-instruct:free" required>
+    </div>
+    <div class="field field-narrow">
+      <label>Порядок</label>
+      <input type="text" name="position" value="0">
+    </div>
+    <div class="field field-narrow">
+      <label>Активна?</label>
+      <select name="is_active">
+        <option value="true">да</option>
+        <option value="false" selected>нет</option>
+      </select>
+    </div>
+    <div class="field field-narrow">
+      <button class="btn btn-primary" type="submit">Добавить</button>
+    </div>
+  </form>
+</div>
+
+<div class="card" style="padding:0;">
+<table class="admin">
+  <thead>
+    <tr><th>Порядок</th><th>model_id</th><th>Статус</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for m in models %}
+    <tr>
+      <td>{{ m.position }}</td>
+      <td>{{ m.model_id }}</td>
+      <td><span class="pill {{ 'status-ready_for_review' if m.is_active else 'status-archived' }}">{{ 'активна' if m.is_active else 'выключена' }}</span></td>
+      <td>
+        <form method="post" action="/ui/admin/llm-models/{{ m.id }}/toggle">
+          <input type="hidden" name="is_active" value="{{ 'false' if m.is_active else 'true' }}">
+          <button class="btn btn-ghost" type="submit">{{ 'Выключить' if m.is_active else 'Включить' }}</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

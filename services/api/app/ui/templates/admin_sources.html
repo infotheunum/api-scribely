@@ -1,0 +1,63 @@
+{% extends "admin_base.html" %}
+{% block title %}Источники — Admin Settings{% endblock %}
+{% block admin_content %}
+<div class="card">
+  <h2>Добавить источник</h2>
+  <form class="inline-form" method="post" action="/ui/admin/sources">
+    <div class="field">
+      <label>Название</label>
+      <input type="text" name="name" required>
+    </div>
+    <div class="field" style="flex:2;">
+      <label>URL (RSS/API)</label>
+      <input type="url" name="url" required>
+    </div>
+    <div class="field field-narrow">
+      <label>Tier</label>
+      <select name="tier">
+        {% for t in tiers %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field field-narrow">
+      <label>Язык</label>
+      <select name="language">
+        <option value="en">en</option>
+        <option value="ru">ru</option>
+      </select>
+    </div>
+    <div class="field field-narrow">
+      <label>Poll, сек</label>
+      <input type="text" name="poll_interval_seconds" value="900">
+    </div>
+    <div class="field field-narrow">
+      <button class="btn btn-primary" type="submit">Добавить</button>
+    </div>
+  </form>
+</div>
+
+<div class="card" style="padding:0;">
+<table class="admin">
+  <thead>
+    <tr><th>Название</th><th>URL</th><th>Tier</th><th>Язык</th><th>Poll, сек</th><th>Статус</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for s in sources %}
+    <tr>
+      <td>{{ s.name }}</td>
+      <td class="note">{{ s.url[:60] }}</td>
+      <td>{{ s.tier }}</td>
+      <td>{{ s.language }}</td>
+      <td>{{ s.poll_interval_seconds }}</td>
+      <td><span class="pill {{ 'status-ready_for_review' if s.is_active else 'status-archived' }}">{{ 'активен' if s.is_active else 'выключен' }}</span></td>
+      <td>
+        <form method="post" action="/ui/admin/sources/{{ s.id }}/toggle">
+          <input type="hidden" name="is_active" value="{{ 'false' if s.is_active else 'true' }}">
+          <button class="btn btn-ghost" type="submit">{{ 'Выключить' if s.is_active else 'Включить' }}</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

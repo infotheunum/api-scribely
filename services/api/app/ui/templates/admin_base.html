@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Admin Settings</h1>
+<div class="subnav">
+  <a href="/ui/admin/sources" class="{{ 'active' if admin_tab == 'sources' else '' }}">Источники</a>
+  <a href="/ui/admin/topics" class="{{ 'active' if admin_tab == 'topics' else '' }}">Темы</a>
+  <a href="/ui/admin/llm-models" class="{{ 'active' if admin_tab == 'llm-models' else '' }}">Модели (ротация)</a>
+  <a href="/ui/admin/prompt-versions" class="{{ 'active' if admin_tab == 'prompt-versions' else '' }}">Версии промпта</a>
+  <a href="/ui/admin/settings" class="{{ 'active' if admin_tab == 'settings' else '' }}">Настройки пайплайна</a>
+</div>
+{% if request.query_params.get('error') %}
+<div class="error">{{ request.query_params.get('error') }}</div>
+{% endif %}
+{% block admin_content %}{% endblock %}
+{% endblock %}

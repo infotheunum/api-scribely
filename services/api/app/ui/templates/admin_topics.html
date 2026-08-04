@@ -1,0 +1,48 @@
+{% extends "admin_base.html" %}
+{% block title %}Темы — Admin Settings{% endblock %}
+{% block admin_content %}
+<div class="card">
+  <h2>Добавить тему</h2>
+  <form class="inline-form" method="post" action="/ui/admin/topics">
+    <div class="field">
+      <label>Название темы</label>
+      <input type="text" name="name" required>
+    </div>
+    <div class="field" style="flex:2;">
+      <label>Ключевые слова (через запятую)</label>
+      <input type="text" name="keywords" placeholder="bitcoin, halving, etf">
+    </div>
+    <div class="field field-narrow">
+      <button class="btn btn-primary" type="submit">Добавить</button>
+    </div>
+  </form>
+</div>
+
+<div class="card" style="padding:0;">
+<table class="admin">
+  <thead>
+    <tr><th>Тема</th><th>Ключевые слова</th><th>Статус</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for t in topics %}
+    <tr>
+      <td>{{ t.name }}</td>
+      <td>
+        <form class="form-row" method="post" action="/ui/admin/topics/{{ t.id }}/keywords">
+          <input type="text" name="keywords" value="{{ t.keywords|join(', ') }}">
+          <button class="btn btn-ghost" type="submit">Сохранить</button>
+        </form>
+      </td>
+      <td><span class="pill {{ 'status-ready_for_review' if t.is_active else 'status-archived' }}">{{ 'активна' if t.is_active else 'выключена' }}</span></td>
+      <td>
+        <form method="post" action="/ui/admin/topics/{{ t.id }}/toggle">
+          <input type="hidden" name="is_active" value="{{ 'false' if t.is_active else 'true' }}">
+          <button class="btn btn-ghost" type="submit">{{ 'Выключить' if t.is_active else 'Включить' }}</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

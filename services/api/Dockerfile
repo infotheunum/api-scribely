@@ -25,11 +25,11 @@ ENV PYTHONUNBUFFERED=1
 EXPOSE 8000
 
 # Applies pending Alembic migrations, then seeds Source + the test
-# Rewriter account (both idempotent — no-op once seeded) on every
+# Rewriter/Admin accounts (all idempotent — no-op once seeded) on every
 # deploy before serving traffic. api is the single designated
 # migration/seed runner (worker/rewrite don't also run it, to avoid
 # concurrent-migration races) — nobody needs standing access to the
 # Railway Postgres (it's only reachable from the private network
 # anyway) to keep the schema and reference data current.
 # Railway injects $PORT at runtime; default 8000 for local `docker run`.
-CMD ["sh", "-c", "alembic upgrade head && python scripts/seed_sources.py && python scripts/seed_rewriter.py && uvicorn api_app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "alembic upgrade head && python scripts/seed_sources.py && python scripts/seed_rewriter.py && python scripts/seed_admin.py && uvicorn api_app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

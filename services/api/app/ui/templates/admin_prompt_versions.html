@@ -1,0 +1,48 @@
+{% extends "admin_base.html" %}
+{% block title %}Версии промпта — Admin Settings{% endblock %}
+{% block admin_content %}
+<div class="card">
+  <h2>Новая версия промпта (создаётся как draft)</h2>
+  <form method="post" action="/ui/admin/prompt-versions">
+    <label>Шаблон промпта</label>
+    <textarea name="template" style="min-height:160px;" required></textarea>
+    <label>Заметки</label>
+    <input type="text" name="notes" placeholder="необязательно">
+    <button class="btn btn-primary" type="submit">Создать draft</button>
+  </form>
+</div>
+
+{% for v in versions %}
+<div class="card">
+  <div class="form-row" style="justify-content:space-between;">
+    <div>
+      <span class="pill {{ 'status-ready_for_review' if v.status == 'active' else ('status-rejected' if v.status == 'retired' else 'status-snoozed') }}">{{ v.status }}</span>
+      <span class="note">{{ v.id[:8] }}</span>
+      {% if v.notes %}<span class="note">— {{ v.notes }}</span>{% endif %}
+    </div>
+    {% if v.status != 'active' %}
+    <form method="post" action="/ui/admin/prompt-versions/{{ v.id }}/activate">
+      <button class="btn btn-success" type="submit">Активировать</button>
+    </form>
+    {% endif %}
+  </div>
+  <details style="margin-top:10px;">
+    <summary class="note" style="cursor:pointer;">Показать шаблон</summary>
+    <pre style="white-space:pre-wrap; font-size:12px; color:var(--text-dim); margin-top:8px;">{{ v.template }}</pre>
+  </details>
+  {% if v.id in diffs %}
+  <details style="margin-top:6px;">
+    <summary class="note" style="cursor:pointer;">Diff с активной версией</summary>
+    {% if diffs[v.id] %}
+    <pre style="white-space:pre-wrap; font-size:12px; margin-top:8px;">{% for line in diffs[v.id].split('\n') %}<span style="color:{{ 'var(--green)' if line.startswith('+') and not line.startswith('+++') else ('var(--red)' if line.startswith('-') and not line.startswith('---') else 'var(--text-dim)') }}">{{ line }}</span>
+{% endfor %}</pre>
+    {% else %}
+    <p class="note">Идентична активной версии.</p>
+    {% endif %}
+  </details>
+  {% endif %}
+</div>
+{% else %}
+<div class="card"><span class="note">Версий промпта пока нет.</span></div>
+{% endfor %}
+{% endblock %}

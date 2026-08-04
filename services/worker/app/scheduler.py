@@ -10,6 +10,7 @@ from worker_app.dedup.clustering import run_clustering_cycle
 from worker_app.dispatch.pipeline import run_dispatch_cycle
 from worker_app.filter.pipeline import run_filter_cycle
 from worker_app.ingestion.poller import poll_due_sources
+from worker_app.lifecycle.archival import run_archival_cycle
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ _STAGE_SETTING_KEYS = {
     "filter": "pipeline.filter_enabled",
     "dispatch": "pipeline.dispatch_enabled",
     "compliance": "pipeline.compliance_enabled",
+    "archival": "pipeline.archival_enabled",
 }
 
 
@@ -101,6 +103,20 @@ def _run_poll_tick() -> None:
                 logger.info("compliance tick: %s", stats)
     except Exception:
         logger.exception("compliance tick failed unexpectedly")
+    finally:
+        session.close()
+
+    # TTL-архивация (ТЗ §4.20, §6.5, Фаза 6) — a draft that sat in
+    # READY_FOR_REVIEW past the TTL without a human decision archives
+    # itself; cheap query, fine to run every tick like everything else.
+    session = new_session()
+    try:
+        if _stage_enabled(session, "archival"):
+            stats = run_archival_cycle(session)
+            if stats["archived"]:
+                logger.info("archival tick: %s", stats)
+    except Exception:
+        logger.exception("archival tick failed unexpectedly")
     finally:
         session.close()
 

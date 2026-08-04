@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -9,6 +10,7 @@ from api_app.auth.security import create_access_token, verify_password
 from api_app.db import get_db
 from api_app.routers import drafts as drafts_api
 from api_app.settings import ApiSettings
+from api_app.websocket.lock_manager import current_editor
 from common.fulltext import fetch_full_text
 from common.tracing import get_trace_id
 from db.enums import DraftStatus, RejectReason, SourceType
@@ -25,6 +27,10 @@ _TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
 REJECT_REASONS = [r.value for r in RejectReason]
+
+
+def _slugify(name: str) -> str:
+    return re.sub(r"-+", "-", re.sub(r"[^a-z0-9]+", "-", name.lower())).strip("-")
 
 
 def _require_login(request: Request, user: User | None) -> RedirectResponse | None:
@@ -167,6 +173,12 @@ def draft_detail_page(
         return redirect
 
     detail = drafts_api.get_draft(draft_id, db=db, _user=user)
+    editor = current_editor(db, draft_id)
+    lock = (
+        {"mode": "editing", "display_name": editor.display_name, "is_me": editor.id == user.id}
+        if editor
+        else None
+    )
     return templates.TemplateResponse(
         request,
         "draft_detail.html",
@@ -177,7 +189,7 @@ def draft_detail_page(
             "reject_reasons": REJECT_REASONS,
             "saved": saved,
             "error": error,
-            "lock": None,
+            "lock": lock,
             "viewer_count": 1,
         },
     )
@@ -208,18 +220,21 @@ def save_draft(
     image_alt: str = Form(""),
     image_caption: str = Form(""),
     image_license_confirmed: str | None = Form(None),
+    pending_tags: str = Form(""),
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
     if user is None:
         return RedirectResponse("/ui/login", status_code=status.HTTP_303_SEE_OTHER)
 
+    tag_names = [t.strip() for t in pending_tags.split(",") if t.strip()]
     patch = drafts_api.DraftPatch(
         version=version,
         title_en=title_en,
         body_en=body_en,
         title_ru=title_ru,
         body_ru=body_ru,
+        pending_tags=[{"slug": _slugify(name), "name": name} for name in tag_names],
         seo_title_en=seo_title_en,
         seo_description_en=seo_description_en,
         slug_en=slug_en,
@@ -255,6 +270,12 @@ def publish_draft_ui(
 ):
     if user is None:
         return RedirectResponse("/ui/login", status_code=status.HTTP_303_SEE_OTHER)
+    editor = current_editor(db, draft_id)
+    if editor is not None and editor.id != user.id:
+        return RedirectResponse(
+            f"/ui/drafts/{draft_id}?error=редактирует+{editor.display_name}%2C+нельзя+Publish",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
     try:
         drafts_api.publish_draft(draft_id, db=db, user=user)
     except Exception as exc:  # noqa: BLE001

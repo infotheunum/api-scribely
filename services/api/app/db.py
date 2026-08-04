@@ -25,3 +25,10 @@ def get_db() -> Generator[Session, None, None]:
         raise
     finally:
         session.close()
+
+
+def new_session() -> Session:
+    """For non-request contexts that can't use the `get_db()` FastAPI
+    dependency (the WebSocket presence handler) — caller commits/closes
+    explicitly, same pattern as worker/rewrite's own `new_session()`."""
+    return _session_factory()()

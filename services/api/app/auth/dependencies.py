@@ -20,7 +20,11 @@ from sqlalchemy.orm import Session
 UI_COOKIE_NAME = "access_token"
 
 
-def _extract_token(request: Request) -> str | None:
+def extract_token(request: Request) -> str | None:
+    """Reads only `.headers`/`.cookies` — present on both `Request` and
+    Starlette's `WebSocket` (same `HTTPConnection` base), so this also
+    authenticates the presence WebSocket (api_app/websocket/router.py)
+    off the same session cookie the browser UI sets on login."""
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer "):
         return auth_header[len("Bearer ") :]
@@ -43,7 +47,7 @@ def _decode_user(token: str, db: Session) -> User | None:
 
 
 def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
-    token = _extract_token(request)
+    token = extract_token(request)
     user = _decode_user(token, db) if token else None
     if user is None:
         raise HTTPException(
@@ -66,5 +70,5 @@ def require_role(*roles: str):
 def get_current_user_optional(request: Request, db: Session = Depends(get_db)) -> User | None:
     """Never raises — UI page routes (not the JSON API) use this and
     redirect to /ui/login themselves on None, instead of a raw 401."""
-    token = _extract_token(request)
+    token = extract_token(request)
     return _decode_user(token, db) if token else None
