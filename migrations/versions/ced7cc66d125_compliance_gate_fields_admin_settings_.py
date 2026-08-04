@@ -49,8 +49,19 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['updated_by'], ['user.id'], name=op.f('fk_app_setting_updated_by_user')),
     sa.PrimaryKeyConstraint('key', name=op.f('pk_app_setting'))
     )
-    op.add_column('draft', sa.Column('sensitive_hold', sa.Boolean(), nullable=False))
-    op.add_column('draft', sa.Column('compliance_notes', postgresql.ARRAY(sa.Text()), nullable=False))
+    # server_default backfills existing rows in the same statement — the
+    # `draft` table is not empty in prod (live Phase 4 dispatcher), so a
+    # bare NOT NULL add_column fails on the existing rows without it.
+    op.add_column(
+        'draft',
+        sa.Column('sensitive_hold', sa.Boolean(), nullable=False, server_default=sa.false()),
+    )
+    op.add_column(
+        'draft',
+        sa.Column(
+            'compliance_notes', postgresql.ARRAY(sa.Text()), nullable=False, server_default='{}'
+        ),
+    )
     # ### end Alembic commands ###
 
 
