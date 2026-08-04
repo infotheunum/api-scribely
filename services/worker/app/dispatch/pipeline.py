@@ -127,6 +127,7 @@ def _persist_draft(
         image_caption=draft_content.image_brief.image_caption,
         image_source_suggestion=draft_content.image_brief.image_source_suggestion,
         pending_tags=[{"slug": t.slug, "name": t.name} for t in draft_content.tags],
+        pending_category_slug=draft_content.suggested_category_slug or None,
     )
     db.add(draft)
     db.flush()  # need draft.id for the DraftRevision FK before commit

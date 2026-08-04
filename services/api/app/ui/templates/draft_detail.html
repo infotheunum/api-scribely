@@ -116,9 +116,14 @@
 </div>
 
 <div class="card">
-  <h2>Теги-кандидаты</h2>
-  <label>Через запятую — реальный CreateTag на theunum.io происходит на Approve (Фаза 7)</label>
+  <h2>Теги и категория</h2>
+  <label>Теги — через запятую. Реальные CreateTag/EnsureCategory на theunum.io происходят на Publish.</label>
   <input type="text" name="pending_tags" value="{{ draft.pending_tags|map(attribute='name')|join(', ') }}" placeholder="bitcoin, etf, halving">
+  {% if draft.category_id %}
+  <div class="note" style="margin-top:8px;">Категория (опубликовано): <strong>{{ draft.category_id }}</strong> · Теги: {{ draft.tag_ids|join(', ') or '—' }}</div>
+  {% elif draft.pending_category_slug %}
+  <div class="note" style="margin-top:8px;">Предложенная категория: {{ draft.pending_category_slug }}</div>
+  {% endif %}
 </div>
 
 <div class="card">

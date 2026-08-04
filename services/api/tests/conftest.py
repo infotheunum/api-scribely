@@ -28,8 +28,10 @@ from db.models import (  # noqa: E402
     LlmRotationModel,
     NewsCluster,
     PromptVersion,
+    PublishRecord,
     RawItem,
     Source,
+    TagCategoryCache,
     Topic,
     User,
 )
@@ -75,6 +77,7 @@ def clean_db():
     def _wipe():
         session.execute(delete(AuditLog))
         session.execute(delete(DraftLock))
+        session.execute(delete(PublishRecord))
         session.execute(delete(DraftRevision))
         session.execute(delete(Draft))
         session.execute(delete(ClusterContext))
@@ -85,6 +88,7 @@ def clean_db():
         session.execute(delete(Topic))
         session.execute(delete(PromptVersion))
         session.execute(delete(Source))
+        session.execute(delete(TagCategoryCache))
         session.commit()
 
     _wipe()

@@ -167,6 +167,51 @@ def test_publish_succeeds_once_license_confirmed(client, test_user, clean_db):
     assert resp.json()["status"] == "published"
 
 
+def test_publish_resolves_pending_tags_and_records_publish_record(client, test_user, clean_db):
+    from db.models import PublishRecord
+
+    source = _source(clean_db)
+    cluster = _cluster(clean_db, source)
+    draft = _draft(
+        clean_db,
+        cluster,
+        image_license_confirmed=True,
+        pending_tags=[{"slug": "bitcoin", "name": "Bitcoin"}],
+        pending_category_slug="markets",
+    )
+
+    resp = client.post(f"/drafts/{draft.id}/publish", headers=_auth_headers(client, test_user))
+    assert resp.status_code == 200
+
+    clean_db.refresh(draft)
+    assert draft.category_id == "mock-category-markets"
+    assert draft.tag_ids == ["mock-tag-bitcoin"]
+
+    record = clean_db.query(PublishRecord).filter_by(draft_id=draft.id).one()
+    assert record.category_id == "mock-category-markets"
+    assert record.tag_ids == ["mock-tag-bitcoin"]
+    assert record.published_by == test_user.id
+
+
+def test_publish_snapshots_human_final_revision(client, test_user, clean_db):
+    from db.enums import DraftRevisionKind
+    from db.models import DraftRevision
+
+    source = _source(clean_db)
+    cluster = _cluster(clean_db, source)
+    draft = _draft(clean_db, cluster, image_license_confirmed=True)
+
+    client.post(f"/drafts/{draft.id}/publish", headers=_auth_headers(client, test_user))
+
+    revision = (
+        clean_db.query(DraftRevision)
+        .filter_by(draft_id=draft.id, kind=DraftRevisionKind.HUMAN_FINAL)
+        .one()
+    )
+    assert revision.title_en == draft.title_en
+    assert revision.author_id == test_user.id
+
+
 def test_reject_requires_reason_enum(client, test_user, clean_db):
     source = _source(clean_db)
     cluster = _cluster(clean_db, source)

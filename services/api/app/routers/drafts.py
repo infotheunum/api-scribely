@@ -5,10 +5,11 @@ from datetime import datetime
 
 from api_app.auth.dependencies import require_role
 from api_app.db import get_db
+from api_app.publish.service import approve_and_publish, submit_edit_feedback
 from common.tracing import get_trace_id
 from db.enums import DraftStatus, RejectReason
 from db.models import AuditLog, Draft, NewsCluster, RawItem, User
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
@@ -120,7 +121,9 @@ class DraftDetail(DraftSummary):
     image_caption: str | None
     image_source_suggestion: str | None
     image_license_confirmed: bool
-    suggested_category_slug: str | None
+    category_id: str | None
+    tag_ids: list[str]
+    pending_category_slug: str | None
     pending_tags: list
     handoff_note: str | None
     rewrite_llm_model: str | None
@@ -169,7 +172,9 @@ class DraftDetail(DraftSummary):
             image_caption=draft.image_caption,
             image_source_suggestion=draft.image_source_suggestion,
             image_license_confirmed=draft.image_license_confirmed,
-            suggested_category_slug=draft.category_id,
+            category_id=draft.category_id,
+            tag_ids=draft.tag_ids,
+            pending_category_slug=draft.pending_category_slug,
             pending_tags=draft.pending_tags,
             handoff_note=draft.handoff_note,
             rewrite_llm_model=draft.rewrite_llm_model,
@@ -286,28 +291,39 @@ def patch_draft(
 
 @router.post("/{draft_id}/publish", response_model=DraftDetail)
 def publish_draft(
+    request: Request,
     draft_id: uuid.UUID,
     db: Session = Depends(get_db),
     user: User = Depends(require_role("rewriter", "admin")),
 ) -> DraftDetail:
     """Publishes both language versions at once (ТЗ §4.8) — one Draft
-    row, one status. Real theunum.io tag/category creation on Approve
-    (ТЗ §4.19) is Фаза 7 — this is the internal status-only Publish the
-    ТЗ locks in for MVP."""
+    row, one status. The article itself stays no-op (Publish Adapter,
+    ТЗ §1.1/§4.8) — the one real exception is tag/category ids, resolved
+    for real against theunum.io (mock-backed for now, ТЗ §4.19) before
+    the status flip, never left as local-only candidates."""
     draft = _get_draft_or_404(db, draft_id)
     if not draft.image_license_confirmed:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, "cover image license must be confirmed before Publish"
         )
+    category_id, tag_ids = approve_and_publish(db, draft, user)
     draft.status = DraftStatus.PUBLISHED
-    _audit(db, user, action="publish", draft_id=draft.id, details={})
+    _audit(
+        db,
+        user,
+        action="publish",
+        draft_id=draft.id,
+        details={"category_id": category_id, "tag_ids": tag_ids},
+    )
     db.flush()
+    submit_edit_feedback(db, request.app.state.rewrite_channel, draft=draft, author_id=user.id)
     db.refresh(draft)
     return DraftDetail.from_model(draft)
 
 
 @router.post("/{draft_id}/reject", response_model=DraftDetail)
 def reject_draft(
+    request: Request,
     draft_id: uuid.UUID,
     body: ActionReasonBody,
     db: Session = Depends(get_db),
@@ -323,6 +339,7 @@ def reject_draft(
         details={"reason": body.reason.value, "note": body.note},
     )
     db.flush()
+    submit_edit_feedback(db, request.app.state.rewrite_channel, draft=draft, author_id=user.id)
     db.refresh(draft)
     return DraftDetail.from_model(draft)
 

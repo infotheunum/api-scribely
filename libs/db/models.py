@@ -260,10 +260,13 @@ class Draft(Base):
     handoff_note: Mapped[str | None] = mapped_column(Text)
 
     # Tags/category (ТЗ §4.19) — real theunum.io ids once resolved on
-    # Approve, pending_tags[] holds slug/name candidates until then.
+    # Approve, pending_tags[]/pending_category_slug hold LLM candidates
+    # until then (SuggestTags never returns a real suggested_category_id
+    # today — only a slug guess, see rewrite_app/rewrite/schemas.py).
     category_id: Mapped[str | None] = mapped_column(String(64))
     tag_ids: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list)
     pending_tags: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    pending_category_slug: Mapped[str | None] = mapped_column(String(255))
 
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = mapped_column(

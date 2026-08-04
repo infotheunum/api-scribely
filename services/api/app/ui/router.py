@@ -264,6 +264,7 @@ def save_draft(
 
 @router.post("/drafts/{draft_id}/publish")
 def publish_draft_ui(
+    request: Request,
     draft_id: uuid.UUID,
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
@@ -277,7 +278,7 @@ def publish_draft_ui(
             status_code=status.HTTP_303_SEE_OTHER,
         )
     try:
-        drafts_api.publish_draft(draft_id, db=db, user=user)
+        drafts_api.publish_draft(request, draft_id, db=db, user=user)
     except Exception as exc:  # noqa: BLE001
         detail = getattr(exc, "detail", str(exc))
         return RedirectResponse(
@@ -288,6 +289,7 @@ def publish_draft_ui(
 
 @router.post("/drafts/{draft_id}/reject")
 def reject_draft_ui(
+    request: Request,
     draft_id: uuid.UUID,
     reason: RejectReason = Form(...),
     note: str = Form(""),
@@ -297,7 +299,11 @@ def reject_draft_ui(
     if user is None:
         return RedirectResponse("/ui/login", status_code=status.HTTP_303_SEE_OTHER)
     drafts_api.reject_draft(
-        draft_id, drafts_api.ActionReasonBody(reason=reason, note=note or None), db=db, user=user
+        request,
+        draft_id,
+        drafts_api.ActionReasonBody(reason=reason, note=note or None),
+        db=db,
+        user=user,
     )
     return RedirectResponse("/ui/drafts", status_code=status.HTTP_303_SEE_OTHER)
 
