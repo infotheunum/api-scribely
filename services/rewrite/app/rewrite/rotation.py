@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 
-from db.models import LLMRotationState, LLMRotationUsage
+from db.models import LlmRotationModel, LLMRotationState, LLMRotationUsage
 from rewrite_app.rewrite.openrouter_client import OpenRouterError, call_openrouter
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -20,7 +20,9 @@ KEY_ALIASES = ["key_1", "key_2", "key_3"]
 # 3 because OpenRouter rejects `models` arrays longer than that on this
 # endpoint too (confirmed live: "'models' array must have 3 items or
 # fewer", not just on the Anthropic-compatible endpoint the ТЗ's
-# research flagged as the known limit, ТЗ §4.5).
+# research flagged as the known limit, ТЗ §4.5). Seed data for the
+# `LlmRotationModel` table (ТЗ §4.21, Фаза 5) — edit the rotation list
+# through Admin Settings from here on, not this constant.
 FREE_MODELS = [
     "openai/gpt-oss-20b:free",
     "google/gemma-4-31b-it:free",
@@ -28,6 +30,40 @@ FREE_MODELS = [
 ]
 
 _UNKNOWN_MODEL = "<exhausted-before-response>"
+
+
+def _seed_default_models(db: Session) -> list[LlmRotationModel]:
+    models = [
+        LlmRotationModel(model_id=model_id, position=i, is_active=True)
+        for i, model_id in enumerate(FREE_MODELS)
+    ]
+    db.add_all(models)
+    db.flush()
+    return models
+
+
+def active_free_models(db: Session) -> list[str]:
+    """Reads the current rotation list from `LlmRotationModel` (ТЗ
+    §4.21), bootstrapping it from FREE_MODELS the first time the table
+    is touched (same self-heal pattern as PromptVersion/Topic). Falls
+    back to FREE_MODELS if the table exists but every row was
+    deactivated — an empty `models` list would break every call, and
+    unlike Topic there's already a dedicated `pipeline.dispatch_enabled`
+    kill-switch for "pause everything", so this isn't a valid admin
+    state to honor silently."""
+    rows = db.scalars(
+        select(LlmRotationModel)
+        .where(LlmRotationModel.is_active.is_(True))
+        .order_by(LlmRotationModel.position)
+    ).all()
+    if not rows:
+        if db.scalars(select(LlmRotationModel)).first() is None:
+            rows = _seed_default_models(db)
+            db.commit()
+        else:
+            logger.warning("no active LlmRotationModel rows — falling back to FREE_MODELS")
+            return list(FREE_MODELS)
+    return [row.model_id for row in rows]
 
 
 class AllKeysExhaustedError(Exception):
@@ -76,6 +112,7 @@ def call_with_rotation(
     start = _current_key_alias(db)
     start_idx = KEY_ALIASES.index(start)
     ordered = KEY_ALIASES[start_idx:] + KEY_ALIASES[:start_idx]
+    free_models = active_free_models(db)
 
     last_error: Exception | None = None
     for key_alias in ordered:
@@ -85,7 +122,7 @@ def call_with_rotation(
         try:
             content, model_used = call_openrouter(
                 api_key=api_key,
-                models=FREE_MODELS,
+                models=free_models,
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
             )
@@ -99,7 +136,7 @@ def call_with_rotation(
         _record_usage(db, key_alias, model_used, success=True)
         state = _get_or_create_state(db, key_alias)
         state.current_model_index = (
-            FREE_MODELS.index(model_used) if model_used in FREE_MODELS else 0
+            free_models.index(model_used) if model_used in free_models else 0
         )
         if key_alias != start:
             # only a real key-switch (not the sticky default) needs a

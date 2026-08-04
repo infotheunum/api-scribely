@@ -1,8 +1,13 @@
 from __future__ import annotations
 
-from db.models import LLMRotationUsage
+from db.models import LlmRotationModel, LLMRotationUsage
 from rewrite_app.rewrite.openrouter_client import OpenRouterError
-from rewrite_app.rewrite.rotation import AllKeysExhaustedError, call_with_rotation
+from rewrite_app.rewrite.rotation import (
+    FREE_MODELS,
+    AllKeysExhaustedError,
+    active_free_models,
+    call_with_rotation,
+)
 
 
 def test_first_key_success_records_usage(clean_db, monkeypatch):
@@ -97,3 +102,46 @@ def test_missing_key_is_skipped(clean_db, monkeypatch):
     )
     assert key_alias == "key_2"
     assert calls == ["b"]
+
+
+def test_active_free_models_bootstraps_from_constant_on_first_use(clean_db):
+    models = active_free_models(clean_db)
+
+    assert models == FREE_MODELS
+    assert clean_db.query(LlmRotationModel).count() == len(FREE_MODELS)
+
+
+def test_active_free_models_reads_admin_edited_list(clean_db):
+    active_free_models(clean_db)  # bootstrap
+    clean_db.commit()
+    row = clean_db.query(LlmRotationModel).filter_by(model_id=FREE_MODELS[0]).one()
+    row.is_active = False
+    clean_db.commit()
+
+    models = active_free_models(clean_db)
+
+    assert FREE_MODELS[0] not in models
+    assert len(models) == len(FREE_MODELS) - 1
+
+
+def test_call_with_rotation_uses_admin_edited_model_list(clean_db, monkeypatch):
+    active_free_models(clean_db)  # bootstrap
+    clean_db.commit()
+    for row in clean_db.query(LlmRotationModel).all():
+        row.is_active = row.model_id == FREE_MODELS[1]
+    clean_db.commit()
+
+    seen_models = []
+    monkeypatch.setattr(
+        "rewrite_app.rewrite.rotation.call_openrouter",
+        lambda *, models, **kw: (seen_models.append(models), ("content", models[0]))[1],
+    )
+
+    call_with_rotation(
+        clean_db,
+        api_keys={"key_1": "a", "key_2": "b", "key_3": "c"},
+        system_prompt="s",
+        user_prompt="u",
+    )
+
+    assert seen_models == [[FREE_MODELS[1]]]

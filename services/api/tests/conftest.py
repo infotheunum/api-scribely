@@ -18,8 +18,17 @@ os.environ.setdefault("JWT_SECRET", "test-jwt-secret")
 from api_app.auth.security import hash_password  # noqa: E402
 from api_app.db import _session_factory  # noqa: E402
 from api_app.main import app  # noqa: E402
-from db.models import User  # noqa: E402
+from db.models import (  # noqa: E402
+    AppSetting,
+    AuditLog,
+    LlmRotationModel,
+    PromptVersion,
+    Source,
+    Topic,
+    User,
+)
 from fastapi.testclient import TestClient  # noqa: E402
+from sqlalchemy import delete  # noqa: E402
 
 
 @pytest.fixture
@@ -37,6 +46,52 @@ def test_user():
         password_hash=hash_password("correct-horse-battery-staple"),
         display_name="Test Rewriter",
         role="rewriter",
+        is_active=True,
+    )
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    try:
+        yield user
+    finally:
+        session.delete(user)
+        session.commit()
+        session.close()
+
+
+@pytest.fixture
+def clean_db():
+    """For Admin Settings tests (ТЗ §4.21) — a clean slate on
+    Source/Topic/LlmRotationModel/AppSetting/PromptVersion/AuditLog, not
+    the `test_user`/`manual_source` fixtures' targeted rows."""
+    session = _session_factory()()
+
+    def _wipe():
+        session.execute(delete(AuditLog))
+        session.execute(delete(AppSetting))
+        session.execute(delete(LlmRotationModel))
+        session.execute(delete(Topic))
+        session.execute(delete(PromptVersion))
+        session.execute(delete(Source))
+        session.commit()
+
+    _wipe()
+    try:
+        yield session
+    finally:
+        _wipe()
+        session.close()
+
+
+@pytest.fixture
+def admin_user():
+    session = _session_factory()()
+    user = User(
+        id=uuid.uuid4(),
+        username=f"admin-{uuid.uuid4().hex[:8]}",
+        password_hash=hash_password("correct-horse-battery-staple"),
+        display_name="Test Admin",
+        role="admin",
         is_active=True,
     )
     session.add(user)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+from db.app_settings import set_setting
 from db.enums import SourceTier, SourceType
 from db.models import Source
 from worker_app.ingestion.circuit_breaker import (
@@ -39,13 +40,13 @@ def test_record_success_resets_failures():
     assert source.last_polled_at is not None
 
 
-def test_repeated_failures_trip_breaker():
+def test_repeated_failures_trip_breaker(db):
     source = _source()
     for _ in range(CONSECUTIVE_FAILURE_THRESHOLD - 1):
-        record_failure(source)
+        record_failure(db, source)
         assert not is_paused(source)
 
-    record_failure(source)
+    record_failure(db, source)
     assert source.consecutive_failures == CONSECUTIVE_FAILURE_THRESHOLD
     assert is_paused(source)
 
@@ -56,4 +57,16 @@ def test_paused_source_reports_paused_until_expiry():
     assert not is_paused(source)
 
     source.paused_until = datetime.now(UTC) + timedelta(minutes=1)
+    assert is_paused(source)
+
+
+def test_failure_threshold_honors_app_setting_override(clean_db):
+    set_setting(clean_db, "circuit_breaker.failure_threshold", 2)
+    clean_db.commit()
+
+    source = _source()
+    record_failure(clean_db, source)
+    assert not is_paused(source)
+
+    record_failure(clean_db, source)
     assert is_paused(source)

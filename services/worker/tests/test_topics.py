@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from worker_app.filter.topics import TOPIC_KEYWORDS, classify
+from worker_app.filter.topics import DEFAULT_TOPIC_KEYWORDS, classify, compile_topics
 
 # Real headlines pulled from actual Decrypt/Cointelegraph RSS during
 # local Phase 2 verification — genuine positives and genuine negatives,
@@ -21,34 +21,36 @@ REAL_OUT_OF_TOPIC_EXAMPLES = [
     "Researchers Tried Letting AI Do Science, It Failed",
 ]
 
+COMPILED = compile_topics(DEFAULT_TOPIC_KEYWORDS)
+
 
 def test_all_ten_redpolicy_scopes_are_present():
     # §1.4 of the editorial policy lists exactly ten scopes — this
-    # dict is the actual filter, so a silently-dropped category would
-    # mean silently-rejected in-scope news.
-    assert len(TOPIC_KEYWORDS) == 10
+    # dict is the actual seed data, so a silently-dropped category would
+    # mean silently-rejected in-scope news on a fresh Topic table.
+    assert len(DEFAULT_TOPIC_KEYWORDS) == 10
 
 
 def test_real_in_topic_examples_pass():
     for text in REAL_IN_TOPIC_EXAMPLES:
-        in_topic, topic = classify(text)
+        in_topic, topic = classify(text, COMPILED)
         assert in_topic, f"expected in-topic: {text!r}"
         assert topic is not None
 
 
 def test_real_out_of_topic_examples_are_rejected():
     for text in REAL_OUT_OF_TOPIC_EXAMPLES:
-        in_topic, topic = classify(text)
+        in_topic, topic = classify(text, COMPILED)
         assert not in_topic, f"expected out-of-topic: {text!r}"
         assert topic is None
 
 
 def test_classify_picks_the_best_matching_topic():
-    _, topic = classify("Bitcoin mining hashrate hits new high as miners add rigs")
+    _, topic = classify("Bitcoin mining hashrate hits new high as miners add rigs", COMPILED)
     assert topic == "Майнинг и стейкинг"
 
 
 def test_empty_text_is_out_of_topic():
-    in_topic, topic = classify("")
+    in_topic, topic = classify("", COMPILED)
     assert not in_topic
     assert topic is None

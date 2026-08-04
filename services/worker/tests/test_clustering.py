@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+from db.app_settings import set_setting
 from db.enums import SourceTier, SourceType
 from db.models import NewsCluster, RawItem, Source
 from worker_app.dedup.clustering import recent_clusters, run_clustering_cycle, unclustered_raw_items
@@ -69,6 +70,25 @@ def test_two_similar_items_join_one_cluster_then_third_starts_new(clean_db, monk
     clusters = {item.title: item.cluster_id for item in clean_db.query(RawItem).all()}
     assert clusters["en-article"] == clusters["ru-article"]
     assert clusters["unrelated"] != clusters["en-article"]
+
+
+def test_similarity_threshold_honors_app_setting_override(clean_db, monkeypatch):
+    embeddings_by_title = {"en-article": TOPIC_A, "ru-article": TOPIC_A_VARIANT}
+    monkeypatch.setattr(
+        "worker_app.dedup.clustering.embed_text",
+        lambda text: embeddings_by_title[text.split("\n")[0]],
+    )
+    # TOPIC_A_VARIANT scores 0.9 against TOPIC_A — passes the 0.6 default
+    # but not a much stricter 0.99 threshold set via AppSetting.
+    set_setting(clean_db, "dedup.similarity_threshold", 0.99)
+    clean_db.commit()
+
+    _raw_item(clean_db, source := _source(clean_db), "en-article")
+    _raw_item(clean_db, source, "ru-article", external_id="ru-article-guid")
+
+    stats = run_clustering_cycle(clean_db)
+
+    assert stats == {"attached": 0, "created": 2}
 
 
 def test_already_clustered_items_are_left_alone(clean_db):

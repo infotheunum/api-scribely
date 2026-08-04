@@ -3,6 +3,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import grpc
+from db.app_settings import set_setting
 from db.enums import DraftStatus, SourceTier, SourceType, TopicStatus
 from db.models import ClusterContext, Draft, DraftRevision, NewsCluster, RawItem, Source
 from scribely.rewrite.v1 import rewrite_pb2
@@ -96,7 +97,9 @@ def test_dispatch_persists_draft_and_revision(clean_db):
     assert stats == {"dispatched": 1, "failed": 0}
     draft = clean_db.query(Draft).one()
     assert draft.cluster_id == cluster.id
-    assert draft.status == DraftStatus.READY_FOR_REVIEW
+    # DRAFTING, not READY_FOR_REVIEW — the Policy/Compliance Checker
+    # (Фаза 5, worker_app/compliance/pipeline.py) gates it next tick.
+    assert draft.status == DraftStatus.DRAFTING
     assert draft.title_en == "x" * 20
     assert draft.pending_tags == [{"slug": "etf", "name": "ETF"}]
     assert draft.rewrite_llm_key_alias == "key_1"
@@ -162,3 +165,20 @@ def test_dispatch_respects_batch_size_cap(clean_db):
         stats = run_dispatch_cycle(clean_db)
 
     assert stats["dispatched"] == DISPATCH_BATCH_SIZE
+
+
+def test_dispatch_batch_size_honors_app_setting_override(clean_db):
+    source = _source(clean_db)
+    for i in range(5):
+        _cluster(clean_db, source, score=float(i))
+    set_setting(clean_db, "dispatch.batch_size", 2)
+    clean_db.commit()
+
+    patcher, stub = _patched_stub(
+        enrich_side_effect=lambda req, **kw: _fake_enrich_response(req.cluster_id),
+        rewrite_side_effect=lambda req, **kw: _fake_rewrite_response(),
+    )
+    with patcher, patch("worker_app.dispatch.pipeline.build_rewrite_channel"):
+        stats = run_dispatch_cycle(clean_db)
+
+    assert stats["dispatched"] == 2

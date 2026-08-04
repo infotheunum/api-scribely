@@ -10,12 +10,15 @@ os.environ.setdefault("INTERNAL_SERVICE_TOKEN", "test-service-token")
 
 import pytest  # noqa: E402
 from db.models import (  # noqa: E402
+    AppSetting,
     ClusterContext,
     Draft,
     DraftRevision,
+    LlmRotationModel,
     NewsCluster,
     RawItem,
     Source,
+    Topic,
 )
 from sqlalchemy import delete  # noqa: E402
 from worker_app.db import _session_factory  # noqa: E402
@@ -40,6 +43,12 @@ def _wipe(session):
     session.execute(delete(RawItem))
     session.execute(delete(Source))
     session.execute(delete(NewsCluster))
+    # Admin Settings tables (ТЗ §4.21, Фаза 5) — wiped too so each test
+    # gets a clean bootstrap (e.g. Topic re-seeds from
+    # DEFAULT_TOPIC_KEYWORDS) rather than inheriting another test's edits.
+    session.execute(delete(AppSetting))
+    session.execute(delete(Topic))
+    session.execute(delete(LlmRotationModel))
     session.commit()
 
 

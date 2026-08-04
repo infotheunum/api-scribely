@@ -3,7 +3,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 
 from api_app.grpc_client.client import build_rewrite_channel
-from api_app.routers import auth, health, ingestion
+from api_app.routers import admin, auth, health, ingestion
 from api_app.settings import ApiSettings
 from common.http_middleware import TraceIdMiddleware
 from common.logging import configure_logging
@@ -26,6 +26,7 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
     app.include_router(auth.router)
     app.include_router(ingestion.router)
+    app.include_router(admin.router)
     return app
 
 

@@ -8,7 +8,13 @@ os.environ.setdefault(
 os.environ.setdefault("INTERNAL_SERVICE_TOKEN", "test-service-token")
 
 import pytest  # noqa: E402
-from db.models import LLMRotationState, LLMRotationUsage, PromptVersion  # noqa: E402
+from db.models import (  # noqa: E402
+    AppSetting,
+    LlmRotationModel,
+    LLMRotationState,
+    LLMRotationUsage,
+    PromptVersion,
+)
 from rewrite_app.db import _session_factory  # noqa: E402
 from sqlalchemy import delete  # noqa: E402
 
@@ -27,6 +33,8 @@ def _wipe(session):
     session.execute(delete(LLMRotationUsage))
     session.execute(delete(LLMRotationState))
     session.execute(delete(PromptVersion))
+    session.execute(delete(AppSetting))
+    session.execute(delete(LlmRotationModel))
     session.commit()
 
 

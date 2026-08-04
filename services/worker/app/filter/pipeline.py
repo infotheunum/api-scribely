@@ -8,7 +8,7 @@ from db.models import NewsCluster
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from worker_app.filter.scoring import compute_priority_score
-from worker_app.filter.topics import classify
+from worker_app.filter.topics import active_topics, classify, compile_topics
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +30,9 @@ def classify_pending_clusters(db: Session) -> int:
     pending = db.scalars(
         select(NewsCluster).where(NewsCluster.topic_status == TopicStatus.PENDING)
     ).all()
+    compiled_topics = compile_topics(active_topics(db))
     for cluster in pending:
-        in_topic, topic = classify(_cluster_text(cluster))
+        in_topic, topic = classify(_cluster_text(cluster), compiled_topics)
         cluster.topic_status = TopicStatus.IN_TOPIC if in_topic else TopicStatus.OUT_OF_TOPIC
         cluster.topic = topic
     db.commit()

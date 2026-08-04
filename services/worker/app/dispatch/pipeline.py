@@ -5,7 +5,8 @@ import logging
 import grpc
 from common.grpc_client import build_rewrite_channel, rewrite_stub
 from common.tracing import get_trace_id, new_trace_id, set_trace_id
-from db.enums import DraftRevisionKind, DraftStatus
+from db.app_settings import get_setting
+from db.enums import DraftRevisionKind
 from db.models import ClusterContext, Draft, DraftRevision, NewsCluster
 from scribely.rewrite.v1 import rewrite_pb2
 from sqlalchemy import select
@@ -30,10 +31,11 @@ logger = logging.getLogger(__name__)
 # undrafted in-topic clusters over Phases 1-3's runtime, and at 3/tick
 # that backlog would burn through free-tier OpenRouter quota in one
 # unattended ~47-minute burst right after deploy. At 1/tick it's ~2.5h
-# instead — safer for the very first live run. Revisit once Admin
-# Settings (ТЗ §4.21, Фаза 5) makes this a runtime-editable AppSetting
-# instead of a code constant, or once steady-state confirms headroom.
+# instead — safer for the very first live run. Now a runtime-editable
+# AppSetting (ТЗ §4.21, Фаза 5) — this constant is only the fallback
+# default before `dispatch.batch_size` is ever seeded.
 DISPATCH_BATCH_SIZE = 1
+BATCH_SIZE_SETTING_KEY = "dispatch.batch_size"
 
 
 def _already_drafted_cluster_ids(db: Session) -> set:
@@ -96,7 +98,10 @@ def _persist_draft(
         rewrite_llm_model=rewrite_usage.model or None,
         translate_llm_key_alias=translate_usage.key_alias or None,
         translate_llm_model=translate_usage.model or None,
-        status=DraftStatus.READY_FOR_REVIEW,
+        # Left in DRAFTING (model default), not promoted straight to
+        # READY_FOR_REVIEW — the Policy/Compliance Checker (worker_app/
+        # compliance/pipeline.py, ТЗ §4.6, Фаза 5) gates every draft
+        # before it can enter the review queue.
         trace_id=trace_id,
         prompt_version_id=prompt_version_id or None,
         seo_title_en=draft_content.seo_en.seo_title,
@@ -150,10 +155,9 @@ def run_dispatch_cycle(db: Session, *, settings: WorkerSettings | None = None) -
     naturally retried next tick since select_top_clusters() only excludes
     clusters that already have a Draft."""
     settings = settings or WorkerSettings()
+    batch_size = get_setting(db, BATCH_SIZE_SETTING_KEY, DISPATCH_BATCH_SIZE)
     drafted_ids = _already_drafted_cluster_ids(db)
-    candidates = [c for c in select_top_clusters(db) if c.id not in drafted_ids][
-        :DISPATCH_BATCH_SIZE
-    ]
+    candidates = [c for c in select_top_clusters(db) if c.id not in drafted_ids][:batch_size]
     if not candidates:
         return {"dispatched": 0, "failed": 0}
 

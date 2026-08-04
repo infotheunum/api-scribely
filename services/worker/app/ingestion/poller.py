@@ -55,7 +55,7 @@ def poll_source(db: Session, source: Source) -> int:
         entries = fetch_feed_entries(source.url, user_agent=source.config.get("user_agent"))
     except FeedFetchError:
         logger.warning("poll failed for source %s (%s)", source.name, source.id, exc_info=True)
-        record_failure(source)
+        record_failure(db, source)
         db.commit()
         return 0
 

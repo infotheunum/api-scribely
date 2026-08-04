@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 
 from apscheduler.schedulers.background import BackgroundScheduler
+from db.app_settings import get_setting
+from worker_app.compliance.pipeline import run_compliance_cycle
 from worker_app.db import new_session
 from worker_app.dedup.clustering import run_clustering_cycle
 from worker_app.dispatch.pipeline import run_dispatch_cycle
@@ -16,13 +18,30 @@ logger = logging.getLogger(__name__)
 # run often and cheaply.
 POLL_TICK_SECONDS = 60
 
+# Independent on/off switches per stage (ТЗ §4.21, Admin Settings) — an
+# operator can pause e.g. just dispatch (a prompt is burning free-tier
+# quota) without touching ingestion, or vice versa, without a redeploy.
+# Checked fresh every tick, same as every other AppSetting.
+_STAGE_SETTING_KEYS = {
+    "poll": "pipeline.poll_enabled",
+    "cluster": "pipeline.cluster_enabled",
+    "filter": "pipeline.filter_enabled",
+    "dispatch": "pipeline.dispatch_enabled",
+    "compliance": "pipeline.compliance_enabled",
+}
+
+
+def _stage_enabled(session, stage: str) -> bool:
+    return bool(get_setting(session, _STAGE_SETTING_KEYS[stage], True))
+
 
 def _run_poll_tick() -> None:
     session = new_session()
     try:
-        results = poll_due_sources(session)
-        if results:
-            logger.info("poll tick: %s", results)
+        if _stage_enabled(session, "poll"):
+            results = poll_due_sources(session)
+            if results:
+                logger.info("poll tick: %s", results)
     except Exception:
         logger.exception("poll tick failed unexpectedly")
     finally:
@@ -33,9 +52,10 @@ def _run_poll_tick() -> None:
     # unclustered until the next cycle.
     session = new_session()
     try:
-        stats = run_clustering_cycle(session)
-        if stats["attached"] or stats["created"]:
-            logger.info("clustering tick: %s", stats)
+        if _stage_enabled(session, "cluster"):
+            stats = run_clustering_cycle(session)
+            if stats["attached"] or stats["created"]:
+                logger.info("clustering tick: %s", stats)
     except Exception:
         logger.exception("clustering tick failed unexpectedly")
     finally:
@@ -46,24 +66,41 @@ def _run_poll_tick() -> None:
     # in-topic/out-of-topic flag and a score before the next poll cycle.
     session = new_session()
     try:
-        stats = run_filter_cycle(session)
-        if stats["classified"]:
-            logger.info("filter tick: %s", stats)
+        if _stage_enabled(session, "filter"):
+            stats = run_filter_cycle(session)
+            if stats["classified"]:
+                logger.info("filter tick: %s", stats)
     except Exception:
         logger.exception("filter tick failed unexpectedly")
     finally:
         session.close()
 
-    # Enrich+Rewrite dispatch (ТЗ §4.4-§4.13, Фаза 4) — last in the tick
-    # since it depends on this cycle's own filter results, and it's the
-    # slowest stage by far (real OpenRouter free-tier latency).
+    # Enrich+Rewrite dispatch (ТЗ §4.4-§4.13, Фаза 4) — depends on this
+    # cycle's own filter results, and it's the slowest stage by far
+    # (real OpenRouter free-tier latency).
     session = new_session()
     try:
-        stats = run_dispatch_cycle(session)
-        if stats["dispatched"] or stats["failed"]:
-            logger.info("dispatch tick: %s", stats)
+        if _stage_enabled(session, "dispatch"):
+            stats = run_dispatch_cycle(session)
+            if stats["dispatched"] or stats["failed"]:
+                logger.info("dispatch tick: %s", stats)
     except Exception:
         logger.exception("dispatch tick failed unexpectedly")
+    finally:
+        session.close()
+
+    # Policy/Compliance Checker (ТЗ §4.6, §4.20, Фаза 5) — gates every
+    # Draft dispatch left in DRAFTING before it can reach the review
+    # queue. Last in the tick since it depends on this cycle's own
+    # dispatch output.
+    session = new_session()
+    try:
+        if _stage_enabled(session, "compliance"):
+            stats = run_compliance_cycle(session)
+            if stats["reviewed"]:
+                logger.info("compliance tick: %s", stats)
+    except Exception:
+        logger.exception("compliance tick failed unexpectedly")
     finally:
         session.close()
 

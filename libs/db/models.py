@@ -203,6 +203,17 @@ class Draft(Base):
     similarity_score: Mapped[float | None] = mapped_column(Float)
     fact_conflict: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
+    # Compliance gate (ТЗ §4.6, §4.20, Фаза 5). sensitive_hold is a
+    # stronger, separately-visible hold than the regular flags above
+    # (sanctions/crime/death/hack topics, §11.4 редполитики) — a draft
+    # can be sensitive_hold=True while still status=NEEDS_FIX, or even
+    # while status=READY_FOR_REVIEW if the rest of the gate passed but
+    # extra editorial caution is still warranted. compliance_notes is the
+    # human-readable trail of which rule(s) fired, for the eventual
+    # review UI (Фаза 6) and for debugging the rules themselves.
+    sensitive_hold: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    compliance_notes: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list)
+
     # LLM key/model actually used, for rotation audit (ТЗ §4.5, §4.10).
     rewrite_llm_key_alias: Mapped[str | None] = mapped_column(String(32))
     rewrite_llm_model: Mapped[str | None] = mapped_column(String(255))
@@ -421,3 +432,53 @@ class AuditLog(Base):
     details: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     trace_id: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = _created_at()
+
+
+class Topic(Base):
+    """ТЗ §4.3, §4.21. Тема редполитики + ключевые слова EN+RU для
+    классификации кластеров — заменяет захардкоженный в коде список
+    (Фаза 3), редактируется через Admin Settings без редеплоя."""
+
+    __tablename__ = "topic"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    keywords: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = _created_at()
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class LlmRotationModel(Base):
+    """ТЗ §4.5, §4.21. Упорядоченный список free-моделей OpenRouter для
+    ротации — заменяет захардкоженный список (Фаза 4). Не более 3
+    активных одновременно (жёсткий лимит OpenRouter на длину `models`,
+    §4.5 п.6) — валидируется на уровне Admin API, не здесь."""
+
+    __tablename__ = "llm_rotation_model"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    model_id: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = _created_at()
+
+
+class AppSetting(Base):
+    """ТЗ §4.21. Общий key/value механизм для тонких/грубых настроек
+    пайплайна (лимиты очереди, пороги дедупликации, размер пачки
+    диспетчера, kill-switches этапов и т.д.) — новый параметр не требует
+    миграции схемы, только новую строку. value хранит JSON-скаляр или
+    список напрямую (не обёрнут в объект)."""
+
+    __tablename__ = "app_setting"
+
+    key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    value: Mapped[object] = mapped_column(JSONB, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("user.id"))

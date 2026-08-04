@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from db.app_settings import set_setting
 from db.enums import SourceTier, SourceType, TopicStatus
 from db.models import NewsCluster, RawItem, Source
 from worker_app.filter.queue import select_top_clusters
@@ -86,3 +87,16 @@ def test_limit_caps_total_selected(clean_db):
     selected = select_top_clusters(clean_db, limit=2, fairness_cap_ratio=1.0)
 
     assert len(selected) == 2
+
+
+def test_limit_defaults_to_app_setting_when_not_passed(clean_db):
+    source = _source(clean_db, "s")
+    for i in range(5):
+        _cluster(clean_db, source, score=i)
+    set_setting(clean_db, "queue.daily_limit", 3)
+    set_setting(clean_db, "queue.fairness_cap_ratio", 1.0)
+    clean_db.commit()
+
+    selected = select_top_clusters(clean_db)  # no explicit limit/ratio
+
+    assert len(selected) == 3
