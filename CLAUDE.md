@@ -83,13 +83,13 @@
 «Статус» сразу под демо-критериями соответствующей фазы. Здесь — только
 текущая точка и то, что не может подождать до открытия плана.
 
-Фазы 0–4 (Фундамент, Ingestion/RSS, кросс-языковая дедупликация, фильтр
+Фазы 0–5 (Фундамент, Ingestion/RSS, кросс-языковая дедупликация, фильтр
 тем/приоритизация, Enrichment + Rewrite Orchestrator + LLM Rotation
-Manager) готовы и задеплоены на Railway (project `api-scribely`,
-workspace Unum, id `00d2f337-c04d-41f4-8232-b9c72e2662da`). Фаза 5
-(Compliance Checker + Admin Settings: данные + API) реализована и
-верифицирована на реальных данных локально — деплой на Railway
-следующим шагом. Следующая фаза — Фаза 6 (Review & Publish UI + Admin
+Manager, Compliance Checker + Admin Settings: данные + API) готовы и
+задеплоены на Railway (project `api-scribely`, workspace Unum, id
+`00d2f337-c04d-41f4-8232-b9c72e2662da`), верифицированы на реальных
+данных и локально, и в проде. Следующая фаза — Фаза 6 (Review & Publish
+UI + Admin
 Settings UI).
 
 **Открыто / нужно от пользователя:**

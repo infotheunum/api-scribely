@@ -899,6 +899,18 @@ healthcheck `api` не поднялся за отведённое окно, де
 новая миграция должна проверяться локально не на пустой таблице, а
 хотя бы с одной существующей строкой в затрагиваемой таблице.
 
+**Подтверждено на Railway после фикса** (`rewrite`/`worker` задеплоены
+вручную через `serviceInstanceDeploy` — у них, в отличие от
+`api-scribely`, всё ещё выключен auto-deploy по push, см. заметку в
+статусе Фазы 4): `api-scribely` поднялся и прошёл healthcheck, `GET
+/admin/sources` без токена вернул `401` (роут смонтирован, auth
+реально работает). `worker` — реальный цикл dispatch+compliance:
+`dispatch tick: {'dispatched': 1, 'failed': 0}`, следом `compliance
+tick: {'reviewed': 1, 'ready': 0, 'needs_fix': 1, 'blocked': 0,
+'sensitive_hold': 0}` — полный цикл на free-моделях занял около 9.5
+минут (несколько regenerate-попыток на разных ключах с таймаутом 90с
+каждая, в пределах спроектированного наихудшего случая, не зависание).
+
 ---
 
 ## 8. Фаза 6 — Review & Publish UI + Backend API + soft-lock/WebSocket + Admin Settings UI
