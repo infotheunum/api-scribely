@@ -705,6 +705,35 @@ Docker-сборка (образ = контекст всего репозитор
 Пункт «Открыто» в CLAUDE.md «Точный список free-моделей OpenRouter — до
 Фазы 4» закрыт.
 
+**Задеплоено на Railway (2026-08-04).** `rewrite` до Фазы 4 был чистым
+скелетом (только health-check) и никогда не выполнял реальных запросов
+к Postgres/OpenRouter — деплой вскрыл два реальных пробела в
+конфигурации сервиса на Railway, которых не было видно ни локально, ни
+в тестах (там своя настройка окружения):
+
+1. У `rewrite` в Railway Variables вообще не было `DATABASE_URL` —
+   `RewriteSettings` тихо падала на дефолт `localhost:5432` из
+   `CommonSettings`. Исправлено: `railway variable set
+   'DATABASE_URL=${{Postgres.DATABASE_URL}}' --service rewrite`.
+2. У `rewrite` не было ни одного `OPENROUTER_KEY_*` — `AllKeysExhaustedError`
+   с пустым `str(None)` (ошибка на самом деле «нет ни одного ключа», а не
+   «все 3 ключа исчерпаны» — сообщение об этом стоит уточнить в
+   `rotation.py`, мелкий долг). Исправлено: ключи из локального `.env`
+   добавлены в Railway Variables сервиса `rewrite`.
+
+Отдельно обнаружено: у `rewrite`/`worker` (в отличие от `api-scribely`)
+был выключен auto-deploy по push в GitHub — задеплоены вручную через
+`serviceInstanceDeploy` (GraphQL API, `latestCommit: true`). Стоит либо
+включить auto-deploy на оба сервиса, либо явно задокументировать, что
+деплой этих двух — ручной шаг (пока не сделано ни то, ни другое).
+
+После обоих фиксов диспетчер на Railway подтверждённо работает в
+проде: реальные `EnrichCluster`/`RewriteCluster` через
+`nvidia/nemotron-3-super-120b-a12b:free`, `Draft` с bootstrapped
+`prompt_version`, стабильно ~1 кластер за ~5 минут (совпадает с
+`DISPATCH_BATCH_SIZE=1` и реальной задержкой free-моделей) — бэклог из
+~140 кластеров обрабатывается без ошибок, деплой не пришлось откатывать.
+
 ---
 
 # 7. Фаза 5 — Policy/Compliance Checker + similarity/fact-conflict gate + Admin Settings (данные + API)
