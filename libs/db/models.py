@@ -255,6 +255,10 @@ class Draft(Base):
     image_source_suggestion: Mapped[str | None] = mapped_column(String(512))
     image_license_confirmed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
+    # Snooze handoff (ТЗ §6.3, Фаза 6) — short note left for whoever
+    # picks the draft back up; nullable, no backfill concern for prod.
+    handoff_note: Mapped[str | None] = mapped_column(Text)
+
     # Tags/category (ТЗ §4.19) — real theunum.io ids once resolved on
     # Approve, pending_tags[] holds slug/name candidates until then.
     category_id: Mapped[str | None] = mapped_column(String(64))

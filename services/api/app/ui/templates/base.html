@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}UNUM Rewriter Tool{% endblock %}</title>
+  <link rel="stylesheet" href="/ui/static/style.css">
+  <script src="https://unpkg.com/htmx.org@2.0.3" defer></script>
+  {% block head %}{% endblock %}
+</head>
+<body>
+  {% if user %}
+  <div class="topbar">
+    <div class="brand">UNUM Rewriter Tool</div>
+    <nav>
+      <a href="/ui/drafts" class="{{ 'active' if active == 'queue' else '' }}">Очередь</a>
+      <a href="/ui/inject" class="{{ 'active' if active == 'inject' else '' }}">Добавить статью</a>
+      {% if user.role == 'admin' %}
+      <a href="/ui/admin/sources" class="{{ 'active' if active == 'admin' else '' }}">Admin Settings</a>
+      {% endif %}
+    </nav>
+    <div class="who">{{ user.display_name }} ({{ user.role }}) · <a href="/ui/logout">выйти</a></div>
+  </div>
+  {% endif %}
+  <div class="container{% block container_class %}{% endblock %}">
+    {% block content %}{% endblock %}
+  </div>
+</body>
+</html>

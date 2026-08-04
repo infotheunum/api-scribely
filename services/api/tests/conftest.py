@@ -21,8 +21,14 @@ from api_app.main import app  # noqa: E402
 from db.models import (  # noqa: E402
     AppSetting,
     AuditLog,
+    ClusterContext,
+    Draft,
+    DraftLock,
+    DraftRevision,
     LlmRotationModel,
+    NewsCluster,
     PromptVersion,
+    RawItem,
     Source,
     Topic,
     User,
@@ -68,6 +74,12 @@ def clean_db():
 
     def _wipe():
         session.execute(delete(AuditLog))
+        session.execute(delete(DraftLock))
+        session.execute(delete(DraftRevision))
+        session.execute(delete(Draft))
+        session.execute(delete(ClusterContext))
+        session.execute(delete(RawItem))
+        session.execute(delete(NewsCluster))
         session.execute(delete(AppSetting))
         session.execute(delete(LlmRotationModel))
         session.execute(delete(Topic))

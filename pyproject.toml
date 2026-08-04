@@ -43,6 +43,7 @@ extend-immutable-calls = [
     "fastapi.Query",
     "fastapi.Path",
     "fastapi.Body",
+    "fastapi.Form",
     "api_app.auth.dependencies.require_role",
 ]
 

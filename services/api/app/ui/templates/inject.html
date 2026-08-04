@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Добавить статью — UNUM Rewriter Tool{% endblock %}
+{% block content %}
+<h1>Добавить статью по ссылке</h1>
+<div class="card" style="max-width:520px;">
+  {% if created == True %}<div class="flash-success">Добавлено — попадёт в общий пайплайн (кластеризация → фильтр → рерайт → compliance) в ближайших циклах.</div>{% endif %}
+  {% if created == False %}<div class="note">Эта ссылка уже была добавлена раньше — без дублей.</div>{% endif %}
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+  <form method="post" action="/ui/inject">
+    <label for="url">Ссылка на статью</label>
+    <input type="url" id="url" name="url" required placeholder="https://...">
+    <label for="title">Заголовок (необязательно)</label>
+    <input type="text" id="title" name="title">
+    <button class="btn btn-primary" type="submit">Добавить</button>
+  </form>
+</div>
+{% endblock %}

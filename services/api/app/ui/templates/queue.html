@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Очередь — UNUM Rewriter Tool{% endblock %}
+{% block content %}
+<h1>Очередь на ревью</h1>
+
+<div class="kpi-row">
+  <div class="kpi">
+    <div class="n">{{ published_today }}</div>
+    <div class="label">Опубликовано сегодня (цель 90–110)</div>
+  </div>
+  <div class="kpi">
+    <div class="n">{{ drafts|length }}</div>
+    <div class="label">В очереди сейчас</div>
+  </div>
+  <div class="kpi">
+    <div class="n">{{ drafts|selectattr('needs_attention')|list|length }}</div>
+    <div class="label">Требуют внимания</div>
+  </div>
+</div>
+
+{% if not drafts %}
+<div class="card"><span class="note">Очередь пуста — либо всё разобрано, либо пайплайн ещё не догнал бэклог.</span></div>
+{% else %}
+<div class="card" style="padding:0;">
+<table class="queue">
+  <thead>
+    <tr>
+      <th>Статус</th>
+      <th>Заголовок (EN)</th>
+      <th>Заголовок (RU)</th>
+      <th>Тема</th>
+      <th>Флаги</th>
+      <th>Создан</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for d in drafts %}
+    <tr class="{{ 'attention' if d.needs_attention else '' }}">
+      <td><span class="pill status-{{ d.status }}">{{ d.status }}</span></td>
+      <td><a href="/ui/drafts/{{ d.id }}">{{ d.title_en[:70] }}</a></td>
+      <td>{{ d.title_ru[:70] }}</td>
+      <td class="note">{{ d.topic or '—' }}</td>
+      <td>
+        {% if d.sensitive_hold %}<span class="pill flag">sensitive</span>{% endif %}
+        {% if d.fact_conflict %}<span class="pill flag">fact_conflict</span>{% endif %}
+        {% if d.press_release_flag %}<span class="pill flag warn">PR</span>{% endif %}
+        {% if d.sponsor_flag %}<span class="pill flag warn">sponsor</span>{% endif %}
+        {% if d.disclaimer_flag %}<span class="pill flag info">disclaimer</span>{% endif %}
+      </td>
+      <td class="note">{{ d.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+      <td><a class="btn btn-ghost" href="/ui/drafts/{{ d.id }}">Открыть</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+{% endblock %}

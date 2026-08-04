@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+{% block title %}{{ draft.title_en[:50] }} — UNUM Rewriter Tool{% endblock %}
+{% block content %}
+
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+  <div>
+    <a href="/ui/drafts" class="note">&larr; Очередь</a>
+    <h1 style="margin-top:6px;">Черновик</h1>
+  </div>
+  <div class="presence" id="presence">
+    {% if lock and lock.mode == 'editing' %}
+      <span class="dot" style="background:var(--red)"></span> редактирует: {{ lock.display_name }}
+    {% else %}
+      <span class="dot"></span> {{ viewer_count }} сейчас смотрит(ят)
+    {% endif %}
+  </div>
+</div>
+
+<div style="margin-bottom:12px;">
+  <span class="pill status-{{ draft.status }}">{{ draft.status }}</span>
+  {% if draft.sensitive_hold %}<span class="pill flag">sensitive_hold</span>{% endif %}
+  {% if draft.fact_conflict %}<span class="pill flag">fact_conflict — сверить факты</span>{% endif %}
+  {% if draft.press_release_flag %}<span class="pill flag warn">press release</span>{% endif %}
+  {% if draft.sponsor_flag %}<span class="pill flag warn">sponsor</span>{% endif %}
+  {% if draft.disclaimer_flag %}<span class="pill flag info">disclaimer</span>{% endif %}
+  {% if draft.similarity_score %}<span class="pill flag info">similarity {{ '%.2f'|format(draft.similarity_score) }}</span>{% endif %}
+  <span class="note">модель: {{ draft.rewrite_llm_model or '—' }}</span>
+</div>
+
+{% if draft.compliance_notes %}
+<div class="card">
+  <h2>Compliance notes</h2>
+  <ul style="margin:0;padding-left:18px;">
+    {% for note in draft.compliance_notes %}<li class="note">{{ note }}</li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+{% if saved %}<div class="flash-success">Сохранено.</div>{% endif %}
+
+<form method="post" action="/ui/drafts/{{ draft.id }}/save">
+<input type="hidden" name="version" value="{{ draft.version }}">
+
+{% if draft.title_en_variants or draft.title_ru_variants %}
+<div class="card">
+  <h2>Варианты заголовка</h2>
+  <div class="grid2">
+    <div>
+      {% for v in draft.title_en_variants %}
+      <button type="button" class="title-variant" onclick="document.getElementById('title_en').value = this.textContent">{{ v }}</button>
+      {% endfor %}
+    </div>
+    <div>
+      {% for v in draft.title_ru_variants %}
+      <button type="button" class="title-variant" onclick="document.getElementById('title_ru').value = this.textContent">{{ v }}</button>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<div class="grid2">
+  <div class="card">
+    <div class="lang-label">EN</div>
+    <label for="title_en">Заголовок</label>
+    <input type="text" id="title_en" name="title_en" value="{{ draft.title_en }}">
+    <label for="body_en">Текст</label>
+    <textarea id="body_en" name="body_en" rows="10">{{ draft.body_en }}</textarea>
+  </div>
+  <div class="card">
+    <div class="lang-label">RU</div>
+    <label for="title_ru">Заголовок</label>
+    <input type="text" id="title_ru" name="title_ru" value="{{ draft.title_ru }}">
+    <label for="body_ru">Текст</label>
+    <textarea id="body_ru" name="body_ru" rows="10">{{ draft.body_ru }}</textarea>
+  </div>
+</div>
+
+<div class="card">
+  <h2>SEO</h2>
+  <div class="grid2">
+    <div>
+      <div class="lang-label">EN</div>
+      <label>SEO title</label><input type="text" name="seo_title_en" value="{{ draft.seo_title_en or '' }}">
+      <label>Description</label><textarea name="seo_description_en" rows="2">{{ draft.seo_description_en or '' }}</textarea>
+      <label>Slug</label><input type="text" name="slug_en" value="{{ draft.slug_en or '' }}">
+      <label>Focus keyphrase</label><input type="text" name="focus_keyphrase_en" value="{{ draft.focus_keyphrase_en or '' }}">
+      <label>Keywords (через запятую)</label><input type="text" name="keywords_en" value="{{ draft.keywords_en|join(', ') }}">
+    </div>
+    <div>
+      <div class="lang-label">RU</div>
+      <label>SEO title</label><input type="text" name="seo_title_ru" value="{{ draft.seo_title_ru or '' }}">
+      <label>Description</label><textarea name="seo_description_ru" rows="2">{{ draft.seo_description_ru or '' }}</textarea>
+      <label>Slug</label><input type="text" name="slug_ru" value="{{ draft.slug_ru or '' }}">
+      <label>Focus keyphrase</label><input type="text" name="focus_keyphrase_ru" value="{{ draft.focus_keyphrase_ru or '' }}">
+      <label>Keywords (через запятую)</label><input type="text" name="keywords_ru" value="{{ draft.keywords_ru|join(', ') }}">
+    </div>
+  </div>
+  <div class="note" style="margin-top:8px;">SERP-превью: <strong>{{ draft.seo_title_en or draft.title_en }}</strong><br>{{ draft.seo_description_en or '' }}</div>
+</div>
+
+<div class="card">
+  <h2>Бриф обложки</h2>
+  <label>Описание</label><textarea name="image_brief" rows="3">{{ draft.image_brief or '' }}</textarea>
+  <div class="grid2">
+    <div><label>Настроение</label><input type="text" name="image_mood" value="{{ draft.image_mood or '' }}"></div>
+    <div><label>Стиль</label><input type="text" name="image_style" value="{{ draft.image_style or '' }}"></div>
+  </div>
+  <label>Alt-текст</label><input type="text" name="image_alt" value="{{ draft.image_alt or '' }}">
+  <label>Caption</label><input type="text" name="image_caption" value="{{ draft.image_caption or '' }}">
+  <label style="display:flex;align-items:center;gap:6px;margin-top:6px;">
+    <input type="checkbox" name="image_license_confirmed" value="true" style="width:auto;margin:0;" {{ 'checked' if draft.image_license_confirmed else '' }}>
+    Лицензия обложки подтверждена (обязательно для Publish)
+  </label>
+</div>
+
+<div class="card">
+  <h2>Теги-кандидаты</h2>
+  {% if draft.pending_tags %}
+    {% for t in draft.pending_tags %}<span class="pill flag info">{{ t.name }}</span>{% endfor %}
+  {% else %}<span class="note">нет предложенных тегов</span>{% endif %}
+</div>
+
+<div class="card">
+  <h2>Источники кластера</h2>
+  <ul class="source-list">
+    {% for s in draft.sources %}
+    <li><strong>{{ s.source_name }}</strong> ({{ s.language }}) — <a href="{{ s.url }}" target="_blank" rel="noopener">{{ s.title }}</a></li>
+    {% endfor %}
+  </ul>
+  <div class="note">Атрибуция: {{ draft.attribution_urls|join(', ') }}</div>
+</div>
+
+<div class="actions">
+  <button class="btn btn-primary" type="submit">Сохранить</button>
+</div>
+</form>
+
+<div class="card">
+  <h2>Решение</h2>
+  <div class="actions">
+    <form method="post" action="/ui/drafts/{{ draft.id }}/publish" style="display:inline;">
+      <button class="btn btn-success" type="submit" title="Publish (P)">Publish</button>
+    </form>
+    <button class="btn btn-warn" type="button" onclick="document.getElementById('needsfix-form').style.display='block'">Needs Fix</button>
+    <button class="btn btn-danger" type="button" onclick="document.getElementById('reject-form').style.display='block'">Reject</button>
+    <button class="btn btn-ghost" type="button" onclick="document.getElementById('snooze-form').style.display='block'">Snooze</button>
+    <a class="btn btn-ghost" href="/ui/drafts/next?after={{ draft.id }}" title="Next (N)">Next &rarr;</a>
+  </div>
+  <div class="hotkey-hint" style="margin-top:8px;">Горячие клавиши: <kbd>P</kbd> Publish, <kbd>R</kbd> Reject, <kbd>F</kbd> Needs Fix, <kbd>N</kbd> следующий, <kbd>S</kbd> сохранить</div>
+
+  <form id="needsfix-form" method="post" action="/ui/drafts/{{ draft.id }}/needs-fix" style="display:none;margin-top:12px;">
+    <label>Причина</label>
+    <select name="reason" required>
+      {% for r in reject_reasons %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
+    </select>
+    <label>Комментарий</label>
+    <textarea name="note" rows="2"></textarea>
+    <button class="btn btn-warn" type="submit">Подтвердить Needs Fix</button>
+  </form>
+
+  <form id="reject-form" method="post" action="/ui/drafts/{{ draft.id }}/reject" style="display:none;margin-top:12px;">
+    <label>Причина</label>
+    <select name="reason" required>
+      {% for r in reject_reasons %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
+    </select>
+    <label>Комментарий</label>
+    <textarea name="note" rows="2"></textarea>
+    <button class="btn btn-danger" type="submit">Подтвердить Reject</button>
+  </form>
+
+  <form id="snooze-form" method="post" action="/ui/drafts/{{ draft.id }}/snooze" style="display:none;margin-top:12px;">
+    <label>Заметка для передачи (необязательно)</label>
+    <textarea name="note" rows="2">{{ draft.handoff_note or '' }}</textarea>
+    <button class="btn btn-ghost" type="submit">Отложить</button>
+  </form>
+</div>
+
+<script>
+document.addEventListener('keydown', function (e) {
+  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
+  if (e.key === 'p' || e.key === 'P') { document.querySelector('form[action$="/publish"] button').click(); }
+  if (e.key === 'r' || e.key === 'R') { document.getElementById('reject-form').style.display = 'block'; }
+  if (e.key === 'f' || e.key === 'F') { document.getElementById('needsfix-form').style.display = 'block'; }
+  if (e.key === 'n' || e.key === 'N') { window.location.href = '/ui/drafts/next?after={{ draft.id }}'; }
+  if (e.key === 's' || e.key === 'S') { document.querySelector('form[action$="/save"] button').click(); }
+});
+</script>
+{% endblock %}

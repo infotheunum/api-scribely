@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Вход — UNUM Rewriter Tool{% endblock %}
+{% block container_class %} narrow{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>UNUM Rewriter Tool</h1>
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+  <form method="post" action="/ui/login">
+    <label for="username">Логин</label>
+    <input type="text" id="username" name="username" autofocus required>
+    <label for="password">Пароль</label>
+    <input type="password" id="password" name="password" required>
+    <button class="btn btn-primary" type="submit" style="width:100%;margin-top:6px;">Войти</button>
+  </form>
+</div>
+{% endblock %}
