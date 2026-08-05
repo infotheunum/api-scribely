@@ -83,15 +83,17 @@
 «Статус» сразу под демо-критериями соответствующей фазы. Здесь — только
 текущая точка и то, что не может подождать до открытия плана.
 
-Фазы 0–6 (Фундамент, Ingestion/RSS, кросс-языковая дедупликация, фильтр
+Фазы 0–7 (Фундамент, Ingestion/RSS, кросс-языковая дедупликация, фильтр
 тем/приоритизация, Enrichment + Rewrite Orchestrator + LLM Rotation
 Manager, Compliance Checker + Admin Settings: данные + API, Review &
-Publish UI + soft-lock/WebSocket + Admin Settings UI) готовы и
+Publish UI + soft-lock/WebSocket + Admin Settings UI, Публикация (no-op)
++ реальный CreateTag/EnsureCategory на Approve + аудит) готовы и
 задеплоены на Railway (project `api-scribely`, workspace Unum, id
 `00d2f337-c04d-41f4-8232-b9c72e2662da`), верифицированы на реальных
 данных и локально, и в проде — включая живые `wss://`-соединения к
-production и реальный вход под Admin/Rewriter аккаунтами. Следующая
-фаза — Фаза 7 (Публикация (no-op) + CreateTag на Approve + аудит).
+production, реальный вход под Admin/Rewriter аккаунтами и реальную
+публикацию живого черновика с резолвом тегов в проде. Следующая фаза —
+Фаза 8 (Отчётность и мониторинг).
 
 **Открыто / нужно от пользователя:**
 
@@ -103,8 +105,11 @@ production и реальный вход под Admin/Rewriter аккаунтам
   placeholder Admin-аккаунт (`scripts/seed_admin.py`) — Admin Settings
   UI из Фазы 6 иначе некому было бы открыть.
 - [ ] theunum.io: есть ли API для Tag/Category и контакт на их стороне —
-  по решению пользователя 2026-08-04 продолжили с mock-fallback (ТЗ
-  §8.2) без интеграции; нужно узнать до реального `CreateTag` в Фазе 7.
+  по решению пользователя 2026-08-04 Фаза 7 реализована с mock-fallback
+  (ТЗ §8.2, `api_app/tagsync/client.py`) и уже реально работает в
+  проде (реальные `PublishRecord`/`TagCategoryCache` записи на Publish);
+  переход на настоящий API theunum.io — замена одной функции, без
+  изменения вызывающего кода, когда контакт/доступ появится.
 - [x] Точный список free-моделей OpenRouter — закрыто в Фазе 4 (3
   модели, live-проверено).
 - [ ] Трактовка объёма стайл-гайда (~2000 символов на весь материал) —

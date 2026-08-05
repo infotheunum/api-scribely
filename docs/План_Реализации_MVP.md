@@ -1118,6 +1118,95 @@ auto-deploy по push; `worker` — вручную через `serviceInstanceDe
 theunum.io (или mock) с реальным id, попавшим в `PublishRecord` →
 нажатие Publish → запись в audit log, показывающая всю цепочку.
 
+### Статус: ✅ готово, задеплоено на Railway и верифицировано на реальных данных (2026-08-05)
+
+**Реальный пробел, найденный при разборе задачи (не просто mock-vs-
+real).** До этой фазы `worker_app/dispatch/pipeline.py` молча терял
+`suggested_category_slug` из ответа `RewriteCluster` — поле долетало
+до `DraftContent`, но никогда не попадало на `Draft`. Добавлена колонка
+`Draft.pending_category_slug` (nullable, миграция `bd8c1fb1b825`, без
+риска бэкфилла) + запись в dispatch pipeline.
+
+**`api_app/tagsync/client.py` — `resolve_tags_and_category`.**
+CreateTag/EnsureCategory (ТЗ §4.19): dedupe по `slug` против
+`TagCategoryCache`, создание записи при отсутствии, id вида
+`mock-{kind}-{slug}`. Уже резолвленные id (`category_id`/`tag_ids`, если
+LLM когда-либо предложит существующий тег напрямую) проходят без
+изменений. По решению пользователя от 2026-08-04 — mock-реализация
+(theunum.io API для тегов недоступно, ТЗ §8.2 «тот же контракт,
+локальный стаб»); реальный HTTP-клиент подключается без изменения
+вызывающего кода (`api_app/publish/service.py` не знает, мок это или
+реальный API).
+
+**`api_app/publish/service.py`.** `approve_and_publish()` — резолвит
+теги/категорию, пишет `category_id`/`tag_ids` на `Draft`, создаёт
+`PublishRecord` (реальные id, `external_id`/`external_url` пустые —
+сама статья на сайт не публикуется, как зафиксировано с Фазы 0) и
+снимок `DraftRevision(kind=human_final)` — пара к `ai_generated` из
+Фазы 4. `submit_edit_feedback()` — вызывает `SubmitEditFeedback` в
+`rewrite` при Publish и при Reject (ТЗ §4.14), по языку отдельно (en +
+ru). Best-effort: `rewrite` возвращает mock (`accepted=true` без
+реальной обработки), но даже полная недоступность `rewrite` не
+блокирует Publish/Reject рерайтера — поймано `grpc.RpcError`,
+залогировано как warning, действие продолжается. Реальный сетевой сбой
+(rewrite не запущен локально) поймал это поведение вживую при первой
+же локальной проверке.
+
+**Попутно исправлен унаследованный от Фазы 6 баг.** Поле
+`DraftDetail.suggested_category_slug` в API на самом деле возвращало
+`draft.category_id`, а не подсказку модели — незамеченный баг, потому
+что до этой фазы `category_id` был всегда `None`. Переименовано в
+`category_id`/`tag_ids` (реальные резолвленные id) +
+добавлено настоящее `pending_category_slug` (кандидат до Approve).
+`draft_detail.html` показывает категорию/теги после публикации.
+
+**Тесты.** 109 мок-тестов (+ 11 новых: 5 в `test_tagsync.py` на
+dedupe/create/pass-through, 3 расширяют `test_drafts.py` на
+`PublishRecord`/`DraftRevision(human_final)`) — все проходят.
+`conftest.py`: `clean_db` пополнен `PublishRecord`/`TagCategoryCache` —
+без этого повторный прогон тестов падал по `ForeignKeyViolation` (FK
+`publish_record.draft_id → draft.id`), поймано сразу же при первом
+прогоне после реализации.
+
+**Docker-сборка и реальный прогон.** `api`/`worker` собраны и запущены
+локально против `unum_dev_pg` — оба стартуют чисто, миграция
+применяется. Дополнительно — реальная HTTP-проверка локально (не
+только pytest): вручную заведённый черновик с реалистичными
+`pending_tags`/`pending_category_slug` реально опубликован через
+`POST /drafts/{id}/publish` на локальном сервере — `category_id`/
+`tag_ids` пришли резолвленными, `PublishRecord`/`DraftRevision` реально
+появились в Postgres (проверено прямым SQL-запросом), лог показал
+пойманный `grpc.RpcError` от `SubmitEditFeedback` (rewrite не поднят
+локально) без сбоя запроса. `POST /drafts/{id}/reject` на другом
+черновике — та же best-effort попытка feedback подтверждена в логе.
+
+**Реальный баг на деплое (transient, не в коде).** Первая попытка
+деплоя `api-scribely` на Railway помечена `FAILED`
+(`statusUpdatedAt` раньше, чем строка "Application startup complete" в
+логе) — похоже на то, что healthcheck не уложился в таймаут при
+холодном старте контейнера; сама миграция и сиды прошли успешно, сервис
+после этого реально поднялся и работал ещё ~8 минут, пока Railway не
+остановил его. Трафик всё это время оставался на предыдущей рабочей
+версии — простоя не было. Повторный `serviceInstanceDeploy` прошёл
+`SUCCESS` без изменений в коде — списано на разовую нестабильность
+инфраструктуры холодного старта, не воспроизведено повторно.
+
+**Подтверждено на живых production-данных.** `worker` — реальные тики
+после деплоя (`compliance tick: {'reviewed': 1, ...}` на живых
+данных). `api` — реальный `rewriter`-логин, реальная очередь (125
+черновиков в `ready_for_review`); черновик `b2e6fbbf-...` («Strategy
+sells $105M Bitcoin...», реально продиспатченный ещё в Фазе 5) имел 5
+настоящих тегов-кандидатов от LLM (`Strategy`, `Bitcoin`, `MSTR`,
+`STRC`, `USD Reserve`) — лицензия обложки подтверждена через `PATCH`,
+затем реальный `POST .../publish`: ответ вернул `status=published`,
+`category_id=None` (черновик продиспатчен до включения
+`pending_category_slug` в Фазе 7, ожидаемо), `tag_ids` — все 5 реально
+резолвлены в `mock-tag-strategy`/`mock-tag-bitcoin`/`mock-tag-mstr`/
+`mock-tag-strc`/`mock-tag-reserve`. Повторный `GET` тем же токеном
+подтвердил персистентность (`status=published`, те же `tag_ids`,
+`version` увеличилась после `PATCH` лицензии) — не разовый ответ
+запроса, а реально сохранённая строка в проде.
+
 ---
 
 ## 10. Фаза 8 — Отчётность и мониторинг
