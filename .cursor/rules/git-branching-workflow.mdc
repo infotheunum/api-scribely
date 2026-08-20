@@ -1,24 +1,24 @@
 ---
-description: Git workflow — сразу в dev через PR; в main пакетом из dev
+description: Git workflow — task PR в dev; релизный PR dev в main
 alwaysApply: true
 ---
 
 # Git branching workflow
 
-Единый цикл для всех репозиториев UNUM (api / admin / site / bot apps / scribely).
+Полные обязательные правила находятся в корневом `AGENTS.md`. Эта памятка не может их
+переопределять или ослаблять.
 
 ## Цикл задачи → `dev`
 
 ```
-dev → feature/<task> | fix/<task> → commit → push → PR в dev → сразу merge в dev → следующая от свежего dev
+fresh dev → <type>/<task> → commit → push → PR в dev → CI → merge → следующая от fresh dev
 ```
 
-1. **Старт** — `git fetch && git checkout dev && git pull`, затем `git checkout -b feature/<short-name>` (или `fix/…`).
+1. **Старт** — обновить remote и создать новую task-ветку только от свежего `origin/dev`.
 2. **Работа** — только в своей ветке.
-3. **Коммит** — только по просьбе; в текущую `feature/*` / `fix/*`.
-4. **Пуш** («пуш» / «push») — только в эту ветку (`git push -u origin HEAD`). Создать PR в `dev`, если ещё нет.
-5. **Сразу в `dev`** — после пуша задачи **сразу merge PR в `dev`** (`gh pr merge`), если пользователь не сказал «не мержить». Не копить открытые PR «на потом».
-6. **Следующая** — `git checkout dev && git pull`, новая ветка от свежего `dev`.
+3. **Коммит и push** — только в текущую task-ветку; открыть PR с base `dev`.
+4. **Merge в `dev`** — только после успешного CI и разрешения конфликтов.
+5. **Следующая** — новая ветка от обновлённого `origin/dev`.
 
 «Пуш» **никогда** не означает push напрямую в `main` или `dev` (минуя PR). В `dev` попадаем **только через merge PR**.
 
@@ -32,12 +32,17 @@ dev → feature/<task> | fix/<task> → commit → push → PR в dev → сра
 ## `dev` → `main` (релиз)
 
 - В `main` **не** льём каждую задачу.
-- Когда накопилось готовое / пользователь сказал («релиз», «в main», «merge dev в main») — один PR/merge **`dev` → `main`**.
-- Не пушить в `main` напрямую и не cherry-pick’ать задачи в `main` в обход `dev`, если явно не попросили иначе.
+- Когда накопился готовый релиз — отдельный PR **`dev` → `main`** с обязательным CI.
+- Не пушить в `main` напрямую и не cherry-pick’ать задачи в `main` в обход `dev`.
+
+## Hotfix и автоматические обновления
+
+- Аварийный `hotfix/*` создаётся от `main` и вливается PR в `main`; затем обязателен отдельный PR/back-merge `main` → `dev`.
+- Dependabot и другие dependency-боты должны направлять PR в `dev`.
 
 ## Запреты
 
 - Не ветвиться от `main` для повседневных задач.
 - Не пушить напрямую в `dev` или `main`.
-- Не мержить локально в `dev`/`main` в обход PR (если пользователь явно не сказал иначе).
-- Force push в `dev` / `main` — только по явной просьбе.
+- Не мержить локально в `dev`/`main` в обход PR.
+- Никогда не делать force-push в `dev` или `main`; `--force-with-lease` допустим только для собственной незамерженной task-ветки.
