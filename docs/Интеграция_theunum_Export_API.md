@@ -9,6 +9,165 @@ Scribely **не пушит** данные на VPS — только отдаёт
 
 ---
 
+## Модель безопасности (два слоя)
+
+Запрос из **продукта theunum** к scribely Export API защищён **двумя независимыми проверками на scribely**:
+
+| Слой | Где настраивается | Что проверяет |
+|---|---|---|
+| **1. Origin (CORS)** | scribely `api` → `CORS_ALLOWED_ORIGINS` | Запрос пришёл **с разрешённого URL** продукта (`https://admin.theunum.io`, `https://theunum.io`, …). Чужой сайт в браузере получит блок CORS **до** API. |
+| **2. Service token** | **Оба** бэкенда — **один и тот же секрет** | scribely: `THEUNUM_INTEGRATION_TOKEN` · theunum: `SCRIBELY_INTEGRATION_TOKEN`. Без правильного header → **401**. |
+
+**Оба слоя обязательны**, если theunum **из браузера** (admin / site) ходит в scribely **напрямую**:
+- Origin должен быть в `CORS_ALLOWED_ORIGINS`
+- В каждом запросе header `X-Theunum-Service-Token: <секрет>` (или `Authorization: Bearer <секрет>`)
+
+**Только token** (без CORS) — когда зовёт **сервер** theunum (NestJS cron / route на VPS): браузер не участвует, CORS не применяется, но **тот же секрет в header обязателен**.
+
+Токен **не** в URL, **не** в frontend-коде публично, **не** JWT rewriter scribely, **не** `INTERNAL_SERVICE_TOKEN`.
+
+### Что прописать на scribely (Railway, сервис `api`)
+
+```env
+THEUNUM_INTEGRATION_TOKEN=<один-секрет>
+CORS_ALLOWED_ORIGINS=https://admin.theunum.io,https://theunum.io
+```
+
+После смены — **redeploy `api`**.
+
+### Что прописать на theunum (VPS, `api.theunum.io`)
+
+```env
+SCRIBELY_BASE_URL=https://api-scribely-production.up.railway.app
+SCRIBELY_INTEGRATION_TOKEN=<тот-же-секрет>
+```
+
+### Заголовок на каждый запрос (theunum → scribely)
+
+```http
+X-Theunum-Service-Token: <SCRIBELY_INTEGRATION_TOKEN>
+Content-Type: application/json
+```
+
+### Если что-то не так
+
+| Симптом | Причина |
+|---|---|
+| CORS error в браузере | Origin theunum **не** в `CORS_ALLOWED_ORIGINS` scribely |
+| **401** | Нет header или секрет **не совпадает** между бэкендами |
+| **503** | На scribely не задан `THEUNUM_INTEGRATION_TOKEN` |
+| Preflight OPTIONS падает | Origin не в allowlist или header не в `allow_headers` (у нас: `X-Theunum-Service-Token`, `Authorization`, `Content-Type`) |
+
+---
+
+## Шпаргалка: вызов из другого проекта (prod)
+
+Скопируй этот блок в `api.theunum.io` / заметки — не нужно каждый раз объяснять scribely заново.
+
+### Prod URL (scribely)
+
+```
+https://api-scribely-production.up.railway.app
+```
+
+Все integration-запросы:
+
+```
+https://api-scribely-production.up.railway.app/integrations/theunum/v1/drafts
+https://api-scribely-production.up.railway.app/integrations/theunum/v1/drafts/{uuid}
+https://api-scribely-production.up.railway.app/integrations/theunum/v1/drafts/mark-consumed
+https://api-scribely-production.up.railway.app/integrations/theunum/v1/status
+```
+
+### Секрет (один на обе стороны)
+
+| Где | Env | Значение |
+|---|---|---|
+| Railway scribely **`api`** | `THEUNUM_INTEGRATION_TOKEN` | `<секрет>` |
+| VPS **`api.theunum.io`** | `SCRIBELY_INTEGRATION_TOKEN` | **тот же** `<секрет>` |
+
+Генерация: `python -c "import secrets; print(secrets.token_urlsafe(48))"`
+
+### Auth — два равнозначных заголовка (не JWT!)
+
+**Вариант A (рекомендуется для server-side / NestJS cron):**
+
+```http
+X-Theunum-Service-Token: <SCRIBELY_INTEGRATION_TOKEN>
+```
+
+**Вариант B:**
+
+```http
+Authorization: Bearer <SCRIBELY_INTEGRATION_TOKEN>
+```
+
+Токен **только в header**, **не** в query/URL.  
+**Не** `INTERNAL_SERVICE_TOKEN`, **не** JWT rewriter/admin.
+
+| Ответ | Причина |
+|---|---|
+| **503** | На scribely `api` не задан `THEUNUM_INTEGRATION_TOKEN` |
+| **401** | Header отсутствует или секрет не совпадает |
+
+### Сценарий 1: сервер theunum (cron / NestJS route) → scribely
+
+CORS не участвует (не браузер). **Token обязателен.**
+
+```typescript
+const headers = {
+  "X-Theunum-Service-Token": process.env.SCRIBELY_INTEGRATION_TOKEN!,
+  "Content-Type": "application/json",
+};
+
+await fetch(`${process.env.SCRIBELY_BASE_URL}/integrations/theunum/v1/drafts?limit=50`, {
+  headers,
+});
+```
+
+### Сценарий 2: браузер theunum → scribely напрямую
+
+**Origin из allowlist + token в header — оба обязательны.**
+
+На scribely уже должно быть:
+
+```env
+CORS_ALLOWED_ORIGINS=https://admin.theunum.io,https://theunum.io
+THEUNUM_INTEGRATION_TOKEN=<секрет>
+```
+
+Запрос **только** со страницы, чей origin в списке (например открыт `https://admin.theunum.io`):
+
+```javascript
+fetch("https://api-scribely-production.up.railway.app/integrations/theunum/v1/drafts?limit=50", {
+  method: "GET",
+  headers: {
+    "X-Theunum-Service-Token": "<секрет — лучше прокси через api.theunum.io, не светить в FE>",
+    "Content-Type": "application/json",
+  },
+});
+```
+
+Если origin не в allowlist — браузер заблокирует ответ (CORS), даже с правильным token.
+
+**Безопаснее:** браузер → `api.theunum.io` (свой JWT/session) → сервер theunum добавляет `X-Theunum-Service-Token` → scribely. Тогда CORS scribely не нужен для FE, token остаётся только на VPS.
+
+### Минимальный flow cron (без cursor, если ≤50 drafts)
+
+```
+1. GET  /integrations/theunum/v1/drafts?limit=50
+       Header: X-Theunum-Service-Token: <token>
+2. if items.length === 0 && meta.reason_code !== 'queue_empty' → alert
+3. save each item to VPS DB (dedupe по draft.id)
+4. POST /integrations/theunum/v1/drafts/mark-consumed
+       Body: { "items": [{ "draft_id": "...", "theunum_reference_id": "..." }] }
+       Header: X-Theunum-Service-Token: <token>
+```
+
+`cursor` — **не обязателен** на первом запросе; нужен только если `has_more: true`.
+
+---
+
 ## Направление данных
 
 ```mermaid
@@ -228,6 +387,21 @@ Authorization: Bearer <token>
 | SEO RU | `seo_title_ru`, `seo_description_ru`, `slug_ru`, `keywords_ru`, … |
 | Качество | `compliance_notes`, `sensitive_hold`, `fact_conflict`, `similarity_score`, флаги sponsor/press_release/disclaimer |
 | Теги/категория | `pending_tags`, `pending_category_slug`, `tag_ids`, `category_id` |
+
+**Категория сайта (`pending_category_slug`)** — slug из **Postgres** (`tag_category_cache`, sync с theunum.io раз в сутки). Не хардкод в scribely.
+
+| Источник | Как обновляется |
+|---|---|
+| `tag_category_cache` | Worker: `GET {THEUNUM_API_BASE_URL}/api/v1/categories?locale=en` + `?locale=ru` раз в **24 ч** |
+| Admin | `POST /admin/site-categories/sync` — ручной sync |
+| Bootstrap | Если таблица пуста — seed из дефолтов до первого sync |
+
+Ожидаемый JSON theunum (на каждый locale): `{"items": [{"id", "slug", "name"}]}` — scribely мержит EN+RU в `name_en`/`name_ru`. Новые категории на сайте → upsert; исчезнувшие → `is_active=false`.
+
+Fallback slug (обычно «мир»): AppSetting `site_category.fallback_slug` (default `world`).
+
+На VPS маппить `pending_category_slug` → id категории в CMS (можно брать `id` из Export, если scribely прокинет `category_id` после sync — пока только slug в `pending_category_slug`).
+
 | Image brief | `image_brief`, `image_alt`, `image_mood`, … |
 | Источники | `sources[]`: `{ title, url, language, source_name }` |
 | Прочее | `attribution_urls`, `handoff_note`, `rewrite_llm_model`, `created_at` |

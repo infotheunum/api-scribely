@@ -5,20 +5,24 @@ import json
 import pytest
 from db.enums import PromptVersionStatus
 from db.models import PromptVersion
+from rewrite_app.prompt.style_guide import BODY_MAX_CHARS, BODY_MIN_CHARS
 from rewrite_app.rewrite.orchestrator import rewrite_cluster
 from rewrite_app.settings import RewriteSettings
 
+VALID_BODY_EN = "x" * BODY_MIN_CHARS
+VALID_BODY_RU = "y" * BODY_MIN_CHARS
+
 VALID_RESULT = {
     "title_en": "Bitcoin Surges Past $120,000 as ETF Inflows Accelerate",
-    "body_en": "x" * 200,
+    "body_en": VALID_BODY_EN,
     "title_ru": "Биткоин превысил $120,000 на фоне роста притоков в ETF",
-    "body_ru": "y" * 200,
+    "body_ru": VALID_BODY_RU,
     "title_en_variants": [],
     "title_ru_variants": [],
     "sponsor_flag": False,
     "press_release_flag": False,
     "disclaimer_flag": True,
-    "suggested_category_slug": "bitcoin",
+    "suggested_category_slug": "cryptocurrency",
     "tags": [{"slug": "etf", "name": "ETF"}],
     "seo_en": {
         "seo_title": "t",
@@ -79,6 +83,23 @@ def test_rewrite_cluster_parses_valid_response(clean_db, prompt_version, monkeyp
     assert result.disclaimer_flag is True
     assert len(result.tags) == 1
     assert model == "openai/gpt-oss-20b:free"
+
+
+def test_rewrite_cluster_rejects_too_long_body(clean_db, prompt_version, monkeypatch):
+    bad = dict(VALID_RESULT, body_en="x" * (BODY_MAX_CHARS + 1))
+    monkeypatch.setattr(
+        "rewrite_app.rewrite.orchestrator.call_with_rotation",
+        lambda *a, **kw: (json.dumps(bad), "key_1", "m"),
+    )
+    with pytest.raises(RuntimeError, match="failed after"):
+        rewrite_cluster(
+            clean_db,
+            RewriteSettings(),
+            prompt_version,
+            sources_text="s",
+            facts_text="f",
+            flags_text="fl",
+        )
 
 
 def test_rewrite_cluster_rejects_too_short_body(clean_db, prompt_version, monkeypatch):

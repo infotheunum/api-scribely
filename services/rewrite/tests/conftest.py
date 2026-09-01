@@ -14,6 +14,7 @@ from db.models import (  # noqa: E402
     LLMRotationState,
     LLMRotationUsage,
     PromptVersion,
+    TagCategoryCache,
 )
 from rewrite_app.db import _session_factory  # noqa: E402
 from sqlalchemy import delete  # noqa: E402
@@ -33,6 +34,7 @@ def _wipe(session):
     session.execute(delete(LLMRotationUsage))
     session.execute(delete(LLMRotationState))
     session.execute(delete(PromptVersion))
+    session.execute(delete(TagCategoryCache))
     session.execute(delete(AppSetting))
     session.execute(delete(LlmRotationModel))
     session.commit()

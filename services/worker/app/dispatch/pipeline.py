@@ -8,10 +8,11 @@ from common.pipeline_telemetry import record_dispatch_cycle_result
 from common.tracing import get_trace_id, new_trace_id, set_trace_id
 from db.app_settings import get_setting
 from db.enums import DraftRevisionKind
-from db.models import ClusterContext, Draft, DraftRevision, NewsCluster
+from db.models import ClusterContext, Draft, NewsCluster
 from scribely.rewrite.v1 import rewrite_pb2
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from worker_app.dispatch.draft_apply import apply_rewrite_content
 from worker_app.filter.queue import select_top_clusters
 from worker_app.settings import WorkerSettings
 
@@ -84,65 +85,23 @@ def _persist_draft(
 ) -> Draft:
     draft = Draft(
         cluster_id=cluster.id,
-        title_en=draft_content.title_en,
-        body_en=draft_content.body_en,
-        title_ru=draft_content.title_ru,
-        body_ru=draft_content.body_ru,
-        title_en_variants=list(draft_content.title_en_variants),
-        title_ru_variants=list(draft_content.title_ru_variants),
-        attribution_urls=list(draft_content.attribution_urls),
-        sponsor_flag=draft_content.sponsor_flag,
-        press_release_flag=draft_content.press_release_flag,
-        disclaimer_flag=draft_content.disclaimer_flag,
-        fact_conflict=draft_content.fact_conflict,
-        rewrite_llm_key_alias=rewrite_usage.key_alias or None,
-        rewrite_llm_model=rewrite_usage.model or None,
-        translate_llm_key_alias=translate_usage.key_alias or None,
-        translate_llm_model=translate_usage.model or None,
-        # Left in DRAFTING (model default), not promoted straight to
-        # READY_FOR_REVIEW — the Policy/Compliance Checker (worker_app/
-        # compliance/pipeline.py, ТЗ §4.6, Фаза 5) gates every draft
-        # before it can enter the review queue.
         trace_id=trace_id,
-        prompt_version_id=prompt_version_id or None,
-        seo_title_en=draft_content.seo_en.seo_title,
-        seo_description_en=draft_content.seo_en.seo_description,
-        slug_en=draft_content.seo_en.slug,
-        og_title_en=draft_content.seo_en.og_title,
-        og_description_en=draft_content.seo_en.og_description,
-        focus_keyphrase_en=draft_content.seo_en.focus_keyphrase,
-        keywords_en=list(draft_content.seo_en.keywords),
-        seo_title_ru=draft_content.seo_ru.seo_title,
-        seo_description_ru=draft_content.seo_ru.seo_description,
-        slug_ru=draft_content.seo_ru.slug,
-        og_title_ru=draft_content.seo_ru.og_title,
-        og_description_ru=draft_content.seo_ru.og_description,
-        focus_keyphrase_ru=draft_content.seo_ru.focus_keyphrase,
-        keywords_ru=list(draft_content.seo_ru.keywords),
-        image_brief=draft_content.image_brief.image_brief,
-        image_mood=draft_content.image_brief.image_mood,
-        image_subjects=list(draft_content.image_brief.image_subjects),
-        image_style=draft_content.image_brief.image_style,
-        image_do_not=list(draft_content.image_brief.image_do_not),
-        image_alt=draft_content.image_brief.image_alt,
-        image_caption=draft_content.image_brief.image_caption,
-        image_source_suggestion=draft_content.image_brief.image_source_suggestion,
-        pending_tags=[{"slug": t.slug, "name": t.name} for t in draft_content.tags],
-        pending_category_slug=draft_content.suggested_category_slug or None,
     )
     db.add(draft)
-    db.flush()  # need draft.id for the DraftRevision FK before commit
-
-    db.add(
-        DraftRevision(
-            draft_id=draft.id,
-            kind=DraftRevisionKind.AI_GENERATED,
-            title_en=draft_content.title_en,
-            body_en=draft_content.body_en,
-            title_ru=draft_content.title_ru,
-            body_ru=draft_content.body_ru,
-            prompt_version_id=prompt_version_id or None,
-        )
+    db.flush()
+    apply_rewrite_content(
+        db,
+        draft,
+        draft_content,
+        prompt_version_id=prompt_version_id or None,
+        trace_id=trace_id,
+        rewrite_key_alias=rewrite_usage.key_alias or None,
+        rewrite_model=rewrite_usage.model or None,
+        translate_key_alias=translate_usage.key_alias or None,
+        translate_model=translate_usage.model or None,
+        revision_kind=DraftRevisionKind.AI_GENERATED,
+        bump_version=False,
+        editorial_topic=cluster.topic,
     )
     return draft
 

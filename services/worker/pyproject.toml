@@ -38,6 +38,8 @@ packages = [
     "worker_app.dedup",
     "worker_app.filter",
     "worker_app.compliance",
+    "worker_app.dispatch",
+    "worker_app.sync",
     "worker_app.tagsync",
     "worker_app.grpc_client",
 ]

@@ -6,8 +6,8 @@ from typing import Any
 from api_app.auth.dependencies import require_role
 from api_app.db import get_db
 from common.tracing import get_trace_id
-from db.enums import PromptVersionStatus, SourceTier, SourceType
-from db.models import AppSetting, AuditLog, LlmRotationModel, PromptVersion, Source, Topic, User
+from db.enums import PromptVersionStatus, SourceTier, SourceType, TagCategoryKind
+from db.models import AppSetting, AuditLog, LlmRotationModel, PromptVersion, Source, TagCategoryCache, Topic, User
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -451,3 +451,73 @@ def activate_prompt_version(
         details={"retired": [str(v.id) for v in currently_active if v.id != version.id]},
     )
     return PromptVersionOut.from_model(version)
+
+
+# ---------------------------------------------------------------------
+# Site categories (theunum.io CMS → tag_category_cache)
+# ---------------------------------------------------------------------
+
+
+class SiteCategoryOut(BaseModel):
+    id: str
+    slug: str
+    name_en: str | None
+    name_ru: str | None
+    is_active: bool
+    synced_at: str
+
+    @classmethod
+    def from_model(cls, row: TagCategoryCache) -> SiteCategoryOut:
+        return cls(
+            id=row.id,
+            slug=row.slug,
+            name_en=row.name_en,
+            name_ru=row.name_ru,
+            is_active=row.is_active,
+            synced_at=row.synced_at.isoformat(),
+        )
+
+
+@router.get("/site-categories", response_model=list[SiteCategoryOut])
+def list_site_categories(db: Session = Depends(get_db)) -> list[SiteCategoryOut]:
+    rows = db.scalars(
+        select(TagCategoryCache)
+        .where(TagCategoryCache.kind == TagCategoryKind.CATEGORY)
+        .order_by(TagCategoryCache.slug)
+    ).all()
+    return [SiteCategoryOut.from_model(row) for row in rows]
+
+
+@router.post("/site-categories/sync")
+def sync_site_categories(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("admin")),
+) -> dict:
+    """Pull categories from api.theunum.io into tag_category_cache."""
+    import os
+
+    from api_app.settings import ApiSettings
+    from common.site_category_sync import run_theunum_categories_sync
+
+    settings = ApiSettings()
+    token = settings.theunum_api_token.strip() or settings.theunum_integration_token.strip()
+    if not token:
+        token = os.environ.get("THEUNUM_INTEGRATION_TOKEN", "")
+    try:
+        stats = run_theunum_categories_sync(
+            db,
+            base_url=settings.theunum_api_base_url,
+            path=settings.theunum_categories_path,
+            api_token=token,
+        )
+    except Exception as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+    _audit(
+        db,
+        user,
+        action="admin_sync",
+        entity_type="TagCategoryCache",
+        entity_id="theunum",
+        details=stats,
+    )
+    return stats
