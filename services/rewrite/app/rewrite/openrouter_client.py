@@ -30,6 +30,8 @@ def extract_json(content: str) -> dict:
     instructions not to — stripped here rather than treated as a parse
     failure, since that would trigger a wasted regenerate for a purely
     cosmetic issue."""
+    if not content or not content.strip():
+        raise ValueError("empty LLM response content")
     cleaned = _JSON_FENCE.sub("", content.strip())
     return json.loads(cleaned)
 
@@ -82,5 +84,9 @@ def call_openrouter(
         message = f"unexpected response shape: {data}"
         raise OpenRouterError(message, code="unknown") from exc
 
+    if content is None or not str(content).strip():
+        message = "OpenRouter returned empty message content"
+        raise OpenRouterError(message, code="unknown")
+
     model_used = data.get("model") or models[0]
-    return content, model_used
+    return str(content), model_used
