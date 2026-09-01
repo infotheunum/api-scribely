@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import os
 import re
 
+import pytest
 from rewrite_app.enrich.enrichment import enrich_cluster
 from rewrite_app.prompt.versions import get_active_prompt_version
 from rewrite_app.rewrite.orchestrator import rewrite_cluster
@@ -25,6 +27,13 @@ REAL_SOURCE_RU = """\
 """
 
 
+@pytest.mark.skipif(
+    not any(
+        os.environ.get(k, "").strip()
+        for k in ("OPENROUTER_KEY_1", "OPENROUTER_KEY_2", "OPENROUTER_KEY_3")
+    ),
+    reason="OPENROUTER_KEY_* not configured — live LLM test skipped",
+)
 def test_real_end_to_end_enrich_and_rewrite(clean_db):
     """Slow and hits real OpenRouter free-tier quota on purpose — this is
     the one test in the suite that proves the whole pipeline (prompt +
@@ -32,8 +41,6 @@ def test_real_end_to_end_enrich_and_rewrite(clean_db):
     output, not just against my own mocks. Everything else in this file
     tree mocks the LLM call deliberately."""
     settings = RewriteSettings()
-    assert any(settings.openrouter_keys().values()), "no OpenRouter keys configured in .env"
-
     sources_text = REAL_SOURCE_EN + "\n\n" + REAL_SOURCE_RU
 
     enrich_result, enrich_key, enrich_model = enrich_cluster(

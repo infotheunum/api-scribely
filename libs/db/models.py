@@ -275,6 +275,9 @@ class Draft(Base):
 
     cluster: Mapped[NewsCluster] = relationship(back_populates="drafts")
     revisions: Mapped[list[DraftRevision]] = relationship(back_populates="draft")
+    export_log: Mapped[DraftExportLog | None] = relationship(
+        back_populates="draft", uselist=False
+    )
 
 
 class DraftRevision(Base):
@@ -295,6 +298,19 @@ class DraftRevision(Base):
     created_at: Mapped[datetime] = _created_at()
 
     draft: Mapped[Draft] = relationship(back_populates="revisions")
+
+
+class DraftExportLog(Base):
+    """theunum.io integration — VPS cron marked this draft consumed."""
+
+    __tablename__ = "draft_export_log"
+
+    draft_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("draft.id", ondelete="CASCADE"), primary_key=True)
+    consumed_at: Mapped[datetime] = _created_at()
+    theunum_reference_id: Mapped[str | None] = mapped_column(String(128))
+    trace_id: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    draft: Mapped[Draft] = relationship(back_populates="export_log")
 
 
 class EditSignal(Base):

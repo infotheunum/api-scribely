@@ -13,6 +13,7 @@ from db.models import (  # noqa: E402
     AppSetting,
     ClusterContext,
     Draft,
+    DraftExportLog,
     DraftRevision,
     LlmRotationModel,
     NewsCluster,
@@ -38,6 +39,7 @@ def _wipe(session):
     # Children before parents: DraftRevision->Draft->NewsCluster,
     # ClusterContext->NewsCluster, RawItem->Source+NewsCluster.
     session.execute(delete(DraftRevision))
+    session.execute(delete(DraftExportLog))
     session.execute(delete(Draft))
     session.execute(delete(ClusterContext))
     session.execute(delete(RawItem))
