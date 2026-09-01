@@ -7,6 +7,14 @@ from pathlib import Path
 from api_app.auth.dependencies import get_current_user_optional
 from api_app.db import get_db
 from api_app.routers import admin as admin_api
+from common.integration_export_settings import (
+    DEFAULT_FRESHNESS_DESCRIPTION,
+    DEFAULT_FRESHNESS_KEY,
+    DEFAULT_MAX_AGE_HOURS_DESCRIPTION,
+    DEFAULT_MAX_AGE_HOURS_KEY,
+    load_export_freshness_defaults,
+)
+from db.app_settings import set_setting
 from db.enums import SourceTier
 from db.models import User
 from fastapi import APIRouter, Depends, Form, Request, status
@@ -262,11 +270,56 @@ def settings_page(
     if redirect:
         return redirect
     settings = admin_api.list_settings(db=db)
+    export_freshness, export_max_age_hours = load_export_freshness_defaults(db)
     return templates.TemplateResponse(
         request,
         "admin_settings.html",
-        {"user": user, "active": "admin", "admin_tab": "settings", "settings": settings},
+        {
+            "user": user,
+            "active": "admin",
+            "admin_tab": "settings",
+            "settings": settings,
+            "export_freshness": export_freshness or "",
+            "export_max_age_hours": export_max_age_hours if export_max_age_hours is not None else "",
+        },
     )
+
+
+@router.post("/settings/export-freshness")
+def upsert_export_freshness_ui(
+    default_freshness: str = Form(""),
+    default_max_age_hours: str = Form(""),
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
+    redirect = _require_admin(user)
+    if redirect:
+        return redirect
+
+    freshness_value = default_freshness.strip()
+    if freshness_value and freshness_value not in ("today", "48h"):
+        freshness_value = ""
+    set_setting(
+        db,
+        DEFAULT_FRESHNESS_KEY,
+        freshness_value,
+        description=DEFAULT_FRESHNESS_DESCRIPTION,
+        updated_by=user.id if user else None,
+    )
+
+    hours_raw = default_max_age_hours.strip()
+    hours_value: str | int = ""
+    if hours_raw:
+        hours_value = max(1, min(168, int(hours_raw)))
+    set_setting(
+        db,
+        DEFAULT_MAX_AGE_HOURS_KEY,
+        hours_value,
+        description=DEFAULT_MAX_AGE_HOURS_DESCRIPTION,
+        updated_by=user.id if user else None,
+    )
+    db.commit()
+    return RedirectResponse("/ui/admin/settings", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.post("/settings")

@@ -7,6 +7,7 @@ from api_app.auth.integration import require_integration_token_dep
 from api_app.db import get_db
 from api_app.integrations.freshness import FreshnessPreset, resolve_content_generated_since
 from api_app.integrations.pipeline_status import build_list_meta, build_pipeline_status
+from common.integration_export_settings import merge_export_freshness_query
 from api_app.routers.drafts import DEFAULT_QUEUE_STATUSES, DraftDetail
 from common.rewrite_body_format import body_to_html
 from common.tracing import get_trace_id
@@ -129,6 +130,12 @@ def _list_export_drafts_impl(
     cursor: uuid.UUID | None,
     limit: int,
 ) -> DraftListResponse:
+    generated_since, freshness, max_age_hours, freshness_source = merge_export_freshness_query(
+        db,
+        generated_since=generated_since,
+        freshness=freshness,
+        max_age_hours=max_age_hours,
+    )
     try:
         effective_generated_since = resolve_content_generated_since(
             generated_since=generated_since,
@@ -161,6 +168,7 @@ def _list_export_drafts_impl(
         meta["freshness"] = freshness
     if max_age_hours is not None:
         meta["max_age_hours"] = max_age_hours
+    meta["freshness_source"] = freshness_source
     return DraftListResponse(
         items=items,
         next_cursor=next_cursor,
