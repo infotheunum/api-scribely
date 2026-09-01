@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from db.enums import DraftStatus, SourceTier, SourceType, TopicStatus
 from db.models import Draft, DraftExportLog, NewsCluster, RawItem, Source
-from rewrite_app.prompt.style_guide import BODY_MIN_CHARS
+from common.rewrite_body_limits import BODY_MIN_CHARS
 from scribely.rewrite.v1 import rewrite_pb2
 from worker_app.dispatch.regenerate import run_regenerate_batch
 
