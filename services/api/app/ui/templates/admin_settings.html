@@ -4,6 +4,34 @@
 <p class="note">Тонкие/грубые настройки пайплайна (ТЗ §4.21) — значение подхватывается на следующем тике воркера, без редеплоя. Значение можно задать числом, строкой, true/false или JSON.</p>
 
 <div class="card">
+  <h2>Export API — свежесть для VPS cron</h2>
+  <p class="note">Дефолтный фильтр по <code>content_generated_at</code> (дата последнего AI-рерайта). Применяется, если VPS вызывает <code>GET /integrations/theunum/v1/drafts?consumed=false</code> <strong>без</strong> <code>freshness</code>, <code>max_age_hours</code> и <code>generated_since</code>. Явные query-параметры всегда важнее.</p>
+  <form class="inline-form" method="post" action="/ui/admin/settings/export-freshness">
+    <div class="field">
+      <label>Пресет</label>
+      <select name="default_freshness">
+        <option value="" {% if not export_freshness %}selected{% endif %}>— без фильтра —</option>
+        <option value="today" {% if export_freshness == 'today' %}selected{% endif %}>today (с UTC 00:00 сегодня)</option>
+        <option value="48h" {% if export_freshness == '48h' %}selected{% endif %}>48h (не старше 2 суток)</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>max_age_hours (опционально)</label>
+      <input type="number" name="default_max_age_hours" min="1" max="168" placeholder="24" value="{{ export_max_age_hours }}">
+    </div>
+    <div class="field">
+      <label>limit по умолчанию (опционально)</label>
+      <input type="number" name="default_limit" min="1" max="100" placeholder="100" value="{{ export_limit }}">
+    </div>
+    <div class="field field-narrow">
+      <button class="btn btn-primary" type="submit">Сохранить export defaults</button>
+    </div>
+  </form>
+  <p class="note">REST для внешней админки: <code>GET/PUT /admin/integration/export-settings</code> (JWT admin). Схема всех фильтров для cron: <code>GET /integrations/theunum/v1/export-schema</code> (integration token).</p>
+  <p class="note">Ключи в БД: <code>integration.export.default_freshness</code>, <code>integration.export.default_max_age_hours</code>, <code>integration.export.default_limit</code>. Эндпоинт <code>/drafts/today</code> всегда «сегодня», независимо от этих настроек.</p>
+</div>
+
+<div class="card">
   <h2>Установить / изменить настройку</h2>
   <form class="inline-form" method="post" action="/ui/admin/settings">
     <div class="field">

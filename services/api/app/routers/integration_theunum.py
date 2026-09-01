@@ -7,6 +7,8 @@ from api_app.auth.integration import require_integration_token_dep
 from api_app.db import get_db
 from api_app.integrations.freshness import FreshnessPreset, resolve_content_generated_since
 from api_app.integrations.pipeline_status import build_list_meta, build_pipeline_status
+from common.integration_export_settings import merge_export_freshness_query, merge_export_limit_query
+from common.integration_export_schema import build_export_schema_payload
 from api_app.routers.drafts import DEFAULT_QUEUE_STATUSES, DraftDetail
 from common.rewrite_body_format import body_to_html
 from common.tracing import get_trace_id
@@ -127,8 +129,15 @@ def _list_export_drafts_impl(
     freshness: FreshnessPreset | None,
     max_age_hours: int | None,
     cursor: uuid.UUID | None,
-    limit: int,
+    limit: int | None,
 ) -> DraftListResponse:
+    generated_since, freshness, max_age_hours, freshness_source = merge_export_freshness_query(
+        db,
+        generated_since=generated_since,
+        freshness=freshness,
+        max_age_hours=max_age_hours,
+    )
+    effective_limit, limit_source = merge_export_limit_query(db, limit=limit)
     try:
         effective_generated_since = resolve_content_generated_since(
             generated_since=generated_since,
@@ -146,9 +155,9 @@ def _list_export_drafts_impl(
         generated_since=effective_generated_since,
         cursor=cursor,
     )
-    drafts = db.scalars(stmt.limit(limit + 1)).unique().all()
-    has_more = len(drafts) > limit
-    page = drafts[:limit]
+    drafts = db.scalars(stmt.limit(effective_limit + 1)).unique().all()
+    has_more = len(drafts) > effective_limit
+    page = drafts[:effective_limit]
     next_cursor = str(page[-1].id) if has_more and page else None
 
     items = [_to_integration_export(draft, draft.export_log if draft.export_log else None) for draft in page]
@@ -161,12 +170,21 @@ def _list_export_drafts_impl(
         meta["freshness"] = freshness
     if max_age_hours is not None:
         meta["max_age_hours"] = max_age_hours
+    meta["freshness_source"] = freshness_source
+    meta["limit"] = effective_limit
+    meta["limit_source"] = limit_source
     return DraftListResponse(
         items=items,
         next_cursor=next_cursor,
         has_more=has_more,
         meta=meta,
     )
+
+
+@router.get("/export-schema")
+def export_schema(db: Session = Depends(get_db)) -> dict:
+    """Filter catalog + admin defaults for VPS cron / theunum admin UI."""
+    return build_export_schema_payload(db)
 
 
 @router.get("/status")
@@ -197,7 +215,7 @@ def list_export_drafts(
         description="Only drafts generated within the last N hours (alternative to freshness)",
     ),
     cursor: uuid.UUID | None = Query(None),
-    limit: int = Query(50, ge=1, le=100),
+    limit: int | None = Query(None, ge=1, le=100),
 ) -> DraftListResponse:
     statuses = status_filter or DEFAULT_EXPORT_STATUSES
     return _list_export_drafts_impl(
@@ -221,7 +239,7 @@ def list_export_drafts_today(
     status_filter: list[str] | None = Query(None, alias="status"),
     consumed: bool = Query(False),
     cursor: uuid.UUID | None = Query(None),
-    limit: int = Query(50, ge=1, le=100),
+    limit: int | None = Query(None, ge=1, le=100),
 ) -> DraftListResponse:
     """Shortcut: unconsumed queue drafts with content_generated_at >= UTC midnight today."""
     statuses = status_filter or DEFAULT_EXPORT_STATUSES

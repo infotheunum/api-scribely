@@ -7,6 +7,7 @@ from pathlib import Path
 from api_app.auth.dependencies import get_current_user_optional
 from api_app.db import get_db
 from api_app.routers import admin as admin_api
+from common.integration_export_settings import load_export_defaults, save_export_defaults
 from db.enums import SourceTier
 from db.models import User
 from fastapi import APIRouter, Depends, Form, Request, status
@@ -262,11 +263,57 @@ def settings_page(
     if redirect:
         return redirect
     settings = admin_api.list_settings(db=db)
+    export_defaults = load_export_defaults(db)
     return templates.TemplateResponse(
         request,
         "admin_settings.html",
-        {"user": user, "active": "admin", "admin_tab": "settings", "settings": settings},
+        {
+            "user": user,
+            "active": "admin",
+            "admin_tab": "settings",
+            "settings": settings,
+            "export_freshness": export_defaults.get("default_freshness") or "",
+            "export_max_age_hours": export_defaults.get("default_max_age_hours")
+            if export_defaults.get("default_max_age_hours") is not None
+            else "",
+            "export_limit": export_defaults.get("default_limit")
+            if export_defaults.get("default_limit") is not None
+            else "",
+        },
     )
+
+
+@router.post("/settings/export-freshness")
+def upsert_export_freshness_ui(
+    default_freshness: str = Form(""),
+    default_max_age_hours: str = Form(""),
+    default_limit: str = Form(""),
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
+    redirect = _require_admin(user)
+    if redirect:
+        return redirect
+
+    hours: int | None = None
+    hours_raw = default_max_age_hours.strip()
+    if hours_raw:
+        hours = max(1, min(168, int(hours_raw)))
+
+    limit: int | None = None
+    limit_raw = default_limit.strip()
+    if limit_raw:
+        limit = max(1, min(100, int(limit_raw)))
+
+    save_export_defaults(
+        db,
+        default_freshness=default_freshness.strip(),
+        default_max_age_hours=hours,
+        default_limit=limit,
+        updated_by=user.id if user else None,
+    )
+    db.commit()
+    return RedirectResponse("/ui/admin/settings", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.post("/settings")
