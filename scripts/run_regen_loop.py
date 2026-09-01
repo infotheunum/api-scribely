@@ -105,9 +105,11 @@ def main() -> int:
 
             for item in result.get("successes", []):
                 ok_total += 1
+                generated = item.get("content_generated_at", "")
                 _log(
                     f"OK   draft={item['draft_id']} status={item['status']} "
-                    f"en={item['body_en_len']} ru={item['body_ru_len']} | "
+                    f"en={item['body_en_len']} ru={item['body_ru_len']} "
+                    f"generated={generated} | "
                     f"{item['title_en'][:70]}"
                 )
 

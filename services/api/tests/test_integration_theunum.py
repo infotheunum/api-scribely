@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 import pytest
 from db.app_settings import set_setting
 from db.enums import DraftStatus, SourceTier, SourceType
@@ -160,6 +162,39 @@ def test_list_returns_bilingual_draft(client, clean_db):
     assert items[0]["body_en_html"].count("<p>") == 3
     assert items[0]["body_ru_html"].count("<p>") == 3
     assert items[0]["consumed_at"] is None
+
+
+def test_list_filters_by_generated_since(client, clean_db):
+    source = _source(clean_db)
+    cluster = _cluster(clean_db, source)
+    fresh = _draft(clean_db, cluster, title_en="Fresh draft title here today")
+    stale = _draft(clean_db, cluster, title_en="Stale draft title here today")
+    stale.content_generated_at = datetime.now(UTC) - timedelta(days=30)
+    clean_db.commit()
+
+    since = (datetime.now(UTC) - timedelta(days=1)).replace(microsecond=0).isoformat().replace(
+        "+00:00", "Z"
+    )
+    resp = client.get(
+        f"/integrations/theunum/v1/drafts?generated_since={since}",
+        headers=AUTH_HEADERS,
+    )
+    assert resp.status_code == 200
+    ids = {item["id"] for item in resp.json()["items"]}
+    assert str(fresh.id) in ids
+    assert str(stale.id) not in ids
+
+
+def test_list_includes_content_generated_at(client, clean_db):
+    source = _source(clean_db)
+    cluster = _cluster(clean_db, source)
+    draft = _draft(clean_db, cluster)
+    resp = client.get("/integrations/theunum/v1/drafts", headers=AUTH_HEADERS)
+    item = resp.json()["items"][0]
+    assert item["content_generated_at"]
+    assert item["updated_at"]
+    assert item["created_at"]
+    assert item["id"] == str(draft.id)
 
 
 def test_mark_consumed_excludes_from_list(client, clean_db):

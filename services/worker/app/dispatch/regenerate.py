@@ -150,6 +150,7 @@ def run_regenerate_batch(
                     "title_en": (draft.title_en or "")[:80],
                     "body_en_len": len(draft.body_en or ""),
                     "body_ru_len": len(draft.body_ru or ""),
+                    "content_generated_at": draft.content_generated_at.isoformat(),
                 }
                 successes.append(summary)
                 logger.info("regenerated draft %s -> status=%s", draft_id, draft.status)

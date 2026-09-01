@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 
 from common.site_categories import resolve_site_category_slug
 from db.enums import DraftRevisionKind, DraftStatus
@@ -89,6 +90,7 @@ def apply_rewrite_content(
     draft.compliance_notes = []
     draft.similarity_score = None
     draft.status = DraftStatus.DRAFTING
+    draft.content_generated_at = datetime.now(UTC)
     if bump_version:
         draft.version += 1
 

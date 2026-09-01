@@ -338,7 +338,8 @@ Authorization: Bearer <token>
 |---|---|---|
 | `consumed` | `false` | **`false`** — только ещё не забранные theunum (главный фильтр cron). `true` — только для отладки/аудита |
 | `status` | `ready_for_review`, `needs_fix` | Можно повторить параметр или передать один статус |
-| `since` | — | ISO8601, фильтр по `Draft.updated_at` (инкрементальный cron) |
+| `since` | — | ISO8601, фильтр по `Draft.updated_at` (любое изменение черновика) |
+| `generated_since` | — | ISO8601, **рекомендуется для VPS** — только черновики, у которых **последний AI-рерайт/regen** ≥ этой даты (`content_generated_at`) |
 | `limit` | `50` | Max 100 |
 | `cursor` | — | Пагинация: `draft_id` последнего item с предыдущей страницы |
 
@@ -380,7 +381,7 @@ Authorization: Bearer <token>
 
 | Блок | Поля |
 |---|---|
-| Идентификация | `id`, `trace_id` (в summary через cluster), `status`, `version`, `consumed_at` |
+| Идентификация | `id`, `status`, `version`, `consumed_at`, `created_at`, `updated_at`, **`content_generated_at`** |
 | Текст EN | `title_en`, `body_en`, `body_en_html`, `title_en_variants[]` |
 | Текст RU | `title_ru`, `body_ru`, `body_ru_html`, `title_ru_variants[]` |
 
@@ -410,7 +411,21 @@ Fallback slug (обычно «мир»): AppSetting `site_category.fallback_slug
 
 | Image brief | `image_brief`, `image_alt`, `image_mood`, … |
 | Источники | `sources[]`: `{ title, url, language, source_name }` |
-| Прочее | `attribution_urls`, `handoff_note`, `rewrite_llm_model`, `created_at` |
+| Прочее | `attribution_urls`, `handoff_note`, `rewrite_llm_model` |
+
+**Даты:**
+
+| Поле | Смысл |
+|---|---|
+| `created_at` | Когда черновик впервые создан в scribely |
+| `updated_at` | Любое последнее изменение (regen, правка, compliance) |
+| `content_generated_at` | **Когда последний раз LLM переписал текст** (dispatch или regen) — для отсечения «старых» статей на VPS |
+
+Пример cron после старта mass-regen (только свежий AI-текст):
+
+```http
+GET /integrations/theunum/v1/drafts?consumed=false&generated_since=2026-09-01T17:00:00Z
+```
 
 Отдельных запросов «только EN» / «только RU» нет.
 
