@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from common.settings import CommonSettings
+from pydantic import field_validator
 
 
 class ApiSettings(CommonSettings):
@@ -15,3 +16,23 @@ class ApiSettings(CommonSettings):
     jwt_secret: str = "dev-insecure-jwt-secret"
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60 * 12
+
+    # Machine-to-machine auth for api.theunum.io cron (integrations API).
+    theunum_integration_token: str = ""
+
+    # Comma-separated browser origins; empty = CORS middleware disabled.
+    cors_allowed_origins: str = ""
+
+    @field_validator("cors_allowed_origins", mode="before")
+    @classmethod
+    def _normalize_cors_origins(cls, value: object) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, list):
+            return ",".join(str(item).strip() for item in value if str(item).strip())
+        return str(value)
+
+    def cors_origin_list(self) -> list[str]:
+        if not self.cors_allowed_origins.strip():
+            return []
+        return [part.strip() for part in self.cors_allowed_origins.split(",") if part.strip()]

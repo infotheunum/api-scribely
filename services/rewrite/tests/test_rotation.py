@@ -76,13 +76,34 @@ def test_all_keys_exhausted_raises(clean_db, monkeypatch):
 
     import pytest
 
-    with pytest.raises(AllKeysExhaustedError):
+    with pytest.raises(AllKeysExhaustedError) as exc_info:
         call_with_rotation(
             clean_db,
             api_keys={"key_1": "a", "key_2": "b", "key_3": "c"},
             system_prompt="s",
             user_prompt="u",
         )
+    assert exc_info.value.code == "openrouter_keys_exhausted"
+
+
+def test_all_keys_exhausted_preserves_payment_code(clean_db, monkeypatch):
+    monkeypatch.setattr(
+        "rewrite_app.rewrite.rotation.call_openrouter",
+        lambda **kw: (_ for _ in ()).throw(
+            OpenRouterError("HTTP 402: insufficient credits", code="openrouter_payment_required")
+        ),
+    )
+
+    import pytest
+
+    with pytest.raises(AllKeysExhaustedError) as exc_info:
+        call_with_rotation(
+            clean_db,
+            api_keys={"key_1": "a", "key_2": "b", "key_3": "c"},
+            system_prompt="s",
+            user_prompt="u",
+        )
+    assert exc_info.value.code == "openrouter_payment_required"
 
 
 def test_missing_key_is_skipped(clean_db, monkeypatch):

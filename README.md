@@ -8,8 +8,9 @@ compliance-проверки и отдаёт редакции на ревью и 
 [CLAUDE.md](CLAUDE.md) и [docs/](docs/). Этот файл — только про то, как
 поднять репозиторий локально.
 
-**Статус:** Фаза 0 (Фундамент) готова и проверена локально, Railway ещё
-не подключён. Подробности — в CLAUDE.md → «Статус реализации».
+**Статус:** Фазы 0–7 (полный пайплайн + Review UI + Publish) задеплоены на
+Railway; следующая — Фаза 8 (отчётность). Подробности — в
+[CLAUDE.md](CLAUDE.md) и [docs/План_Реализации_MVP.md](docs/План_Реализации_MVP.md).
 
 ## Архитектура (кратко)
 
@@ -93,10 +94,115 @@ docker run -d --name unum_dev_pg -e POSTGRES_PASSWORD=postgres \
 (второй — живой gRPC-запрос к `rewrite`, подтверждает, что сервисы видят
 друг друга).
 
+## Интеграция scribely → theunum.io (Export API)
+
+**Направление данных:** cron на VPS (`api.theunum.io`) **забирает** готовые
+AI-черновики из scribely (Railway). Scribely **не пушит** на theunum —
+только отдаёт по HTTP по запросу. Между зонами **нет gRPC**; gRPC только
+внутри Railway (`api`/`worker` → `rewrite`).
+
+```mermaid
+flowchart LR
+  subgraph railway [Railway scribely]
+    Worker[worker]
+    Rewrite[rewrite gRPC]
+    Api[api FastAPI]
+    PgS[(Postgres)]
+    Worker --> Rewrite
+    Worker --> PgS
+    Api --> PgS
+  end
+
+  subgraph vps [VPS theunum.io]
+    Cron[cron NestJS]
+    ApiT[api.theunum.io]
+    PgT[(Postgres)]
+    Cron --> ApiT
+    ApiT --> PgT
+  end
+
+  Cron -->|"HTTPS GET /integrations/theunum/v1/drafts"| Api
+  Cron -->|"POST mark-consumed"| Api
+```
+
+### Как это работает
+
+1. **Worker** на Railway создаёт `Draft` со статусом `ready_for_review`
+   (EN + RU в одной записи).
+2. **Cron на VPS** периодически вызывает
+   `GET /integrations/theunum/v1/drafts?consumed=false` с service token.
+3. Scribely отдаёт только черновики **без** записи в `draft_export_log`
+   (ещё не забранные theunum).
+4. VPS сохраняет черновики локально (dedupe по `scribely_draft_id`).
+5. После успешного сохранения cron вызывает
+   `POST /integrations/theunum/v1/drafts/mark-consumed` (batch).
+6. Scribely пишет `DraftExportLog` — повторный GET **не вернёт** эти
+   черновики. Статус `Draft` в scribely **не меняется** (export ≠ publish).
+
+Пустая очередь — **не ошибка**: HTTP 200, `items: []`, в `meta.reason_code`
+обычно `queue_empty`. Если очередь пуста из‑за проблем пайплайна
+(OpenRouter, rewrite недоступен и т.д.) — другой `reason_code`; cron
+должен алертить (см. таблицу в
+[docs/Интеграция_theunum_Export_API.md](docs/Интеграция_theunum_Export_API.md)).
+
+### Переменные окружения
+
+| Где | Переменная | Назначение |
+|---|---|---|
+| Railway `api` | `THEUNUM_INTEGRATION_TOKEN` | Секрет для Export API (обязательно) |
+| Railway `api` | `CORS_ALLOWED_ORIGINS` | Опционально, только для вызовов из браузера |
+| VPS | `SCRIBELY_BASE_URL` | URL scribely API, напр. `https://api-scribely-production.up.railway.app` |
+| VPS | `SCRIBELY_INTEGRATION_TOKEN` | **Тот же** секрет, что `THEUNUM_INTEGRATION_TOKEN` |
+
+Сгенерировать секрет:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+Auth: `Authorization: Bearer <token>` или заголовок
+`X-Theunum-Service-Token`. Без токена на scribely → 503; неверный → 401.
+
+### Endpoints (prefix `/integrations/theunum/v1`)
+
+| Method | Path | Назначение |
+|---|---|---|
+| GET | `/drafts` | Список unconsumed черновиков (пагинация `cursor`, фильтр `since`) |
+| GET | `/drafts/{id}` | Полный черновик EN+RU |
+| POST | `/drafts/mark-consumed` | Batch-пометка «уже забрали» |
+| POST | `/drafts/{id}/mark-consumed` | Одна пометка |
+| GET | `/status` | Диагностика пайплайна и OpenRouter |
+
+Подробный контракт, `meta.reason_code` и псевдокод cron — в
+[docs/Интеграция_theunum_Export_API.md](docs/Интеграция_theunum_Export_API.md).
+
+### Проверка локально
+
+После запуска `api` (и миграций):
+
+```bash
+export TOKEN=dev-insecure-theunum-integration-token   # из .env
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8000/integrations/theunum/v1/drafts | jq .
+
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8000/integrations/theunum/v1/status | jq .
+```
+
+Без токена — 401:
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" \
+  http://localhost:8000/integrations/theunum/v1/drafts
+```
+
+Код cron на стороне VPS (`api.theunum.io`) — **отдельный репозиторий**;
+здесь только Export API scribely.
+
 ## Тесты и линт
 
 ```bash
-"$PYBIN" -m pytest services      # 12 тестов, все три сервиса разом
+"$PYBIN" -m pytest services -q    # все сервисы; integration-тесты в services/api/tests/
 "$(dirname "$PYBIN")/ruff" check .
 "$(dirname "$PYBIN")/ruff" format .
 ```
@@ -130,5 +236,6 @@ services/
   worker/     # Scheduler + Ingestion + Dedup + Filter + Compliance
   rewrite/    # scribely-rewrite: только gRPC
 scripts/      # gen_proto.sh и т.п.
-docs/         # постановка задачи, ТЗ, стайл-гайд, реестр источников
+docs/         # постановка задачи, ТЗ, стайл-гайд, реестр источников,
+              # Интеграция_theunum_Export_API.md
 ```

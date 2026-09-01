@@ -6,6 +6,8 @@ import re
 
 import httpx
 
+from common.integration_reasons import classify_openrouter_message
+
 logger = logging.getLogger(__name__)
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
@@ -17,6 +19,10 @@ class OpenRouterError(Exception):
     """A single key's call failed after OpenRouter exhausted its own
     per-key model fallback (ТЗ §4.5) — the Rotation Manager catches this
     to cascade to the next key."""
+
+    def __init__(self, message: str, *, code: str = "unknown"):
+        super().__init__(message)
+        self.code = code
 
 
 def extract_json(content: str) -> dict:
@@ -53,16 +59,28 @@ def call_openrouter(
     try:
         response = httpx.post(OPENROUTER_URL, headers=headers, json=payload, timeout=timeout)
         response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        body = ""
+        try:
+            body = exc.response.text
+        except Exception:
+            pass
+        message = f"HTTP {exc.response.status_code}: {body or exc}"
+        raise OpenRouterError(message, code=classify_openrouter_message(message)) from exc
     except httpx.HTTPError as exc:
-        raise OpenRouterError(f"request failed: {exc}") from exc
+        message = f"request failed: {exc}"
+        raise OpenRouterError(message, code=classify_openrouter_message(message)) from exc
 
     data = response.json()
     if "error" in data:
-        raise OpenRouterError(f"OpenRouter error: {data['error']}")
+        err = data["error"]
+        message = f"OpenRouter error: {err}"
+        raise OpenRouterError(message, code=classify_openrouter_message(message))
     try:
         content = data["choices"][0]["message"]["content"]
     except (KeyError, IndexError) as exc:
-        raise OpenRouterError(f"unexpected response shape: {data}") from exc
+        message = f"unexpected response shape: {data}"
+        raise OpenRouterError(message, code="unknown") from exc
 
     model_used = data.get("model") or models[0]
     return content, model_used

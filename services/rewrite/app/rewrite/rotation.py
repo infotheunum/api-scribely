@@ -4,6 +4,7 @@ import logging
 from datetime import UTC, datetime
 
 from db.models import LlmRotationModel, LLMRotationState, LLMRotationUsage
+from common.integration_reasons import classify_openrouter_message
 from rewrite_app.rewrite.openrouter_client import OpenRouterError, call_openrouter
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -72,6 +73,10 @@ class AllKeysExhaustedError(Exception):
     stays selectable by Phase 3's queue, the next scheduler tick is the
     de-facto deferred retry queue — no separate infrastructure needed."""
 
+    def __init__(self, message: str, *, code: str = "openrouter_keys_exhausted"):
+        super().__init__(message)
+        self.code = code
+
 
 def _current_key_alias(db: Session) -> str:
     switched = [s for s in db.scalars(select(LLMRotationState)) if s.last_switched_at is not None]
@@ -115,6 +120,7 @@ def call_with_rotation(
     free_models = active_free_models(db)
 
     last_error: Exception | None = None
+    last_code = "openrouter_keys_exhausted"
     for key_alias in ordered:
         api_key = api_keys.get(key_alias)
         if not api_key:
@@ -131,6 +137,7 @@ def call_with_rotation(
             _record_usage(db, key_alias, _UNKNOWN_MODEL, success=False)
             db.commit()
             last_error = exc
+            last_code = classify_openrouter_message(str(exc))
             continue
 
         _record_usage(db, key_alias, model_used, success=True)
@@ -146,4 +153,4 @@ def call_with_rotation(
         db.commit()
         return content, key_alias, model_used
 
-    raise AllKeysExhaustedError(str(last_error))
+    raise AllKeysExhaustedError(str(last_error), code=last_code)
