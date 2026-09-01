@@ -126,7 +126,7 @@ def test_admin_ui_export_freshness_defaults(client, admin_user, clean_db):
     headers = _auth_headers(client, admin_user)
     client.post(
         "/ui/admin/settings/export-freshness",
-        data={"default_freshness": "48h", "default_max_age_hours": "24"},
+        data={"default_freshness": "48h", "default_max_age_hours": "24", "default_limit": "100"},
         headers=headers,
         follow_redirects=False,
     )
@@ -135,6 +135,7 @@ def test_admin_ui_export_freshness_defaults(client, admin_user, clean_db):
 
     assert clean_db.get(AppSetting, "integration.export.default_freshness").value == "48h"
     assert clean_db.get(AppSetting, "integration.export.default_max_age_hours").value == 24
+    assert clean_db.get(AppSetting, "integration.export.default_limit").value == 100
 
     page = client.get("/ui/admin/settings", headers=headers)
     assert page.status_code == 200

@@ -19,11 +19,16 @@
       <label>max_age_hours (опционально)</label>
       <input type="number" name="default_max_age_hours" min="1" max="168" placeholder="24" value="{{ export_max_age_hours }}">
     </div>
+    <div class="field">
+      <label>limit по умолчанию (опционально)</label>
+      <input type="number" name="default_limit" min="1" max="100" placeholder="100" value="{{ export_limit }}">
+    </div>
     <div class="field field-narrow">
       <button class="btn btn-primary" type="submit">Сохранить export defaults</button>
     </div>
   </form>
-  <p class="note">Ключи в БД: <code>integration.export.default_freshness</code>, <code>integration.export.default_max_age_hours</code>. Эндпоинт <code>/drafts/today</code> всегда «сегодня», независимо от этих настроек.</p>
+  <p class="note">REST для внешней админки: <code>GET/PUT /admin/integration/export-settings</code> (JWT admin). Схема всех фильтров для cron: <code>GET /integrations/theunum/v1/export-schema</code> (integration token).</p>
+  <p class="note">Ключи в БД: <code>integration.export.default_freshness</code>, <code>integration.export.default_max_age_hours</code>, <code>integration.export.default_limit</code>. Эндпоинт <code>/drafts/today</code> всегда «сегодня», независимо от этих настроек.</p>
 </div>
 
 <div class="card">
