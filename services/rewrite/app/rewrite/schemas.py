@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field, model_validator
 
+from common.rewrite_body_format import EXPECTED_PARAGRAPH_COUNT, normalize_body_paragraphs, paragraph_count
 from rewrite_app.prompt.style_guide import BODY_MAX_CHARS, BODY_MIN_CHARS
 
 # Structured contracts the LLM's JSON response is validated against (ТЗ
@@ -71,6 +72,19 @@ class RewriteResultSchema(BaseModel):
     seo_en: SeoPackSchema
     seo_ru: SeoPackSchema
     image_brief: ImageBriefSchema
+
+    @model_validator(mode="after")
+    def _normalize_paragraphs(self) -> RewriteResultSchema:
+        self.body_en = normalize_body_paragraphs(self.body_en)
+        self.body_ru = normalize_body_paragraphs(self.body_ru)
+        for field_name, body in (("body_en", self.body_en), ("body_ru", self.body_ru)):
+            count = paragraph_count(body)
+            if count != EXPECTED_PARAGRAPH_COUNT:
+                raise ValueError(
+                    f"{field_name} must have exactly {EXPECTED_PARAGRAPH_COUNT} paragraphs "
+                    f"(got {count})"
+                )
+        return self
 
     @model_validator(mode="after")
     def _enforce_body_length(self) -> RewriteResultSchema:

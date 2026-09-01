@@ -141,7 +141,12 @@ def test_list_empty_queue_meta(client, clean_db):
 def test_list_returns_bilingual_draft(client, clean_db):
     source = _source(clean_db)
     cluster = _cluster(clean_db, source)
-    draft = _draft(clean_db, cluster)
+    draft = _draft(
+        clean_db,
+        cluster,
+        body_en="Lead paragraph one.\n\nMiddle paragraph two.\n\nClosing paragraph three.",
+        body_ru="Лид абзац.\n\nСередина абзац.\n\nФинал абзац.",
+    )
 
     resp = client.get("/integrations/theunum/v1/drafts", headers=AUTH_HEADERS)
     assert resp.status_code == 200
@@ -150,8 +155,10 @@ def test_list_returns_bilingual_draft(client, clean_db):
     assert items[0]["id"] == str(draft.id)
     assert items[0]["title_en"]
     assert items[0]["title_ru"]
-    assert items[0]["body_en"]
-    assert items[0]["body_ru"]
+    assert "\n\n" in items[0]["body_en"]
+    assert items[0]["body_en_html"].startswith("<p>")
+    assert items[0]["body_en_html"].count("<p>") == 3
+    assert items[0]["body_ru_html"].count("<p>") == 3
     assert items[0]["consumed_at"] is None
 
 
