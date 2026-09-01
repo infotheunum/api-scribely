@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field, model_validator
 
+from rewrite_app.prompt.style_guide import BODY_MAX_CHARS, BODY_MIN_CHARS
+
 # Structured contracts the LLM's JSON response is validated against (ТЗ
 # §4.20 "жёсткая JSON-схема") — anything that doesn't parse into these
 # goes to regenerate/dead-letter, never straight to a Draft.
@@ -56,9 +58,9 @@ def _no_yo(text: str) -> str:
 
 class RewriteResultSchema(BaseModel):
     title_en: str = Field(min_length=10)
-    body_en: str = Field(min_length=100)
+    body_en: str
     title_ru: str = Field(min_length=10)
-    body_ru: str = Field(min_length=100)
+    body_ru: str
     title_en_variants: list[str] = Field(default_factory=list)
     title_ru_variants: list[str] = Field(default_factory=list)
     sponsor_flag: bool = False
@@ -69,6 +71,17 @@ class RewriteResultSchema(BaseModel):
     seo_en: SeoPackSchema
     seo_ru: SeoPackSchema
     image_brief: ImageBriefSchema
+
+    @model_validator(mode="after")
+    def _enforce_body_length(self) -> RewriteResultSchema:
+        for field_name, body in (("body_en", self.body_en), ("body_ru", self.body_ru)):
+            length = len(body)
+            if length < BODY_MIN_CHARS or length > BODY_MAX_CHARS:
+                raise ValueError(
+                    f"{field_name} must be {BODY_MIN_CHARS}-{BODY_MAX_CHARS} chars "
+                    f"(got {length})"
+                )
+        return self
 
     @model_validator(mode="after")
     def _enforce_no_yo(self) -> RewriteResultSchema:

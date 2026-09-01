@@ -41,3 +41,8 @@ class CommonSettings(BaseSettings):
     internal_service_token: str = "dev-insecure-service-token"
 
     trace_id_header: str = "X-Trace-Id"
+
+    # Outbound calls to api.theunum.io (category sync, future Tag/Category API).
+    theunum_api_base_url: str = "https://api.theunum.io"
+    theunum_categories_path: str = "/api/v1/categories"
+    theunum_api_token: str = ""

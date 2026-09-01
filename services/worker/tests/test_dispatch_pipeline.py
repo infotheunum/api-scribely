@@ -66,7 +66,7 @@ def _fake_rewrite_response() -> rewrite_pb2.RewriteClusterResponse:
             title_ru="y" * 20,
             body_ru="y" * 200,
             attribution_urls=["https://example.com/a"],
-            suggested_category_slug="bitcoin",
+            suggested_category_slug="cryptocurrency",
             tags=[rewrite_pb2.TagCandidate(slug="etf", name="ETF")],
             seo_en=rewrite_pb2.SeoPack(seo_title="t", keywords=["k"]),
             seo_ru=rewrite_pb2.SeoPack(seo_title="t", keywords=["k"]),
