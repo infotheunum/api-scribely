@@ -4,6 +4,7 @@ import json
 
 import grpc
 import pytest
+from rewrite_app.prompt.style_guide import BODY_MIN_CHARS
 from rewrite_app.server import build_server
 from rewrite_app.settings import RewriteSettings
 from scribely.rewrite.v1 import rewrite_pb2, rewrite_pb2_grpc
@@ -12,15 +13,15 @@ TOKEN = "test-token"
 
 VALID_RESULT = {
     "title_en": "Bitcoin Surges Past $120,000 as ETF Inflows Accelerate",
-    "body_en": "x" * 200,
+    "body_en": "x" * BODY_MIN_CHARS,
     "title_ru": "Биткоин превысил $120,000 на фоне роста притоков в ETF",
-    "body_ru": "y" * 200,
+    "body_ru": "y" * BODY_MIN_CHARS,
     "title_en_variants": [],
     "title_ru_variants": [],
     "sponsor_flag": False,
     "press_release_flag": False,
     "disclaimer_flag": True,
-    "suggested_category_slug": "bitcoin",
+    "suggested_category_slug": "cryptocurrency",
     "tags": [{"slug": "etf", "name": "ETF"}],
     "seo_en": {
         "seo_title": "t",

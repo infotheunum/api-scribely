@@ -12,7 +12,7 @@ WORKDIR /app
 COPY pyproject.toml uv.lock .python-version /app/
 COPY libs /app/libs
 COPY proto /app/proto
-COPY scripts/gen_proto.sh /app/scripts/gen_proto.sh
+COPY scripts /app/scripts
 COPY services/worker /app/services/worker
 
 # torch resolves to the CPU-only build here (root pyproject.toml pins it

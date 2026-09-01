@@ -11,6 +11,8 @@ from worker_app.dispatch.pipeline import run_dispatch_cycle
 from worker_app.filter.pipeline import run_filter_cycle
 from worker_app.ingestion.poller import poll_due_sources
 from worker_app.lifecycle.archival import run_archival_cycle
+from worker_app.sync.theunum_categories import run_theunum_categories_sync_if_due
+from worker_app.settings import WorkerSettings
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +123,25 @@ def _run_poll_tick() -> None:
         session.close()
 
 
+def _run_categories_sync_tick() -> None:
+    session = new_session()
+    try:
+        stats = run_theunum_categories_sync_if_due(session, WorkerSettings())
+        if stats:
+            logger.info("categories sync tick: %s", stats)
+    except Exception:
+        logger.exception("categories sync tick failed unexpectedly")
+    finally:
+        session.close()
+
+
 def build_scheduler() -> BackgroundScheduler:
     scheduler = BackgroundScheduler()
     scheduler.add_job(_run_poll_tick, "interval", seconds=POLL_TICK_SECONDS, id="poll_sources")
+    scheduler.add_job(
+        _run_categories_sync_tick,
+        "interval",
+        hours=1,
+        id="theunum_categories_sync",
+    )
     return scheduler
