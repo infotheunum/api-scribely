@@ -14,6 +14,13 @@ def test_extract_json_plain():
     assert extract_json('{"a": 1}') == {"a": 1}
 
 
+def test_extract_json_raises_on_empty_content():
+    with pytest.raises(ValueError, match="empty LLM response content"):
+        extract_json("")
+    with pytest.raises(ValueError, match="empty LLM response content"):
+        extract_json("   ")
+
+
 class _FakeResponse:
     def __init__(self, payload, status_code=200):
         self._payload = payload
@@ -70,4 +77,15 @@ def test_call_openrouter_raises_on_transport_error(monkeypatch):
 
     monkeypatch.setattr("rewrite_app.rewrite.openrouter_client.httpx.post", _raise)
     with pytest.raises(OpenRouterError):
+        call_openrouter(api_key="k", models=["m"], system_prompt="s", user_prompt="u")
+
+
+def test_call_openrouter_raises_on_empty_content(monkeypatch):
+    monkeypatch.setattr(
+        "rewrite_app.rewrite.openrouter_client.httpx.post",
+        lambda *a, **kw: _FakeResponse(
+            {"choices": [{"message": {"content": None}}], "model": "m"}
+        ),
+    )
+    with pytest.raises(OpenRouterError, match="empty message content"):
         call_openrouter(api_key="k", models=["m"], system_prompt="s", user_prompt="u")
