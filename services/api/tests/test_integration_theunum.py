@@ -245,6 +245,28 @@ def test_list_freshness_48h(client, clean_db):
     assert str(stale.id) not in ids
 
 
+def test_list_uses_admin_default_freshness(client, clean_db):
+    from common.integration_export_settings import DEFAULT_FRESHNESS_KEY
+    from db.app_settings import set_setting
+
+    source = _source(clean_db)
+    cluster = _cluster(clean_db, source)
+    fresh = _draft(clean_db, cluster, title_en="Today draft from admin default")
+    stale = _draft(clean_db, cluster, title_en="Yesterday draft excluded by admin")
+    stale.content_generated_at = datetime.now(UTC) - timedelta(days=1)
+    set_setting(clean_db, DEFAULT_FRESHNESS_KEY, "today")
+    clean_db.commit()
+
+    resp = client.get("/integrations/theunum/v1/drafts", headers=AUTH_HEADERS)
+    assert resp.status_code == 200
+    body = resp.json()
+    ids = {item["id"] for item in body["items"]}
+    assert str(fresh.id) in ids
+    assert str(stale.id) not in ids
+    assert body["meta"]["freshness_source"] == "admin_default"
+    assert body["meta"]["freshness"] == "today"
+
+
 def test_mark_consumed_excludes_from_list(client, clean_db):
     source = _source(clean_db)
     cluster = _cluster(clean_db, source)

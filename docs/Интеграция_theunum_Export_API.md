@@ -344,6 +344,25 @@ Authorization: Bearer <token>
 | `freshness` | — | **`today`** — с UTC 00:00 сегодня; **`48h`** — не старше 48 часов (рекомендуется для cron) |
 | `max_age_hours` | — | Альтернатива: не старше N часов (1–168), комбинируется с `generated_since` — берётся **более строгая** граница |
 | `limit` | `50` | Max 100 |
+
+Если VPS **не передаёт** `freshness`, `max_age_hours` и `generated_since`, применяются **дефолты из Admin Settings** (Postgres `app_settings`, без редеплоя):
+
+| AppSetting key | Значение | Смысл |
+|---|---|---|
+| `integration.export.default_freshness` | `today` / `48h` / пусто | Пресет свежести |
+| `integration.export.default_max_age_hours` | `1`–`168` / пусто | Окно в часах |
+
+Настройка в UI: **Admin → Настройки пайплайна → блок «Export API — свежесть для VPS cron»**.
+
+В `meta` ответа: `freshness_source` = `query` (явный параметр), `admin_default` (из админки) или `none`.
+
+VPS может вызывать просто:
+
+```http
+GET /integrations/theunum/v1/drafts?consumed=false&limit=100
+```
+
+— фильтр подставится из админки (например `today`).
 | `cursor` | — | Пагинация: `draft_id` последнего item с предыдущей страницы |
 
 Сортировка: `created_at ASC`, `id ASC`.
