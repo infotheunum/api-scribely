@@ -1,4 +1,4 @@
-from common.site_categories import bootstrap_site_categories_if_empty, is_valid_site_category_slug, resolve_site_category_slug
+from common.site_categories import bootstrap_site_categories_if_empty, canonicalize_site_category_slug, is_valid_site_category_slug, resolve_site_category_slug
 
 
 def test_llm_garbage_slug_maps_to_crypto(clean_db):
@@ -11,6 +11,12 @@ def test_llm_garbage_slug_maps_to_crypto(clean_db):
         )
         == "crypto"
     )
+
+
+def test_defi_alias_maps_to_crypto(clean_db):
+    bootstrap_site_categories_if_empty(clean_db)
+    assert canonicalize_site_category_slug("defi", clean_db) == "crypto"
+    assert resolve_site_category_slug("defi", db=clean_db) == "crypto"
 
 
 def test_legacy_cryptocurrency_slug_maps_to_crypto(clean_db):
@@ -54,5 +60,6 @@ def test_is_valid_site_category_slug(clean_db):
     bootstrap_site_categories_if_empty(clean_db)
     assert is_valid_site_category_slug(clean_db, "crypto")
     assert is_valid_site_category_slug(clean_db, "cryptocurrency")
-    assert not is_valid_site_category_slug(clean_db, "defi")
+    assert is_valid_site_category_slug(clean_db, "defi")
+    assert not is_valid_site_category_slug(clean_db, "kalshi-ban")
     assert not is_valid_site_category_slug(clean_db, None)
