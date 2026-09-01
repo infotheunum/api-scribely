@@ -14,6 +14,7 @@ os.environ.setdefault(
 os.environ.setdefault("REWRITE_GRPC_ADDRESS", "localhost:50099")
 os.environ.setdefault("INTERNAL_SERVICE_TOKEN", "test-service-token")
 os.environ.setdefault("JWT_SECRET", "test-jwt-secret")
+os.environ.setdefault("THEUNUM_INTEGRATION_TOKEN", "test-theunum-integration-token")
 
 from api_app.auth.security import hash_password  # noqa: E402
 from api_app.db import _session_factory  # noqa: E402
@@ -23,6 +24,7 @@ from db.models import (  # noqa: E402
     AuditLog,
     ClusterContext,
     Draft,
+    DraftExportLog,
     DraftLock,
     DraftRevision,
     LlmRotationModel,
@@ -79,6 +81,7 @@ def clean_db():
         session.execute(delete(DraftLock))
         session.execute(delete(PublishRecord))
         session.execute(delete(DraftRevision))
+        session.execute(delete(DraftExportLog))
         session.execute(delete(Draft))
         session.execute(delete(ClusterContext))
         session.execute(delete(RawItem))

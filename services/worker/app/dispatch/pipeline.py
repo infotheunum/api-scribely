@@ -4,6 +4,7 @@ import logging
 
 import grpc
 from common.grpc_client import build_rewrite_channel, rewrite_stub
+from common.pipeline_telemetry import record_dispatch_cycle_result
 from common.tracing import get_trace_id, new_trace_id, set_trace_id
 from db.app_settings import get_setting
 from db.enums import DraftRevisionKind
@@ -160,11 +161,13 @@ def run_dispatch_cycle(db: Session, *, settings: WorkerSettings | None = None) -
     drafted_ids = _already_drafted_cluster_ids(db)
     candidates = [c for c in select_top_clusters(db) if c.id not in drafted_ids][:batch_size]
     if not candidates:
+        record_dispatch_cycle_result(db, dispatched=0, failed=0)
         return {"dispatched": 0, "failed": 0}
 
     channel = build_rewrite_channel(settings)
     stub = rewrite_stub(channel)
     dispatched, failed = 0, 0
+    last_error_message: str | None = None
     try:
         for cluster in candidates:
             set_trace_id(new_trace_id())
@@ -197,14 +200,22 @@ def run_dispatch_cycle(db: Session, *, settings: WorkerSettings | None = None) -
                 dispatched += 1
             except grpc.RpcError as exc:
                 db.rollback()
+                details = exc.details() or str(exc)
+                last_error_message = details
                 logger.warning(
                     "dispatch failed for cluster %s: %s %s",
                     cluster.id,
                     exc.code(),
-                    exc.details(),
+                    details,
                 )
                 failed += 1
     finally:
         channel.close()
 
+    record_dispatch_cycle_result(
+        db,
+        dispatched=dispatched,
+        failed=failed,
+        last_error_message=last_error_message,
+    )
     return {"dispatched": dispatched, "failed": failed}

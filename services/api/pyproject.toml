@@ -38,6 +38,7 @@ packages = [
     "api_app.publish",
     "api_app.tagsync",
     "api_app.grpc_client",
+    "api_app.integrations",
 ]
 
 [tool.setuptools.package-dir]
