@@ -85,6 +85,7 @@ def _drafts_query(
     statuses: list[str],
     consumed: bool,
     since: datetime | None,
+    generated_since: datetime | None,
     cursor: uuid.UUID | None,
 ):
     stmt = (
@@ -102,6 +103,8 @@ def _drafts_query(
         stmt = stmt.where(DraftExportLog.draft_id.is_(None))
     if since is not None:
         stmt = stmt.where(Draft.updated_at >= since)
+    if generated_since is not None:
+        stmt = stmt.where(Draft.content_generated_at >= generated_since)
     if cursor is not None:
         cursor_draft = db.get(Draft, cursor)
         if cursor_draft is not None:
@@ -125,11 +128,22 @@ def list_export_drafts(
     status_filter: list[str] | None = Query(None, alias="status"),
     consumed: bool = Query(False),
     since: datetime | None = Query(None),
+    generated_since: datetime | None = Query(
+        None,
+        description="Only drafts whose AI rewrite/regen ran at or after this time (ISO8601)",
+    ),
     cursor: uuid.UUID | None = Query(None),
     limit: int = Query(50, ge=1, le=100),
 ) -> DraftListResponse:
     statuses = status_filter or DEFAULT_EXPORT_STATUSES
-    stmt = _drafts_query(db, statuses=statuses, consumed=consumed, since=since, cursor=cursor)
+    stmt = _drafts_query(
+        db,
+        statuses=statuses,
+        consumed=consumed,
+        since=since,
+        generated_since=generated_since,
+        cursor=cursor,
+    )
     drafts = db.scalars(stmt.limit(limit + 1)).unique().all()
     has_more = len(drafts) > limit
     page = drafts[:limit]
