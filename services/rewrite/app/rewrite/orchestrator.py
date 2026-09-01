@@ -28,7 +28,7 @@ OUTPUT_SCHEMA_HINT = f"""\
   "title_en_variants": ["...", "..."],
   "title_ru_variants": ["...", "..."],
   "sponsor_flag": <bool>, "press_release_flag": <bool>, "disclaimer_flag": <bool>,
-  "suggested_category_slug": "... (один из: cryptocurrency|economy|finance|technology|world)",
+  "suggested_category_slug": "... (один slug из списка категорий CMS в system prompt)",
   "tags": [{{"slug": "...", "name": "..."}}],
   "seo_en": {{
     "seo_title": "...", "seo_description": "...", "slug": "...",

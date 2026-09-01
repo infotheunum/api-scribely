@@ -2,7 +2,7 @@
 
 Does not call LLM — uses cluster.topic + title/body heuristics.
 Does not fetch categories from api.theunum.io — uses bootstrap list in
-Postgres (cryptocurrency, economy, finance, technology, world).
+Postgres (crypto, economics, finance, technology, world, ai).
 
 Usage:
   cd services/worker && uv run python ../../scripts/remap_draft_categories.py --dry-run
