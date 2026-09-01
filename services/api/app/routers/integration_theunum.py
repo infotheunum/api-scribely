@@ -7,6 +7,7 @@ from api_app.auth.integration import require_integration_token_dep
 from api_app.db import get_db
 from api_app.integrations.pipeline_status import build_list_meta, build_pipeline_status
 from api_app.routers.drafts import DEFAULT_QUEUE_STATUSES, DraftDetail
+from common.rewrite_body_format import body_to_html
 from common.tracing import get_trace_id
 from db.models import AuditLog, Draft, DraftExportLog, NewsCluster, RawItem
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
@@ -25,6 +26,18 @@ DEFAULT_EXPORT_STATUSES = [s.value for s in DEFAULT_QUEUE_STATUSES]
 
 class IntegrationDraftExport(DraftDetail):
     consumed_at: datetime | None = None
+    body_en_html: str = ""
+    body_ru_html: str = ""
+
+
+def _to_integration_export(draft: Draft, export_log: DraftExportLog | None) -> IntegrationDraftExport:
+    detail = DraftDetail.from_model(draft)
+    return IntegrationDraftExport(
+        **detail.model_dump(),
+        body_en_html=body_to_html(detail.body_en),
+        body_ru_html=body_to_html(detail.body_ru),
+        consumed_at=export_log.consumed_at if export_log else None,
+    )
 
 
 class DraftListResponse(BaseModel):
@@ -124,14 +137,7 @@ def list_export_drafts(
 
     items: list[IntegrationDraftExport] = []
     for draft in page:
-        detail = DraftDetail.from_model(draft)
-        export_log = draft.export_log if draft.export_log else None
-        items.append(
-            IntegrationDraftExport(
-                **detail.model_dump(),
-                consumed_at=export_log.consumed_at if export_log else None,
-            )
-        )
+        items.append(_to_integration_export(draft, draft.export_log if draft.export_log else None))
 
     channel = getattr(request.app.state, "rewrite_channel", None)
     meta = build_list_meta(db, rewrite_channel=channel, item_count=len(items))
@@ -147,11 +153,7 @@ def list_export_drafts(
 def get_export_draft(draft_id: uuid.UUID, db: Session = Depends(get_db)) -> IntegrationDraftExport:
     draft = _load_draft(db, draft_id)
     export_log = db.get(DraftExportLog, draft_id)
-    detail = DraftDetail.from_model(draft)
-    return IntegrationDraftExport(
-        **detail.model_dump(),
-        consumed_at=export_log.consumed_at if export_log else None,
-    )
+    return _to_integration_export(draft, export_log)
 
 
 def _mark_one(db: Session, item: MarkConsumedItem) -> uuid.UUID | None:
