@@ -6,6 +6,7 @@ from datetime import datetime
 from api_app.auth.dependencies import require_role
 from api_app.db import get_db
 from api_app.publish.service import approve_and_publish, submit_edit_feedback
+from common.rewrite_body_format import normalize_body_paragraphs
 from common.tracing import get_trace_id
 from db.enums import DraftStatus, RejectReason
 from db.models import AuditLog, Draft, NewsCluster, RawItem, User
@@ -143,8 +144,8 @@ class DraftDetail(DraftSummary):
         ]
         return cls(
             **summary.model_dump(),
-            body_en=draft.body_en,
-            body_ru=draft.body_ru,
+            body_en=normalize_body_paragraphs(draft.body_en or ""),
+            body_ru=normalize_body_paragraphs(draft.body_ru or ""),
             title_en_variants=draft.title_en_variants,
             title_ru_variants=draft.title_ru_variants,
             attribution_urls=draft.attribution_urls,

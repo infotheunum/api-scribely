@@ -381,8 +381,14 @@ Authorization: Bearer <token>
 | Блок | Поля |
 |---|---|
 | Идентификация | `id`, `trace_id` (в summary через cluster), `status`, `version`, `consumed_at` |
-| Текст EN | `title_en`, `body_en`, `title_en_variants[]` |
-| Текст RU | `title_ru`, `body_ru`, `title_ru_variants[]` |
+| Текст EN | `title_en`, `body_en`, `body_en_html`, `title_en_variants[]` |
+| Текст RU | `title_ru`, `body_ru`, `body_ru_html`, `title_ru_variants[]` |
+
+**Формат текста:**
+
+- `body_en` / `body_ru` — plain text, **3 абзаца**, разделитель `\n\n` (нормализуется на export).
+- `body_en_html` / `body_ru_html` — готовый HTML для CMS: `<p>…</p><p>…</p><p>…</p>` (экранирование включено).
+- Markdown, TipTap JSON и inline-HTML в `body_*` **не** используются.
 | SEO EN | `seo_title_en`, `seo_description_en`, `slug_en`, `keywords_en`, `og_*`, `focus_keyphrase_en` |
 | SEO RU | `seo_title_ru`, `seo_description_ru`, `slug_ru`, `keywords_ru`, … |
 | Качество | `compliance_notes`, `sensitive_hold`, `fact_conflict`, `similarity_score`, флаги sponsor/press_release/disclaimer |

@@ -112,7 +112,7 @@ def rewrite_cluster(
             last_error = exc
             retry_note = (
                 f"\n\nПРЕДЫДУЩИЙ ОТВЕТ ОТКЛОНЁН: body_en и body_ru должны быть "
-                f"{BODY_MIN_CHARS}–{BODY_MAX_CHARS} символов каждый (3 абзаца через \\n\\n). "
+                f"{BODY_MIN_CHARS}–{BODY_MAX_CHARS} символов каждый и ровно 3 абзаца через \\n\\n. "
                 f"Перегенерируй полностью, не сокращай."
             )
         except (ValueError, KeyError) as exc:
