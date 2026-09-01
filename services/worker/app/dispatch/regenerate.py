@@ -8,7 +8,7 @@ from common.grpc_client import build_rewrite_channel, rewrite_stub
 from common.tracing import get_trace_id, new_trace_id, set_trace_id
 from db.enums import DraftRevisionKind, DraftStatus
 from db.models import Draft, DraftExportLog, NewsCluster, RawItem
-from rewrite_app.prompt.style_guide import BODY_MIN_CHARS
+from common.rewrite_body_limits import BODY_MIN_CHARS
 from scribely.rewrite.v1 import rewrite_pb2
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, joinedload

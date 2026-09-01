@@ -8,8 +8,7 @@ from __future__ import annotations
 # Жёсткий диапазон длины body_en / body_ru — дублируется в schemas.py и
 # append'ится к каждому вызову RewriteCluster (даже если в БД старый
 # PromptVersion).
-BODY_MIN_CHARS = 1800
-BODY_MAX_CHARS = 2500
+from common.rewrite_body_limits import BODY_MAX_CHARS, BODY_MIN_CHARS
 
 BODY_LENGTH_RULE = f"""\
 ОБЯЗАТЕЛЬНЫЙ ОБЪЁМ ТЕЛА (проверяется автоматически, отклонение = regenerate):
