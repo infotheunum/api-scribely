@@ -128,5 +128,9 @@ def test_regenerate_short_only_skips_long_bodies(clean_db):
     ):
         result = run_regenerate_batch(clean_db, all_queue=False, limit=10)
 
-    assert result == {"selected": 0, "regenerated": 0, "failed": 0, "errors": []}
+    assert result["selected"] == 0
+    assert result["regenerated"] == 0
+    assert result["failed"] == 0
+    assert result["errors"] == []
+    assert result["successes"] == []
     stub.EnrichCluster.assert_not_called()

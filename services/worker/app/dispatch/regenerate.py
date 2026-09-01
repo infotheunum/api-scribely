@@ -125,11 +125,18 @@ def run_regenerate_batch(
     settings = settings or WorkerSettings()
     drafts = select_drafts_for_regeneration(db, all_queue=all_queue, limit=limit, offset=offset)
     if not drafts:
-        return {"selected": 0, "regenerated": 0, "failed": 0, "errors": []}
+        return {
+            "selected": 0,
+            "regenerated": 0,
+            "failed": 0,
+            "errors": [],
+            "successes": [],
+            "remaining": count_drafts_for_regeneration(db, all_queue=all_queue),
+        }
 
     channel = build_rewrite_channel(settings)
     stub = rewrite_stub(channel)
-    regenerated, failed, errors = 0, 0, []
+    regenerated, failed, errors, successes = 0, 0, [], []
     try:
         for draft in drafts:
             draft_id = str(draft.id)
@@ -137,6 +144,14 @@ def run_regenerate_batch(
                 regenerate_draft(db, draft, settings=settings, stub=stub, clear_export=clear_export)
                 db.commit()
                 regenerated += 1
+                summary = {
+                    "draft_id": draft_id,
+                    "status": draft.status,
+                    "title_en": (draft.title_en or "")[:80],
+                    "body_en_len": len(draft.body_en or ""),
+                    "body_ru_len": len(draft.body_ru or ""),
+                }
+                successes.append(summary)
                 logger.info("regenerated draft %s -> status=%s", draft_id, draft.status)
             except grpc.RpcError as exc:
                 db.rollback()
@@ -157,8 +172,6 @@ def run_regenerate_batch(
         "regenerated": regenerated,
         "failed": failed,
         "errors": errors,
-        "remaining_estimate": max(
-            0,
-            count_drafts_for_regeneration(db, all_queue=all_queue) - regenerated,
-        ),
+        "successes": successes,
+        "remaining": count_drafts_for_regeneration(db, all_queue=all_queue),
     }
