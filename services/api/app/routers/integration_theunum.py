@@ -5,6 +5,7 @@ from datetime import datetime
 
 from api_app.auth.integration import require_integration_token_dep
 from api_app.db import get_db
+from api_app.integrations.freshness import FreshnessPreset, resolve_content_generated_since
 from api_app.integrations.pipeline_status import build_list_meta, build_pipeline_status
 from api_app.routers.drafts import DEFAULT_QUEUE_STATUSES, DraftDetail
 from common.rewrite_body_format import body_to_html
@@ -85,6 +86,7 @@ def _drafts_query(
     statuses: list[str],
     consumed: bool,
     since: datetime | None,
+    generated_since: datetime | None,
     cursor: uuid.UUID | None,
 ):
     stmt = (
@@ -102,6 +104,8 @@ def _drafts_query(
         stmt = stmt.where(DraftExportLog.draft_id.is_(None))
     if since is not None:
         stmt = stmt.where(Draft.updated_at >= since)
+    if generated_since is not None:
+        stmt = stmt.where(Draft.content_generated_at >= generated_since)
     if cursor is not None:
         cursor_draft = db.get(Draft, cursor)
         if cursor_draft is not None:
@@ -110,6 +114,59 @@ def _drafts_query(
                 | ((Draft.created_at == cursor_draft.created_at) & (Draft.id > cursor_draft.id))
             )
     return stmt.order_by(Draft.created_at.asc(), Draft.id.asc())
+
+
+def _list_export_drafts_impl(
+    request: Request,
+    db: Session,
+    *,
+    statuses: list[str],
+    consumed: bool,
+    since: datetime | None,
+    generated_since: datetime | None,
+    freshness: FreshnessPreset | None,
+    max_age_hours: int | None,
+    cursor: uuid.UUID | None,
+    limit: int,
+) -> DraftListResponse:
+    try:
+        effective_generated_since = resolve_content_generated_since(
+            generated_since=generated_since,
+            freshness=freshness,
+            max_age_hours=max_age_hours,
+        )
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+
+    stmt = _drafts_query(
+        db,
+        statuses=statuses,
+        consumed=consumed,
+        since=since,
+        generated_since=effective_generated_since,
+        cursor=cursor,
+    )
+    drafts = db.scalars(stmt.limit(limit + 1)).unique().all()
+    has_more = len(drafts) > limit
+    page = drafts[:limit]
+    next_cursor = str(page[-1].id) if has_more and page else None
+
+    items = [_to_integration_export(draft, draft.export_log if draft.export_log else None) for draft in page]
+
+    channel = getattr(request.app.state, "rewrite_channel", None)
+    meta = build_list_meta(db, rewrite_channel=channel, item_count=len(items))
+    if effective_generated_since is not None:
+        meta["content_generated_since"] = effective_generated_since.isoformat()
+    if freshness is not None:
+        meta["freshness"] = freshness
+    if max_age_hours is not None:
+        meta["max_age_hours"] = max_age_hours
+    return DraftListResponse(
+        items=items,
+        next_cursor=next_cursor,
+        has_more=has_more,
+        meta=meta,
+    )
 
 
 @router.get("/status")
@@ -125,27 +182,60 @@ def list_export_drafts(
     status_filter: list[str] | None = Query(None, alias="status"),
     consumed: bool = Query(False),
     since: datetime | None = Query(None),
+    generated_since: datetime | None = Query(
+        None,
+        description="Only drafts whose AI rewrite/regen ran at or after this time (ISO8601)",
+    ),
+    freshness: FreshnessPreset | None = Query(
+        None,
+        description="Preset freshness filter on content_generated_at: today (UTC midnight) or 48h",
+    ),
+    max_age_hours: int | None = Query(
+        None,
+        ge=1,
+        le=168,
+        description="Only drafts generated within the last N hours (alternative to freshness)",
+    ),
     cursor: uuid.UUID | None = Query(None),
     limit: int = Query(50, ge=1, le=100),
 ) -> DraftListResponse:
     statuses = status_filter or DEFAULT_EXPORT_STATUSES
-    stmt = _drafts_query(db, statuses=statuses, consumed=consumed, since=since, cursor=cursor)
-    drafts = db.scalars(stmt.limit(limit + 1)).unique().all()
-    has_more = len(drafts) > limit
-    page = drafts[:limit]
-    next_cursor = str(page[-1].id) if has_more and page else None
+    return _list_export_drafts_impl(
+        request,
+        db,
+        statuses=statuses,
+        consumed=consumed,
+        since=since,
+        generated_since=generated_since,
+        freshness=freshness,
+        max_age_hours=max_age_hours,
+        cursor=cursor,
+        limit=limit,
+    )
 
-    items: list[IntegrationDraftExport] = []
-    for draft in page:
-        items.append(_to_integration_export(draft, draft.export_log if draft.export_log else None))
 
-    channel = getattr(request.app.state, "rewrite_channel", None)
-    meta = build_list_meta(db, rewrite_channel=channel, item_count=len(items))
-    return DraftListResponse(
-        items=items,
-        next_cursor=next_cursor,
-        has_more=has_more,
-        meta=meta,
+@router.get("/drafts/today", response_model=DraftListResponse)
+def list_export_drafts_today(
+    request: Request,
+    db: Session = Depends(get_db),
+    status_filter: list[str] | None = Query(None, alias="status"),
+    consumed: bool = Query(False),
+    cursor: uuid.UUID | None = Query(None),
+    limit: int = Query(50, ge=1, le=100),
+) -> DraftListResponse:
+    """Shortcut: unconsumed queue drafts with content_generated_at >= UTC midnight today."""
+    statuses = status_filter or DEFAULT_EXPORT_STATUSES
+    return _list_export_drafts_impl(
+        request,
+        db,
+        statuses=statuses,
+        consumed=consumed,
+        since=None,
+        generated_since=None,
+        freshness="today",
+        max_age_hours=None,
+        cursor=cursor,
+        limit=limit,
     )
 
 

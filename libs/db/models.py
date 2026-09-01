@@ -272,6 +272,9 @@ class Draft(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+    content_generated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
     cluster: Mapped[NewsCluster] = relationship(back_populates="drafts")
     revisions: Mapped[list[DraftRevision]] = relationship(back_populates="draft")

@@ -62,6 +62,8 @@ class DraftSummary(BaseModel):
     needs_attention: bool
     assignee_user_id: str | None
     created_at: datetime
+    updated_at: datetime
+    content_generated_at: datetime
     version: int
 
     @classmethod
@@ -81,6 +83,8 @@ class DraftSummary(BaseModel):
             needs_attention=_needs_attention(draft),
             assignee_user_id=str(draft.assignee_user_id) if draft.assignee_user_id else None,
             created_at=draft.created_at,
+            updated_at=draft.updated_at,
+            content_generated_at=draft.content_generated_at,
             version=draft.version,
         )
 

@@ -318,6 +318,7 @@ X-Theunum-Service-Token: <THEUNUM_INTEGRATION_TOKEN>
 | Method | Path | Назначение |
 |---|---|---|
 | GET | `/drafts` | Список черновиков для выгрузки |
+| GET | `/drafts/today` | То же, но **только AI-текст с UTC-00:00 сегодня** (`freshness=today`) |
 | GET | `/drafts/{id}` | Полный черновик |
 | POST | `/drafts/mark-consumed` | Batch: пометить «уже забрали» |
 | POST | `/drafts/{id}/mark-consumed` | Один черновик |
@@ -338,7 +339,10 @@ Authorization: Bearer <token>
 |---|---|---|
 | `consumed` | `false` | **`false`** — только ещё не забранные theunum (главный фильтр cron). `true` — только для отладки/аудита |
 | `status` | `ready_for_review`, `needs_fix` | Можно повторить параметр или передать один статус |
-| `since` | — | ISO8601, фильтр по `Draft.updated_at` (инкрементальный cron) |
+| `since` | — | ISO8601, фильтр по `Draft.updated_at` (любое изменение черновика) |
+| `generated_since` | — | ISO8601, только черновики с **последним AI-рерайтом/regen** ≥ этой даты |
+| `freshness` | — | **`today`** — с UTC 00:00 сегодня; **`48h`** — не старше 48 часов (рекомендуется для cron) |
+| `max_age_hours` | — | Альтернатива: не старше N часов (1–168), комбинируется с `generated_since` — берётся **более строгая** граница |
 | `limit` | `50` | Max 100 |
 | `cursor` | — | Пагинация: `draft_id` последнего item с предыдущей страницы |
 
@@ -380,7 +384,7 @@ Authorization: Bearer <token>
 
 | Блок | Поля |
 |---|---|
-| Идентификация | `id`, `trace_id` (в summary через cluster), `status`, `version`, `consumed_at` |
+| Идентификация | `id`, `status`, `version`, `consumed_at`, `created_at`, `updated_at`, **`content_generated_at`** |
 | Текст EN | `title_en`, `body_en`, `body_en_html`, `title_en_variants[]` |
 | Текст RU | `title_ru`, `body_ru`, `body_ru_html`, `title_ru_variants[]` |
 
@@ -410,7 +414,33 @@ Fallback slug (обычно «мир»): AppSetting `site_category.fallback_slug
 
 | Image brief | `image_brief`, `image_alt`, `image_mood`, … |
 | Источники | `sources[]`: `{ title, url, language, source_name }` |
-| Прочее | `attribution_urls`, `handoff_note`, `rewrite_llm_model`, `created_at` |
+| Прочее | `attribution_urls`, `handoff_note`, `rewrite_llm_model` |
+
+**Даты:**
+
+| Поле | Смысл |
+|---|---|
+| `created_at` | Когда черновик впервые создан в scribely |
+| `updated_at` | Любое последнее изменение (regen, правка, compliance) |
+| `content_generated_at` | **Когда последний раз LLM переписал текст** (dispatch или regen) — для отсечения «старых» статей на VPS |
+
+Пример cron **«сегодня за сегодня»** (без ручной даты):
+
+```http
+GET /integrations/theunum/v1/drafts/today?consumed=false&limit=100
+```
+
+Пример **не старше 2 суток**:
+
+```http
+GET /integrations/theunum/v1/drafts?consumed=false&freshness=48h&limit=100
+```
+
+Явная дата (если нужна):
+
+```http
+GET /integrations/theunum/v1/drafts?consumed=false&generated_since=2026-09-01T17:00:00Z
+```
 
 Отдельных запросов «только EN» / «только RU» нет.
 
