@@ -7,6 +7,7 @@ from rewrite_app.db import new_session
 from rewrite_app.enrich.enrichment import enrich_cluster
 from rewrite_app.prompt.versions import get_active_prompt_version
 from rewrite_app.rewrite.orchestrator import rewrite_cluster
+from common.integration_reasons import format_integration_error
 from rewrite_app.rewrite.rotation import AllKeysExhaustedError
 from rewrite_app.settings import RewriteSettings
 from scribely.rewrite.v1 import rewrite_pb2, rewrite_pb2_grpc
@@ -64,7 +65,13 @@ class RewriteServicer(rewrite_pb2_grpc.RewriteServiceServicer):
             try:
                 result, key_alias, model = enrich_cluster(db, settings, sources_text=sources_text)
             except AllKeysExhaustedError as exc:
-                context.abort(grpc.StatusCode.UNAVAILABLE, f"all OpenRouter keys exhausted: {exc}")
+                context.abort(
+                    grpc.StatusCode.UNAVAILABLE,
+                    format_integration_error(
+                        exc.code,
+                        f"all OpenRouter keys exhausted: {exc}",
+                    ),
+                )
             except RuntimeError as exc:
                 # Dead-letter (ТЗ §4.20): logged with full context instead of
                 # a persisted quarantine table (which Phase 8's reporting
@@ -127,7 +134,13 @@ class RewriteServicer(rewrite_pb2_grpc.RewriteServiceServicer):
                     style_overlay_note=style_note,
                 )
             except AllKeysExhaustedError as exc:
-                context.abort(grpc.StatusCode.UNAVAILABLE, f"all OpenRouter keys exhausted: {exc}")
+                context.abort(
+                    grpc.StatusCode.UNAVAILABLE,
+                    format_integration_error(
+                        exc.code,
+                        f"all OpenRouter keys exhausted: {exc}",
+                    ),
+                )
             except RuntimeError as exc:
                 logger.error(
                     "RewriteCluster dead-letter for cluster %s: %s",

@@ -24,13 +24,40 @@ OPENROUTER_ERROR_CODES = frozenset(
     }
 )
 
+_REASON_PREFIX = "[reason="
+
+
+def format_integration_error(code: str, message: str) -> str:
+    """Embed machine-readable reason in gRPC/HTTP error text (rewrite → worker)."""
+    return f"{_REASON_PREFIX}{code}] {message}"
+
+
+def parse_integration_error_detail(message: str) -> tuple[str | None, str]:
+    if not message.startswith(_REASON_PREFIX):
+        return None, message
+    try:
+        end = message.index("]", len(_REASON_PREFIX))
+    except ValueError:
+        return None, message
+    code = message[len(_REASON_PREFIX) : end]
+    rest = message[end + 1 :].lstrip()
+    return code or None, rest
+
+
+def resolve_integration_error_code(message: str) -> str:
+    """Prefer explicit [reason=code] from rewrite; else classify free text."""
+    code, body = parse_integration_error_detail(message)
+    if code:
+        return code
+    return classify_openrouter_message(body or message)
+
 
 def classify_openrouter_message(message: str) -> str:
     """Map OpenRouter / gRPC error text to an integration reason_code."""
     lower = message.lower()
     if "no openrouter keys" in lower or "openrouter_key" in lower:
         return REASON_OPENROUTER_NO_KEYS
-    if any(
+    if "402" in lower or any(
         token in lower
         for token in (
             "insufficient credit",
@@ -46,6 +73,8 @@ def classify_openrouter_message(message: str) -> str:
     if any(token in lower for token in ("invalid api key", "unauthorized", "401", "403")):
         return REASON_OPENROUTER_AUTH_FAILED
     if "all openrouter keys exhausted" in lower or "keys exhausted" in lower:
+        return REASON_OPENROUTER_KEYS_EXHAUSTED
+    if any(token in lower for token in ("timeout", "timed out", "connect", "502", "503", "504")):
         return REASON_OPENROUTER_KEYS_EXHAUSTED
     return REASON_OPENROUTER_KEYS_EXHAUSTED
 

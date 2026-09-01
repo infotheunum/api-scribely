@@ -44,8 +44,24 @@ def test_call_openrouter_raises_on_error_field(monkeypatch):
         "rewrite_app.rewrite.openrouter_client.httpx.post",
         lambda *a, **kw: _FakeResponse({"error": {"message": "rate limited"}}),
     )
-    with pytest.raises(OpenRouterError):
+    with pytest.raises(OpenRouterError) as exc_info:
         call_openrouter(api_key="k", models=["m"], system_prompt="s", user_prompt="u")
+    assert exc_info.value.code == "openrouter_rate_limited"
+
+
+def test_call_openrouter_classifies_http_402(monkeypatch):
+    class _ErrResponse(_FakeResponse):
+        @property
+        def text(self):
+            return "insufficient credits"
+
+    monkeypatch.setattr(
+        "rewrite_app.rewrite.openrouter_client.httpx.post",
+        lambda *a, **kw: _ErrResponse({}, status_code=402),
+    )
+    with pytest.raises(OpenRouterError) as exc_info:
+        call_openrouter(api_key="k", models=["m"], system_prompt="s", user_prompt="u")
+    assert exc_info.value.code == "openrouter_payment_required"
 
 
 def test_call_openrouter_raises_on_transport_error(monkeypatch):

@@ -15,6 +15,15 @@ def integration_token(monkeypatch):
     monkeypatch.setenv("THEUNUM_INTEGRATION_TOKEN", INTEGRATION_TOKEN)
 
 
+@pytest.fixture(autouse=True)
+def mock_rewrite_reachable(monkeypatch):
+    """Integration meta/status tests don't run a real rewrite gRPC server."""
+    monkeypatch.setattr(
+        "api_app.integrations.pipeline_status.check_rewrite_health",
+        lambda _channel: True,
+    )
+
+
 def _source(db) -> Source:
     source = Source(
         name="Export Wire",
