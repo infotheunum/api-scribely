@@ -167,3 +167,33 @@ def test_prompt_version_create_and_activate(client, admin_user, clean_db):
     }
     assert listed[v1["id"]] == "retired"
     assert listed[v2["id"]] == "active"
+
+
+def test_admin_integration_export_settings_get_schema(client, admin_user, clean_db):
+    headers = _auth_headers(client, admin_user)
+    resp = client.get("/admin/integration/export-settings", headers=headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "defaults" in body
+    assert "filters" in body
+    assert "unsupported" in body
+    assert any(f["name"] == "freshness" for f in body["filters"])
+    assert any(u["name"].startswith("topic") for u in body["unsupported"])
+
+
+def test_admin_integration_export_settings_put(client, admin_user, clean_db):
+    headers = _auth_headers(client, admin_user)
+    resp = client.put(
+        "/admin/integration/export-settings",
+        json={
+            "default_freshness": "today",
+            "default_max_age_hours": 48,
+            "default_limit": 100,
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 200
+    defaults = resp.json()["defaults"]
+    assert defaults["default_freshness"] == "today"
+    assert defaults["default_max_age_hours"] == 48
+    assert defaults["default_limit"] == 100

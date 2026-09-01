@@ -367,6 +367,78 @@ def upsert_setting(
 
 
 # ---------------------------------------------------------------------
+# Integration Export API (defaults + filter schema for admin / VPS UI)
+# ---------------------------------------------------------------------
+
+
+class ExportDefaultsIn(BaseModel):
+    default_freshness: str = ""
+    default_max_age_hours: int | None = Field(default=None, ge=1, le=168)
+    default_limit: int | None = Field(default=None, ge=1, le=100)
+
+
+class ExportDefaultsOut(BaseModel):
+    default_freshness: str = ""
+    default_max_age_hours: int | None = None
+    default_limit: int | None = None
+
+
+class ExportIntegrationSettingsOut(BaseModel):
+    defaults: ExportDefaultsOut
+    filters: list[dict[str, Any]]
+    unsupported: list[dict[str, str]]
+    implicit_rules: list[dict[str, str]]
+    endpoints: dict[str, str]
+
+
+@router.get("/integration/export-settings", response_model=ExportIntegrationSettingsOut)
+def get_integration_export_settings(db: Session = Depends(get_db)) -> ExportIntegrationSettingsOut:
+    from common.integration_export_schema import build_export_schema_payload
+
+    payload = build_export_schema_payload(db)
+    defaults = payload["defaults"]
+    return ExportIntegrationSettingsOut(
+        defaults=ExportDefaultsOut(
+            default_freshness=defaults.get("default_freshness") or "",
+            default_max_age_hours=defaults.get("default_max_age_hours"),
+            default_limit=defaults.get("default_limit"),
+        ),
+        filters=payload["filters"],
+        unsupported=payload["unsupported"],
+        implicit_rules=payload["implicit_rules"],
+        endpoints=payload["endpoints"],
+    )
+
+
+@router.put("/integration/export-settings", response_model=ExportIntegrationSettingsOut)
+def upsert_integration_export_settings(
+    body: ExportDefaultsIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("admin")),
+) -> ExportIntegrationSettingsOut:
+    from common.integration_export_settings import load_export_defaults, save_export_defaults
+
+    previous_defaults = load_export_defaults(db)
+    saved = save_export_defaults(
+        db,
+        default_freshness=body.default_freshness,
+        default_max_age_hours=body.default_max_age_hours,
+        default_limit=body.default_limit,
+        updated_by=user.id,
+    )
+    db.flush()
+    _audit(
+        db,
+        user,
+        action="admin_update",
+        entity_type="IntegrationExportSettings",
+        entity_id="export_defaults",
+        details={"previous": previous_defaults, "new": saved},
+    )
+    return get_integration_export_settings(db=db)
+
+
+# ---------------------------------------------------------------------
 # PromptVersion
 # ---------------------------------------------------------------------
 
