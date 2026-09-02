@@ -69,3 +69,20 @@ def test_dispatch_classifies_unstructured_grpc_error(clean_db):
         run_dispatch_cycle(clean_db)
 
     assert get_setting(clean_db, KEY_LAST_ERROR_CODE, "") == "openrouter_rate_limited"
+
+
+def test_dispatch_records_validation_failed_not_keys_exhausted(clean_db):
+    _cluster(clean_db, _source(clean_db))
+    error = grpc.RpcError()
+    error.code = lambda: grpc.StatusCode.FAILED_PRECONDITION
+    error.details = lambda: (
+        "[reason=rewrite_validation_failed] RewriteCluster failed after 3 attempts: "
+        "body_en must be 2000-2500 chars (got 1692)"
+    )
+
+    patcher, _stub = _patched_stub(enrich_side_effect=error)
+
+    with patcher, patch("worker_app.dispatch.pipeline.build_rewrite_channel"):
+        run_dispatch_cycle(clean_db)
+
+    assert get_setting(clean_db, KEY_LAST_ERROR_CODE, "") == "rewrite_validation_failed"

@@ -7,7 +7,10 @@ from rewrite_app.db import new_session
 from rewrite_app.enrich.enrichment import enrich_cluster
 from rewrite_app.prompt.versions import get_active_prompt_version
 from rewrite_app.rewrite.orchestrator import rewrite_cluster
-from common.integration_reasons import format_integration_error
+from common.integration_reasons import (
+    REASON_REWRITE_VALIDATION_FAILED,
+    format_integration_error,
+)
 from common.token_usage import TokenUsage
 from rewrite_app.rewrite.rotation import AllKeysExhaustedError
 from rewrite_app.settings import RewriteSettings
@@ -18,6 +21,25 @@ logger = logging.getLogger(__name__)
 _NOT_IMPLEMENTED_MSG = (
     "{} is not implemented yet — scribely-rewrite business logic lands in Phase 4 (ТЗ §6.6)"
 )
+
+
+def _abort_runtime_dead_letter(context, *, cluster_id: str, method: str, exc: RuntimeError) -> None:
+    """Tag validation / regenerate dead-letters so worker does not show keys_exhausted."""
+    detail = str(exc)
+    lower = detail.lower()
+    if any(
+        token in lower
+        for token in ("validation error", "body_en must", "body_ru must", "value error")
+    ):
+        context.abort(
+            grpc.StatusCode.FAILED_PRECONDITION,
+            format_integration_error(REASON_REWRITE_VALIDATION_FAILED, detail),
+        )
+    logger.error("%s dead-letter for cluster %s: %s", method, cluster_id, exc)
+    context.abort(
+        grpc.StatusCode.INTERNAL,
+        format_integration_error(REASON_REWRITE_VALIDATION_FAILED, detail),
+    )
 
 
 def _llm_usage_proto(key_alias: str, model: str, usage: TokenUsage) -> rewrite_pb2.LlmUsage:
@@ -91,10 +113,9 @@ class RewriteServicer(rewrite_pb2_grpc.RewriteServiceServicer):
                 # a persisted quarantine table (which Phase 8's reporting
                 # will need) — cluster stays unenriched, worker's queue
                 # naturally retries it next tick since it never got marked done.
-                logger.error(
-                    "EnrichCluster dead-letter for cluster %s: %s", request.cluster_id, exc
+                _abort_runtime_dead_letter(
+                    context, cluster_id=request.cluster_id, method="EnrichCluster", exc=exc
                 )
-                context.abort(grpc.StatusCode.INTERNAL, str(exc))
 
             response = rewrite_pb2.EnrichClusterResponse(
                 context=rewrite_pb2.ClusterContext(
@@ -158,12 +179,12 @@ class RewriteServicer(rewrite_pb2_grpc.RewriteServiceServicer):
                     ),
                 )
             except RuntimeError as exc:
-                logger.error(
-                    "RewriteCluster dead-letter for cluster %s: %s",
-                    request.context.cluster_id,
-                    exc,
+                _abort_runtime_dead_letter(
+                    context,
+                    cluster_id=request.context.cluster_id,
+                    method="RewriteCluster",
+                    exc=exc,
                 )
-                context.abort(grpc.StatusCode.INTERNAL, str(exc))
 
             attribution_urls = [s.url for s in request.context.sources]
             draft = rewrite_pb2.DraftContent(

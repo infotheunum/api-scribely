@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from common.rewrite_body_limits import BODY_MAX_CHARS, BODY_MIN_CHARS
+
 # Machine-readable codes returned to api.theunum.io cron (integrations API).
 
 REASON_OK = "ok"
@@ -10,6 +12,7 @@ REASON_OPENROUTER_RATE_LIMITED = "openrouter_rate_limited"
 REASON_OPENROUTER_PAYMENT_REQUIRED = "openrouter_payment_required"
 REASON_OPENROUTER_AUTH_FAILED = "openrouter_auth_failed"
 REASON_OPENROUTER_NO_KEYS = "openrouter_no_keys_configured"
+REASON_REWRITE_VALIDATION_FAILED = "rewrite_validation_failed"
 REASON_DISPATCH_DISABLED = "dispatch_disabled"
 REASON_INGESTION_DISABLED = "ingestion_disabled"
 REASON_REWRITE_UNAVAILABLE = "rewrite_unavailable"
@@ -55,6 +58,18 @@ def resolve_integration_error_code(message: str) -> str:
 def classify_openrouter_message(message: str) -> str:
     """Map OpenRouter / gRPC error text to an integration reason_code."""
     lower = message.lower()
+    if any(
+        token in lower
+        for token in (
+            "validation error",
+            "rewritecluster failed after",
+            "enrichcluster failed after",
+            "body_en must",
+            "body_ru must",
+            "value error",
+        )
+    ):
+        return REASON_REWRITE_VALIDATION_FAILED
     if "no openrouter keys" in lower or "openrouter_key" in lower:
         return REASON_OPENROUTER_NO_KEYS
     if "402" in lower or any(
@@ -76,7 +91,9 @@ def classify_openrouter_message(message: str) -> str:
         return REASON_OPENROUTER_KEYS_EXHAUSTED
     if any(token in lower for token in ("timeout", "timed out", "connect", "502", "503", "504")):
         return REASON_OPENROUTER_KEYS_EXHAUSTED
-    return REASON_OPENROUTER_KEYS_EXHAUSTED
+    # Unknown dispatch/LLM text — degraded, not "keys exhausted" (that false
+    # positive hid body-length ValidationError as keys_exhausted in prod).
+    return REASON_PIPELINE_DEGRADED
 
 
 def human_reason_message(reason_code: str, *, detail: str | None = None) -> str:
@@ -84,6 +101,11 @@ def human_reason_message(reason_code: str, *, detail: str | None = None) -> str:
         REASON_OK: "Пайплайн работает штатно.",
         REASON_QUEUE_EMPTY: "Нет новых unconsumed черновиков — это норма.",
         REASON_PIPELINE_DEGRADED: "Есть сырьё в очереди, но черновики не создаются.",
+        REASON_REWRITE_VALIDATION_FAILED: (
+            "LLM вернул черновик, который не прошёл валидацию "
+            f"(длина body {BODY_MIN_CHARS}–{BODY_MAX_CHARS} символов, формат). "
+            "Кластер уйдёт в retry."
+        ),
         REASON_OPENROUTER_KEYS_EXHAUSTED: (
             "Все LLM-слоты исчерпаны — проверьте OPENROUTER_KEY_1..3, "
             "ANTHROPIC_API_KEY и OPENAI_API_KEY на rewrite."
