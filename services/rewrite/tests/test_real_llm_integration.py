@@ -43,11 +43,14 @@ def test_real_end_to_end_enrich_and_rewrite(clean_db):
     settings = RewriteSettings()
     sources_text = REAL_SOURCE_EN + "\n\n" + REAL_SOURCE_RU
 
-    enrich_result, enrich_key, enrich_model = enrich_cluster(
+    enrich_result, enrich_key, enrich_model, enrich_usage = enrich_cluster(
         clean_db, settings, sources_text=sources_text
     )
     assert len(enrich_result.facts) > 0
-    print(f"\n[enrich] key={enrich_key} model={enrich_model} facts={enrich_result.facts}")
+    print(
+        f"\n[enrich] key={enrich_key} model={enrich_model} "
+        f"tokens={enrich_usage.total_tokens} facts={enrich_result.facts}"
+    )
 
     prompt_version = get_active_prompt_version(clean_db)
     facts_text = "\n".join(f"- [{f.kind}] {f.text}" for f in enrich_result.facts)
@@ -56,7 +59,7 @@ def test_real_end_to_end_enrich_and_rewrite(clean_db):
         f"market_sensitive={enrich_result.market_sensitive}"
     )
 
-    result, key_alias, model = rewrite_cluster(
+    result, key_alias, model, rewrite_usage = rewrite_cluster(
         clean_db,
         settings,
         prompt_version,
@@ -65,7 +68,7 @@ def test_real_end_to_end_enrich_and_rewrite(clean_db):
         flags_text=flags_text,
     )
 
-    print(f"\n[rewrite] key={key_alias} model={model}")
+    print(f"\n[rewrite] key={key_alias} model={model} tokens={rewrite_usage.total_tokens}")
     print(f"EN title: {result.title_en}")
     print(f"EN body: {result.body_en}")
     print(f"RU title: {result.title_ru}")
