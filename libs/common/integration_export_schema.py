@@ -13,12 +13,13 @@ SUPPORTED_EXPORT_LIST_FILTERS: list[dict[str, Any]] = [
     {
         "name": "consumed",
         "type": "boolean",
-        "default": False,
-        "enum": [True, False],
+        "default": None,
+        "enum": [True, False, None],
         "db_field": "draft_export_log.draft_id",
         "description": (
-            "false — только ещё не забранные theunum (нет строки в draft_export_log). "
-            "true — только уже помеченные mark-consumed (отладка)."
+            "omit/null — все черновики за период (игнорирует mark-consumed; нужен, "
+            "пока theunum помечает consumed только на promote). "
+            "false — только ещё не помеченные. true — только уже mark-consumed."
         ),
         "endpoints": ["/drafts", "/drafts/today"],
         "admin_default_key": None,

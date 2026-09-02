@@ -86,7 +86,7 @@ def _drafts_query(
     db: Session,
     *,
     statuses: list[str],
-    consumed: bool,
+    consumed: bool | None,
     since: datetime | None,
     generated_since: datetime | None,
     cursor: uuid.UUID | None,
@@ -100,9 +100,10 @@ def _drafts_query(
         )
         .where(Draft.status.in_(statuses))
     )
-    if consumed:
+    # None = no consume filter (re-pull today's queue until theunum promote).
+    if consumed is True:
         stmt = stmt.where(DraftExportLog.draft_id.is_not(None))
-    else:
+    elif consumed is False:
         stmt = stmt.where(DraftExportLog.draft_id.is_(None))
     if since is not None:
         stmt = stmt.where(Draft.updated_at >= since)
@@ -127,7 +128,7 @@ def _list_export_drafts_impl(
     db: Session,
     *,
     statuses: list[str],
-    consumed: bool,
+    consumed: bool | None,
     since: datetime | None,
     generated_since: datetime | None,
     freshness: FreshnessPreset | None,
@@ -202,7 +203,13 @@ def list_export_drafts(
     request: Request,
     db: Session = Depends(get_db),
     status_filter: list[str] | None = Query(None, alias="status"),
-    consumed: bool = Query(False),
+    consumed: bool | None = Query(
+        None,
+        description=(
+            "Omit = all drafts in period (ignore mark-consumed). "
+            "false = only not yet mark-consumed. true = only mark-consumed."
+        ),
+    ),
     since: datetime | None = Query(None),
     generated_since: datetime | None = Query(
         None,
@@ -241,11 +248,17 @@ def list_export_drafts_today(
     request: Request,
     db: Session = Depends(get_db),
     status_filter: list[str] | None = Query(None, alias="status"),
-    consumed: bool = Query(False),
+    consumed: bool | None = Query(
+        None,
+        description=(
+            "Omit = all today's drafts (ignore mark-consumed). "
+            "false = only not yet mark-consumed. true = only mark-consumed."
+        ),
+    ),
     cursor: uuid.UUID | None = Query(None),
     limit: int | None = Query(None, ge=1, le=100),
 ) -> DraftListResponse:
-    """Shortcut: unconsumed queue drafts with content_generated_at >= UTC midnight today."""
+    """Shortcut: queue drafts with content_generated_at >= UTC midnight today."""
     statuses = status_filter or DEFAULT_EXPORT_STATUSES
     return _list_export_drafts_impl(
         request,
