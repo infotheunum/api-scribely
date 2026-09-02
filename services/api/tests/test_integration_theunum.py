@@ -328,8 +328,17 @@ def test_mark_consumed_excludes_from_list(client, clean_db):
     assert mark.status_code == 200
     assert mark.json()["marked"] == 1
 
-    listing = client.get("/integrations/theunum/v1/drafts", headers=AUTH_HEADERS)
-    assert listing.json()["items"] == []
+    unconsumed = client.get(
+        "/integrations/theunum/v1/drafts?consumed=false",
+        headers=AUTH_HEADERS,
+    )
+    assert unconsumed.json()["items"] == []
+
+    # Omit consumed → still returns marked drafts (theunum re-pull until promote).
+    all_today = client.get("/integrations/theunum/v1/drafts", headers=AUTH_HEADERS)
+    assert len(all_today.json()["items"]) == 1
+    assert all_today.json()["items"][0]["id"] == str(draft.id)
+    assert all_today.json()["items"][0]["consumed_at"] is not None
 
     export_log = clean_db.get(DraftExportLog, draft.id)
     assert export_log is not None
