@@ -41,9 +41,27 @@ def test_call_openrouter_returns_content_and_model(monkeypatch):
             {"choices": [{"message": {"content": "{}"}}], "model": "openai/gpt-oss-20b:free"}
         ),
     )
-    content, model = call_openrouter(api_key="k", models=["m"], system_prompt="s", user_prompt="u")
+    content, model, usage = call_openrouter(api_key="k", models=["m"], system_prompt="s", user_prompt="u")
     assert content == "{}"
     assert model == "openai/gpt-oss-20b:free"
+    assert usage.total_tokens == 0
+
+
+def test_call_openrouter_parses_usage(monkeypatch):
+    monkeypatch.setattr(
+        "rewrite_app.rewrite.openrouter_client.httpx.post",
+        lambda *a, **kw: _FakeResponse(
+            {
+                "choices": [{"message": {"content": "{}"}}],
+                "model": "m",
+                "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+            }
+        ),
+    )
+    _, _, usage = call_openrouter(api_key="k", models=["m"], system_prompt="s", user_prompt="u")
+    assert usage.prompt_tokens == 10
+    assert usage.completion_tokens == 20
+    assert usage.total_tokens == 30
 
 
 def test_call_openrouter_raises_on_error_field(monkeypatch):

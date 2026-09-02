@@ -123,12 +123,16 @@ message DraftContent {
   ImageBrief image_brief = 18;
 }
 
-// Which OpenRouter key/model actually served a call — for audit (ТЗ §4.10).
-// key_alias is "key_1"/"key_2"/"key_3", never the raw secret.
+// Which OpenRouter/Anthropic/OpenAI key/model actually served a call —
+// for audit (ТЗ §4.10) and token analytics for theunum.
+// key_alias is "key_1"/"key_2"/"key_3"/"anthropic"/"openai", never the raw secret.
 message LlmUsage {
   string key_alias = 1;
   string model = 2;
   int32 attempt = 3;
+  int32 prompt_tokens = 4;
+  int32 completion_tokens = 5;
+  int32 total_tokens = 6;
 }
 
 // ---------------------------------------------------------------------
@@ -143,6 +147,7 @@ message EnrichClusterRequest {
 
 message EnrichClusterResponse {
   ClusterContext context = 1;
+  LlmUsage llm_usage = 2;
 }
 
 // ---------------------------------------------------------------------

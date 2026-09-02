@@ -132,6 +132,9 @@ class DraftDetail(DraftSummary):
     pending_tags: list
     handoff_note: str | None
     rewrite_llm_model: str | None
+    llm_prompt_tokens: int = 0
+    llm_completion_tokens: int = 0
+    llm_total_tokens: int = 0
     sources: list[SourceRefOut]
 
     @classmethod
@@ -183,6 +186,9 @@ class DraftDetail(DraftSummary):
             pending_tags=draft.pending_tags,
             handoff_note=draft.handoff_note,
             rewrite_llm_model=draft.rewrite_llm_model,
+            llm_prompt_tokens=int(draft.llm_prompt_tokens or 0),
+            llm_completion_tokens=int(draft.llm_completion_tokens or 0),
+            llm_total_tokens=int(draft.llm_total_tokens or 0),
             sources=sources,
         )
 

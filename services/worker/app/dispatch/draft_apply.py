@@ -20,6 +20,9 @@ def apply_rewrite_content(
     rewrite_model: str | None,
     translate_key_alias: str | None,
     translate_model: str | None,
+    llm_prompt_tokens: int = 0,
+    llm_completion_tokens: int = 0,
+    llm_total_tokens: int = 0,
     revision_kind: DraftRevisionKind = DraftRevisionKind.AI_GENERATED,
     bump_version: bool = False,
     editorial_topic: str | None = None,
@@ -40,6 +43,9 @@ def apply_rewrite_content(
     draft.rewrite_llm_model = rewrite_model
     draft.translate_llm_key_alias = translate_key_alias
     draft.translate_llm_model = translate_model
+    draft.llm_prompt_tokens = max(0, int(llm_prompt_tokens))
+    draft.llm_completion_tokens = max(0, int(llm_completion_tokens))
+    draft.llm_total_tokens = max(0, int(llm_total_tokens))
     if prompt_version_id:
         draft.prompt_version_id = uuid.UUID(str(prompt_version_id))
     else:

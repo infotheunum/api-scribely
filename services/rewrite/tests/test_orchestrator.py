@@ -8,6 +8,9 @@ from db.models import PromptVersion
 from rewrite_app.prompt.style_guide import BODY_MAX_CHARS, BODY_MIN_CHARS
 from rewrite_app.rewrite.orchestrator import rewrite_cluster
 from rewrite_app.settings import RewriteSettings
+from common.token_usage import TokenUsage
+
+_USAGE = TokenUsage(9, 8, 17)
 
 VALID_BODY_EN = "x" * BODY_MIN_CHARS
 VALID_BODY_RU = "y" * BODY_MIN_CHARS
@@ -67,10 +70,18 @@ def prompt_version(clean_db) -> PromptVersion:
 def test_rewrite_cluster_parses_valid_response(clean_db, prompt_version, monkeypatch):
     monkeypatch.setattr(
         "rewrite_app.rewrite.orchestrator.call_with_rotation",
-        lambda *a, **kw: (json.dumps(VALID_RESULT), "key_1", "openai/gpt-oss-20b:free"),
+        lambda *a, **kw: (json.dumps(VALID_RESULT), "key_1", "openai/gpt-oss-20b:free", _USAGE),
+    )
+    monkeypatch.setattr(
+        "rewrite_app.rewrite.orchestrator.site_category_prompt_block",
+        lambda db: "",
+    )
+    monkeypatch.setattr(
+        "common.site_categories.resolve_site_category_slug",
+        lambda slug, **kw: slug or "world",
     )
 
-    result, key_alias, model = rewrite_cluster(
+    result, key_alias, model, usage = rewrite_cluster(
         clean_db,
         RewriteSettings(),
         prompt_version,
@@ -83,13 +94,22 @@ def test_rewrite_cluster_parses_valid_response(clean_db, prompt_version, monkeyp
     assert result.disclaimer_flag is True
     assert len(result.tags) == 1
     assert model == "openai/gpt-oss-20b:free"
+    assert usage.total_tokens == 17
 
 
 def test_rewrite_cluster_rejects_too_long_body(clean_db, prompt_version, monkeypatch):
     bad = dict(VALID_RESULT, body_en="x" * (BODY_MAX_CHARS + 1))
     monkeypatch.setattr(
         "rewrite_app.rewrite.orchestrator.call_with_rotation",
-        lambda *a, **kw: (json.dumps(bad), "key_1", "m"),
+        lambda *a, **kw: (json.dumps(bad), "key_1", "m", _USAGE),
+    )
+    monkeypatch.setattr(
+        "rewrite_app.rewrite.orchestrator.site_category_prompt_block",
+        lambda db: "",
+    )
+    monkeypatch.setattr(
+        "common.site_categories.resolve_site_category_slug",
+        lambda slug, **kw: slug or "world",
     )
     with pytest.raises(RuntimeError, match="failed after"):
         rewrite_cluster(
@@ -106,7 +126,15 @@ def test_rewrite_cluster_rejects_too_short_body(clean_db, prompt_version, monkey
     bad = dict(VALID_RESULT, body_en="too short")
     monkeypatch.setattr(
         "rewrite_app.rewrite.orchestrator.call_with_rotation",
-        lambda *a, **kw: (json.dumps(bad), "key_1", "m"),
+        lambda *a, **kw: (json.dumps(bad), "key_1", "m", _USAGE),
+    )
+    monkeypatch.setattr(
+        "rewrite_app.rewrite.orchestrator.site_category_prompt_block",
+        lambda db: "",
+    )
+    monkeypatch.setattr(
+        "common.site_categories.resolve_site_category_slug",
+        lambda slug, **kw: slug or "world",
     )
     with pytest.raises(RuntimeError, match="failed after"):
         rewrite_cluster(

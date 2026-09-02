@@ -4,7 +4,9 @@ import logging
 
 import grpc
 from common.grpc_client import build_rewrite_channel, rewrite_stub
+from common.llm_token_totals import record_token_usage
 from common.pipeline_telemetry import record_dispatch_cycle_result
+from common.token_usage import TokenUsage
 from common.tracing import get_trace_id, new_trace_id, set_trace_id
 from db.app_settings import get_setting
 from db.enums import DraftRevisionKind
@@ -73,6 +75,16 @@ def _persist_cluster_context(db: Session, cluster_id, response_ctx) -> None:
     ctx.fact_conflict_note = response_ctx.fact_conflict_note or None
 
 
+def _usage_from_proto(usage) -> TokenUsage:
+    if usage is None:
+        return TokenUsage()
+    return TokenUsage(
+        prompt_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
+        completion_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
+        total_tokens=int(getattr(usage, "total_tokens", 0) or 0),
+    )
+
+
 def _persist_draft(
     db: Session,
     cluster: NewsCluster,
@@ -82,6 +94,7 @@ def _persist_draft(
     trace_id: str,
     rewrite_usage,
     translate_usage,
+    enrich_usage=None,
 ) -> Draft:
     draft = Draft(
         cluster_id=cluster.id,
@@ -89,6 +102,7 @@ def _persist_draft(
     )
     db.add(draft)
     db.flush()
+    tokens = _usage_from_proto(enrich_usage) + _usage_from_proto(rewrite_usage)
     apply_rewrite_content(
         db,
         draft,
@@ -99,10 +113,15 @@ def _persist_draft(
         rewrite_model=rewrite_usage.model or None,
         translate_key_alias=translate_usage.key_alias or None,
         translate_model=translate_usage.model or None,
+        llm_prompt_tokens=tokens.prompt_tokens,
+        llm_completion_tokens=tokens.completion_tokens,
+        llm_total_tokens=tokens.total_tokens,
         revision_kind=DraftRevisionKind.AI_GENERATED,
         bump_version=False,
         editorial_topic=cluster.topic,
     )
+    if tokens.total_tokens or tokens.prompt_tokens or tokens.completion_tokens:
+        record_token_usage(db, tokens, calls=1 if enrich_usage is None else 2)
     return draft
 
 
@@ -154,6 +173,7 @@ def run_dispatch_cycle(db: Session, *, settings: WorkerSettings | None = None) -
                     trace_id=trace_id,
                     rewrite_usage=rewrite_resp.rewrite_usage,
                     translate_usage=rewrite_resp.translate_usage,
+                    enrich_usage=getattr(enrich_resp, "llm_usage", None),
                 )
                 db.commit()
                 dispatched += 1
