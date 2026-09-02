@@ -114,9 +114,11 @@ def rewrite_cluster(
             logger.warning("rewrite attempt %d/%d validation failed: %s", attempt, MAX_ATTEMPTS, exc)
             last_error = exc
             retry_note = (
-                f"\n\nПРЕДЫДУЩИЙ ОТВЕТ ОТКЛОНЁН: body_en и body_ru должны быть "
-                f"{BODY_MIN_CHARS}–{BODY_MAX_CHARS} символов каждый и ровно 3 абзаца через \\n\\n. "
-                f"Перегенерируй полностью, не сокращай."
+                f"\n\nПРЕДЫДУЩИЙ ОТВЕТ ОТКЛОНЁН: {str(exc)[:400]}. "
+                f"body_en и body_ru должны быть {BODY_MIN_CHARS}–{BODY_MAX_CHARS} символов каждый "
+                f"(считай с пробелами) и ровно 3 абзаца через \\n\\n. "
+                f"Если текст короткий — допиши контекст, цифры и реакцию рынка; не сокращай. "
+                f"Перегенерируй полностью."
             )
         except (ValueError, KeyError) as exc:
             logger.warning("rewrite attempt %d/%d failed: %s", attempt, MAX_ATTEMPTS, exc)
