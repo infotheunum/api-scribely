@@ -106,12 +106,23 @@ def test_dispatch_persists_draft_and_revision(clean_db):
     assert draft.rewrite_llm_model == "m"
     assert draft.translate_llm_key_alias == "key_1"
     assert draft.translate_llm_model == "m"
+    assert draft.content_generated_at is not None
     revision = clean_db.query(DraftRevision).one()
     assert revision.draft_id == draft.id
     assert revision.kind == "ai_generated"
     ctx = clean_db.get(ClusterContext, cluster.id)
     assert ctx is not None
     assert ctx.regulated is True
+
+
+def test_draft_insert_without_explicit_content_generated_at(clean_db):
+    """Regression: flush before apply_rewrite_content must not NOT NULL."""
+    cluster = _cluster(clean_db, _source(clean_db))
+    draft = Draft(cluster_id=cluster.id, trace_id="t")
+    clean_db.add(draft)
+    clean_db.flush()
+    assert draft.content_generated_at is not None
+    clean_db.commit()
 
 
 def test_dispatch_skips_clusters_that_already_have_a_draft(clean_db):

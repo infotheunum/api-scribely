@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 
 import grpc
 from common.grpc_client import build_rewrite_channel, rewrite_stub
@@ -96,9 +97,13 @@ def _persist_draft(
     translate_usage,
     enrich_usage=None,
 ) -> Draft:
+    # content_generated_at must be set before flush: column is NOT NULL and
+    # prod DB historically lacked server_default (SA still omitted it via
+    # mapped server_default=func.now()). apply_rewrite_content overwrites it.
     draft = Draft(
         cluster_id=cluster.id,
         trace_id=trace_id,
+        content_generated_at=datetime.now(UTC),
     )
     db.add(draft)
     db.flush()
