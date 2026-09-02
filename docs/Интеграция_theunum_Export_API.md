@@ -452,9 +452,9 @@ Admin тоже пусто                                                →  so
 | `limit` | integer | `50` | `1` … `100` | Размер страницы |
 | `cursor` | UUID | — | `draft.id` с предыдущей страницы | Курсорная пагинация; значение = `next_cursor` из прошлого ответа |
 
-**Сортировка (фиксированная, не настраивается):** `ORDER BY draft.created_at ASC, draft.id ASC`.
+**Сортировка (фиксированная, не настраивается):** `ORDER BY draft.content_generated_at DESC, draft.id DESC` (свежий AI-рерайт первым).
 
-**Поведение cursor:** выбираются черновики **строго после** cursor-draft по `(created_at, id)` — stable ordering при инкрементальном cron.
+**Поведение cursor:** выбираются черновики **строго старше** cursor-draft по `(content_generated_at, id)` — следующая страница к более старым.
 
 **Offset-пагинации (`page`, `offset`) нет.**
 
@@ -582,7 +582,7 @@ default_freshness=today&default_max_age_hours=&default_limit=100
 | Поле | Смысл | Связь с фильтрами |
 |---|---|---|
 | `content_generated_at` | Последний AI-рерайт/regen | Ось `freshness` / `max_age_hours` / `generated_since` |
-| `created_at` | Создание Draft | Сортировка и cursor |
+| `created_at` | Создание Draft | Метаданные; сортировка Export — по `content_generated_at` |
 | `updated_at` | Любое изменение | Фильтр `since` |
 | `consumed_at` | Когда theunum вызвал mark-consumed | `null` = ещё в `consumed=false` |
 
@@ -595,7 +595,7 @@ default_freshness=today&default_max_age_hours=&default_limit=100
 | Integration auth | Без валидного token — 401/503, список не отдаётся |
 | JOIN export log | `consumed=false` → `draft_export_log` отсутствует |
 | Default statuses | Без `status` — только `ready_for_review` + `needs_fix` |
-| Sort | Только `created_at ASC, id ASC` |
+| Sort | Только `content_generated_at DESC, id DESC` |
 | Limit cap | Max 100 items за запрос |
 | Нет soft-delete filter | Архивные/rejected не попадают только если status не передан явно |
 
@@ -642,7 +642,7 @@ default_freshness=today&default_max_age_hours=&default_limit=100
 |---|---|
 | `offset`, `page`, `skip` | ❌ nет |
 | Сортировка по `updated_at`, `content_generated_at`, title | ❌ нет |
-| `order=desc` | ❌ nет |
+| `order=asc` (старые первыми) | ❌ нет (фиксировано DESC по AI-дате) |
 | Произвольный `sort_by` | ❌ nет |
 
 ### Прочее
