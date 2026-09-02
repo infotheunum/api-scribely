@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import (
     Boolean,
@@ -277,8 +277,13 @@ class Draft(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+    # ORM default + DB server_default: INSERT may flush before apply_rewrite_content
+    # sets the real AI timestamp; without both, NOT NULL fails (prod 2026-09-02).
     content_generated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        DateTime(timezone=True),
+        server_default=func.now(),
+        default=lambda: datetime.now(UTC),
+        nullable=False,
     )
 
     cluster: Mapped[NewsCluster] = relationship(back_populates="drafts")
