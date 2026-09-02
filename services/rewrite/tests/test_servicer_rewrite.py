@@ -71,12 +71,15 @@ def _md():
 
 
 def test_enrich_cluster_over_grpc(clean_db, server_address, monkeypatch):
+    from common.token_usage import TokenUsage
+
     monkeypatch.setattr(
         "rewrite_app.servicer.enrich_cluster",
         lambda *a, **kw: (
             _fake_enrich_result(),
             "key_1",
             "openai/gpt-oss-20b:free",
+            TokenUsage(10, 20, 30),
         ),
     )
     with grpc.insecure_channel(server_address) as channel:
@@ -103,12 +106,15 @@ def test_enrich_cluster_over_grpc(clean_db, server_address, monkeypatch):
 
 
 def test_rewrite_cluster_over_grpc(clean_db, server_address, monkeypatch):
+    from common.token_usage import TokenUsage
+
     monkeypatch.setattr(
         "rewrite_app.servicer.rewrite_cluster",
         lambda *a, **kw: (
             _fake_rewrite_result(),
             "key_1",
             "openai/gpt-oss-20b:free",
+            TokenUsage(11, 22, 33),
         ),
     )
     with grpc.insecure_channel(server_address) as channel:
@@ -136,6 +142,7 @@ def test_rewrite_cluster_over_grpc(clean_db, server_address, monkeypatch):
     assert response.draft.attribution_urls == ["https://example.com/a"]
     assert response.prompt_version_id  # a PromptVersion got bootstrapped
     assert response.rewrite_usage.key_alias == "key_1"
+    assert response.rewrite_usage.total_tokens == 33
 
 
 def _fake_enrich_result():
