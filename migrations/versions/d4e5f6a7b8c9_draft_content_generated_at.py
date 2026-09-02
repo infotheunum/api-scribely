@@ -20,14 +20,24 @@ depends_on = None
 def upgrade() -> None:
     op.add_column(
         "draft",
-        sa.Column("content_generated_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column(
+            "content_generated_at",
+            sa.DateTime(timezone=True),
+            nullable=True,
+            server_default=sa.text("now()"),
+        ),
     )
     op.execute(
         sa.text(
             "UPDATE draft SET content_generated_at = updated_at WHERE content_generated_at IS NULL"
         )
     )
-    op.alter_column("draft", "content_generated_at", nullable=False)
+    op.alter_column(
+        "draft",
+        "content_generated_at",
+        nullable=False,
+        server_default=sa.text("now()"),
+    )
 
 
 def downgrade() -> None:
