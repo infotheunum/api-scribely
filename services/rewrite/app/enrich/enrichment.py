@@ -53,9 +53,11 @@ def enrich_cluster(
         try:
             content, key_alias, model = call_with_rotation(
                 db,
-                api_keys=settings.openrouter_keys(),
+                api_keys=settings.llm_provider_keys(),
                 system_prompt=ENRICH_SYSTEM_PROMPT,
                 user_prompt=f"Источники кластера:\n\n{sources_text}",
+                anthropic_model=settings.anthropic_model,
+                openai_model=settings.openai_model,
             )
             data = extract_json(content)
             return EnrichResultSchema.model_validate(data), key_alias, model

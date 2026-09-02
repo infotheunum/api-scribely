@@ -90,9 +90,11 @@ def rewrite_cluster(
         try:
             content, key_alias, model = call_with_rotation(
                 db,
-                api_keys=settings.openrouter_keys(),
+                api_keys=settings.llm_provider_keys(),
                 system_prompt=system_prompt,
                 user_prompt=user_prompt + retry_note,
+                anthropic_model=settings.anthropic_model,
+                openai_model=settings.openai_model,
             )
             data = extract_json(content)
             result = RewriteResultSchema.model_validate(data)
