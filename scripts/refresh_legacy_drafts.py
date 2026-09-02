@@ -9,7 +9,7 @@ What it does (per draft in ready_for_review / needs_fix):
   2. Optionally remap pending_category_slug (--remap invalid|all)
   3. Delete draft_export_log so Export API offers the draft again (default)
 
-Does NOT call OpenRouter. For short bodies (<1800 chars) use
+Does NOT call OpenRouter. For short bodies (<BODY_MIN_CHARS) use
 scripts/regenerate_drafts.py separately.
 
 Usage:
@@ -27,6 +27,7 @@ import argparse
 import sys
 
 from common.rewrite_body_format import normalize_body_paragraphs, paragraph_count
+from common.rewrite_body_limits import BODY_MIN_CHARS
 from common.site_categories import is_valid_site_category_slug, resolve_site_category_slug
 from db.enums import DraftStatus
 from db.models import Draft, DraftExportLog
@@ -85,8 +86,8 @@ def main() -> int:
                 .where(Draft.status.in_(QUEUE_STATUSES))
                 .where(
                     or_(
-                        func.length(Draft.body_en) < 1800,
-                        func.length(Draft.body_ru) < 1800,
+                        func.length(Draft.body_en) < BODY_MIN_CHARS,
+                        func.length(Draft.body_ru) < BODY_MIN_CHARS,
                     )
                 )
             )
@@ -125,7 +126,7 @@ def main() -> int:
         )
         if short_bodies:
             print(
-                f"note: {short_bodies} drafts still below 1800 chars — "
+                f"note: {short_bodies} drafts still below {BODY_MIN_CHARS} chars — "
                 "run scripts/regenerate_drafts.py after this refresh"
             )
 

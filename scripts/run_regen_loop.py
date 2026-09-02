@@ -1,6 +1,6 @@
 """Background regen loop with live progress in the log.
 
-Regenerates one short-body draft per iteration (body < 1800 chars),
+Regenerates one short-body draft per iteration (body < BODY_MIN_CHARS),
 clears draft_export_log, sleeps between attempts.
 
 Usage:

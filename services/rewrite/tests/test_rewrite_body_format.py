@@ -24,10 +24,10 @@ def test_split_paragraphs_on_single_newlines():
 
 
 def test_normalize_splits_long_unbroken_text():
-    text = "x" * 1800
+    text = "x" * 2000
     normalized = normalize_body_paragraphs(text)
     assert paragraph_count(normalized) == EXPECTED_PARAGRAPH_COUNT
-    assert len(normalized) == 1800 + 2 * (EXPECTED_PARAGRAPH_COUNT - 1)
+    assert len(normalized) == 2000 + 2 * (EXPECTED_PARAGRAPH_COUNT - 1)
 
 
     text = (

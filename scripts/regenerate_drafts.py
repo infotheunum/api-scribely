@@ -32,7 +32,7 @@ def main() -> int:
     parser.add_argument(
         "--all",
         action="store_true",
-        help="All ready_for_review + needs_fix (default: only body shorter than 1800 chars)",
+        help="All ready_for_review + needs_fix (default: only body shorter than BODY_MIN_CHARS)",
     )
     parser.add_argument(
         "--limit",
