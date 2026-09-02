@@ -44,11 +44,12 @@ def _persist_openrouter_key_count(settings: RewriteSettings) -> None:
     """Expose key count to api integrations /status via AppSetting."""
     from rewrite_app.db import new_session
 
-    count = sum(1 for value in settings.openrouter_keys().values() if value)
+    count = settings.configured_llm_key_count()
     session = new_session()
     try:
         set_setting(session, "openrouter.keys_configured", count)
         session.commit()
+        logger.info("LLM provider keys configured: %d", count)
     finally:
         session.close()
 
