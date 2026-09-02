@@ -125,6 +125,66 @@ def test_missing_key_is_skipped(clean_db, monkeypatch):
     assert calls == ["b"]
 
 
+def test_cascades_to_anthropic_after_openrouter(clean_db, monkeypatch):
+    calls = []
+
+    def _or(*, api_key, **kw):
+        calls.append(("or", api_key))
+        raise OpenRouterError("or down")
+
+    def _anthropic(*, api_key, model, **kw):
+        calls.append(("anthropic", api_key, model))
+        return '{"ok":true}', model
+
+    monkeypatch.setattr("rewrite_app.rewrite.rotation.call_openrouter", _or)
+    monkeypatch.setattr("rewrite_app.rewrite.rotation.call_anthropic", _anthropic)
+
+    content, key_alias, model = call_with_rotation(
+        clean_db,
+        api_keys={"key_1": "a", "key_2": "", "key_3": "", "anthropic": "ant-key", "openai": ""},
+        system_prompt="s",
+        user_prompt="u",
+        anthropic_model="claude-3-5-haiku-latest",
+    )
+
+    assert key_alias == "anthropic"
+    assert model == "claude-3-5-haiku-latest"
+    assert calls[0][0] == "or"
+    assert calls[-1][0] == "anthropic"
+
+
+def test_cascades_openrouter_then_anthropic_then_openai(clean_db, monkeypatch):
+    def _or(**kw):
+        raise OpenRouterError("or down")
+
+    def _anthropic(**kw):
+        raise OpenRouterError("anthropic down")
+
+    def _openai(*, model, **kw):
+        return "content", model
+
+    monkeypatch.setattr("rewrite_app.rewrite.rotation.call_openrouter", _or)
+    monkeypatch.setattr("rewrite_app.rewrite.rotation.call_anthropic", _anthropic)
+    monkeypatch.setattr("rewrite_app.rewrite.rotation.call_openai", _openai)
+
+    _, key_alias, model = call_with_rotation(
+        clean_db,
+        api_keys={
+            "key_1": "a",
+            "key_2": "b",
+            "key_3": "c",
+            "anthropic": "ant",
+            "openai": "oai",
+        },
+        system_prompt="s",
+        user_prompt="u",
+        openai_model="gpt-4o-mini",
+    )
+
+    assert key_alias == "openai"
+    assert model == "gpt-4o-mini"
+
+
 def test_active_free_models_bootstraps_from_constant_on_first_use(clean_db):
     models = active_free_models(clean_db)
 

@@ -85,14 +85,19 @@ def human_reason_message(reason_code: str, *, detail: str | None = None) -> str:
         REASON_QUEUE_EMPTY: "Нет новых unconsumed черновиков — это норма.",
         REASON_PIPELINE_DEGRADED: "Есть сырьё в очереди, но черновики не создаются.",
         REASON_OPENROUTER_KEYS_EXHAUSTED: (
-            "OpenRouter: все ключи исчерпаны — проверьте OPENROUTER_KEY_1..3 на rewrite."
+            "Все LLM-слоты исчерпаны — проверьте OPENROUTER_KEY_1..3, "
+            "ANTHROPIC_API_KEY и OPENAI_API_KEY на rewrite."
         ),
         REASON_OPENROUTER_RATE_LIMITED: "OpenRouter: rate limit free-tier — подождите или добавьте ключ.",
         REASON_OPENROUTER_PAYMENT_REQUIRED: (
-            "OpenRouter: закончились credits — пополните баланс или проверьте ключи."
+            "OpenRouter: закончились credits — пополните баланс или проверьте ключи "
+            "(есть фолбэк Anthropic/OpenAI, если заданы)."
         ),
-        REASON_OPENROUTER_AUTH_FAILED: "OpenRouter: неверный API key — проверьте OPENROUTER_KEY_*.",
-        REASON_OPENROUTER_NO_KEYS: "OpenRouter: ключи не заданы в env сервиса rewrite.",
+        REASON_OPENROUTER_AUTH_FAILED: "LLM auth failed — проверьте OPENROUTER_KEY_* / ANTHROPIC / OPENAI.",
+        REASON_OPENROUTER_NO_KEYS: (
+            "LLM-ключи не заданы в env сервиса rewrite "
+            "(OPENROUTER_KEY_1..3 / ANTHROPIC_API_KEY / OPENAI_API_KEY)."
+        ),
         REASON_DISPATCH_DISABLED: "Dispatch выключен в Admin Settings (pipeline.dispatch_enabled).",
         REASON_INGESTION_DISABLED: "Ingestion выключен (pipeline.poll_enabled).",
         REASON_REWRITE_UNAVAILABLE: "scribely-rewrite недоступен по gRPC.",

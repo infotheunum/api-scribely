@@ -3,15 +3,25 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 
-from db.models import LlmRotationModel, LLMRotationState, LLMRotationUsage
 from common.integration_reasons import classify_openrouter_message
+from db.models import LLMRotationState, LLMRotationUsage, LlmRotationModel
 from rewrite_app.rewrite.openrouter_client import OpenRouterError, call_openrouter
+from rewrite_app.rewrite.provider_clients import (
+    DEFAULT_ANTHROPIC_MODEL,
+    DEFAULT_OPENAI_MODEL,
+    call_anthropic,
+    call_openai,
+)
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
-KEY_ALIASES = ["key_1", "key_2", "key_3"]
+# OpenRouter slots first, then paid cheap fallbacks — sticky round-robin
+# across the whole list (ТЗ §4.5 + provider fallback).
+OPENROUTER_KEY_ALIASES = ["key_1", "key_2", "key_3"]
+FALLBACK_ALIASES = ["anthropic", "openai"]
+KEY_ALIASES = OPENROUTER_KEY_ALIASES + FALLBACK_ALIASES
 
 # Fixed 2026-08-03 (ТЗ §8.2 open question, resolved in Фаза 4) —
 # live-verified against GET https://openrouter.ai/api/v1/models the same
@@ -68,7 +78,7 @@ def active_free_models(db: Session) -> list[str]:
 
 
 class AllKeysExhaustedError(Exception):
-    """All 3 keys failed — ТЗ §4.5 point 4: caller's job is to not lose
+    """All provider slots failed — ТЗ §4.5 point 4: caller's job is to not lose
     the task, not to retry here. Since a cluster without a Draft yet
     stays selectable by Phase 3's queue, the next scheduler tick is the
     de-facto deferred retry queue — no separate infrastructure needed."""
@@ -82,7 +92,8 @@ def _current_key_alias(db: Session) -> str:
     switched = [s for s in db.scalars(select(LLMRotationState)) if s.last_switched_at is not None]
     if not switched:
         return KEY_ALIASES[0]
-    return max(switched, key=lambda s: s.last_switched_at).key_alias
+    last = max(switched, key=lambda s: s.last_switched_at).key_alias
+    return last if last in KEY_ALIASES else KEY_ALIASES[0]
 
 
 def _get_or_create_state(db: Session, key_alias: str) -> LLMRotationState:
@@ -104,36 +115,82 @@ def _record_usage(db: Session, key_alias: str, model: str, *, success: bool) -> 
         usage.error_count += 1
 
 
+def _call_slot(
+    *,
+    key_alias: str,
+    api_key: str,
+    free_models: list[str],
+    system_prompt: str,
+    user_prompt: str,
+    anthropic_model: str,
+    openai_model: str,
+) -> tuple[str, str]:
+    """Dispatch one rotation slot to the right provider client."""
+    if key_alias in OPENROUTER_KEY_ALIASES:
+        return call_openrouter(
+            api_key=api_key,
+            models=free_models,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+        )
+    if key_alias == "anthropic":
+        return call_anthropic(
+            api_key=api_key,
+            model=anthropic_model,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+        )
+    if key_alias == "openai":
+        return call_openai(
+            api_key=api_key,
+            model=openai_model,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+        )
+    raise OpenRouterError(f"unknown provider slot: {key_alias}", code="unknown")
+
+
 def call_with_rotation(
     db: Session,
     *,
     api_keys: dict[str, str],
     system_prompt: str,
     user_prompt: str,
+    anthropic_model: str = DEFAULT_ANTHROPIC_MODEL,
+    openai_model: str = DEFAULT_OPENAI_MODEL,
 ) -> tuple[str, str, str]:
-    """Calls OpenRouter, cascading across the 3 keys (persisted "sticky"
-    starting point, ТЗ §4.5 point 5) when one is exhausted. Returns
-    (raw_content, key_alias_used, model_used)."""
+    """Calls LLM providers in sticky round-robin:
+
+    1. OpenRouter key_1 → key_2 → key_3 (free models via OpenRouter `models`)
+    2. Anthropic (cheap Haiku by default)
+    3. OpenAI (cheap gpt-4o-mini by default)
+
+    On failure of a slot, cascades to the next; successful slot becomes
+    sticky start for the next call. Returns (raw_content, key_alias_used, model_used).
+    """
     start = _current_key_alias(db)
-    start_idx = KEY_ALIASES.index(start)
+    start_idx = KEY_ALIASES.index(start) if start in KEY_ALIASES else 0
     ordered = KEY_ALIASES[start_idx:] + KEY_ALIASES[:start_idx]
     free_models = active_free_models(db)
 
     last_error: Exception | None = None
     last_code = "openrouter_keys_exhausted"
     for key_alias in ordered:
-        api_key = api_keys.get(key_alias)
+        api_key = (api_keys.get(key_alias) or "").strip()
         if not api_key:
             continue
         try:
-            content, model_used = call_openrouter(
+            content, model_used = _call_slot(
+                key_alias=key_alias,
                 api_key=api_key,
-                models=free_models,
+                free_models=free_models,
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
+                anthropic_model=anthropic_model,
+                openai_model=openai_model,
             )
         except OpenRouterError as exc:
-            logger.warning("key %s exhausted: %s", key_alias, exc)
+            logger.warning("slot %s exhausted: %s", key_alias, exc)
             _record_usage(db, key_alias, _UNKNOWN_MODEL, success=False)
             db.commit()
             last_error = exc
@@ -142,9 +199,12 @@ def call_with_rotation(
 
         _record_usage(db, key_alias, model_used, success=True)
         state = _get_or_create_state(db, key_alias)
-        state.current_model_index = (
-            free_models.index(model_used) if model_used in free_models else 0
-        )
+        if key_alias in OPENROUTER_KEY_ALIASES:
+            state.current_model_index = (
+                free_models.index(model_used) if model_used in free_models else 0
+            )
+        else:
+            state.current_model_index = 0
         if key_alias != start:
             # only a real key-switch (not the sticky default) needs a
             # fresh timestamp — keeps _current_key_alias() pointed at
@@ -153,4 +213,7 @@ def call_with_rotation(
         db.commit()
         return content, key_alias, model_used
 
-    raise AllKeysExhaustedError(str(last_error), code=last_code)
+    raise AllKeysExhaustedError(
+        str(last_error) if last_error else "no LLM keys configured",
+        code=last_code if last_error else "openrouter_no_keys_configured",
+    )

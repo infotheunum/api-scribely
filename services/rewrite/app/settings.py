@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from common.settings import CommonSettings
+from rewrite_app.rewrite.provider_clients import (
+    DEFAULT_ANTHROPIC_MODEL,
+    DEFAULT_OPENAI_MODEL,
+)
 
 
 class RewriteSettings(CommonSettings):
@@ -22,9 +26,27 @@ class RewriteSettings(CommonSettings):
     openrouter_key_2: str = ""
     openrouter_key_3: str = ""
 
+    # Fallback providers after OpenRouter keys are exhausted / missing.
+    # Cheap text models by default (Haiku / 4o-mini) — override via env.
+    anthropic_api_key: str = ""
+    openai_api_key: str = ""
+    anthropic_model: str = DEFAULT_ANTHROPIC_MODEL
+    openai_model: str = DEFAULT_OPENAI_MODEL
+
     def openrouter_keys(self) -> dict[str, str]:
         return {
             "key_1": self.openrouter_key_1,
             "key_2": self.openrouter_key_2,
             "key_3": self.openrouter_key_3,
         }
+
+    def llm_provider_keys(self) -> dict[str, str]:
+        """All rotation slots: OpenRouter keys + Anthropic + OpenAI."""
+        return {
+            **self.openrouter_keys(),
+            "anthropic": self.anthropic_api_key,
+            "openai": self.openai_api_key,
+        }
+
+    def configured_llm_key_count(self) -> int:
+        return sum(1 for value in self.llm_provider_keys().values() if value)
