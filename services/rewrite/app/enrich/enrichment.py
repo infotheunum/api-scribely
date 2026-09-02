@@ -6,6 +6,7 @@ from rewrite_app.rewrite.openrouter_client import extract_json
 from rewrite_app.rewrite.rotation import AllKeysExhaustedError, call_with_rotation
 from rewrite_app.rewrite.schemas import EnrichResultSchema
 from rewrite_app.settings import RewriteSettings
+from common.token_usage import TokenUsage
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -44,14 +45,14 @@ ENRICH_SYSTEM_PROMPT = """\
 
 def enrich_cluster(
     db: Session, settings: RewriteSettings, *, sources_text: str
-) -> tuple[EnrichResultSchema, str, str]:
-    """Returns (result, key_alias_used, model_used). Raises RuntimeError
+) -> tuple[EnrichResultSchema, str, str, TokenUsage]:
+    """Returns (result, key_alias_used, model_used, token_usage). Raises RuntimeError
     after MAX_ATTEMPTS failed regenerate attempts — caller writes the
     dead-letter record (ТЗ §4.20)."""
     last_error: Exception | None = None
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
-            content, key_alias, model = call_with_rotation(
+            content, key_alias, model, token_usage = call_with_rotation(
                 db,
                 api_keys=settings.llm_provider_keys(),
                 system_prompt=ENRICH_SYSTEM_PROMPT,
@@ -60,7 +61,7 @@ def enrich_cluster(
                 openai_model=settings.openai_model,
             )
             data = extract_json(content)
-            return EnrichResultSchema.model_validate(data), key_alias, model
+            return EnrichResultSchema.model_validate(data), key_alias, model, token_usage
         except AllKeysExhaustedError:
             raise  # no point regenerating — no key can even be reached
         except (ValueError, KeyError) as exc:

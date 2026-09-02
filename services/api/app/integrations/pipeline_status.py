@@ -14,6 +14,7 @@ from common.integration_reasons import (
     REASON_REWRITE_UNAVAILABLE,
     human_reason_message,
 )
+from common.llm_token_totals import load_token_totals
 from common.pipeline_telemetry import (
     KEY_LAST_DISPATCH_AT,
     KEY_LAST_DISPATCH_DISPATCHED,
@@ -163,6 +164,7 @@ def build_pipeline_status(
             "last_error_at": last_error_at,
             "key_usage": key_usage,
         },
+        "llm_tokens": load_token_totals(db),
     }
 
 
@@ -179,4 +181,5 @@ def build_list_meta(db: Session, *, rewrite_channel: grpc.Channel | None, item_c
         "checked_at": status["checked_at"],
         "undrafted_in_topic_clusters": status["queue"]["undrafted_in_topic_clusters"],
         "last_draft_created_at": status["queue"]["last_draft_created_at"],
+        "llm_tokens": status["llm_tokens"],
     }

@@ -4,6 +4,7 @@ import logging
 from datetime import UTC, datetime
 
 from common.integration_reasons import classify_openrouter_message
+from common.token_usage import EMPTY_USAGE, TokenUsage
 from db.models import LLMRotationState, LLMRotationUsage, LlmRotationModel
 from rewrite_app.rewrite.openrouter_client import OpenRouterError, call_openrouter
 from rewrite_app.rewrite.provider_clients import (
@@ -124,7 +125,7 @@ def _call_slot(
     user_prompt: str,
     anthropic_model: str,
     openai_model: str,
-) -> tuple[str, str]:
+) -> tuple[str, str, TokenUsage]:
     """Dispatch one rotation slot to the right provider client."""
     if key_alias in OPENROUTER_KEY_ALIASES:
         return call_openrouter(
@@ -158,7 +159,7 @@ def call_with_rotation(
     user_prompt: str,
     anthropic_model: str = DEFAULT_ANTHROPIC_MODEL,
     openai_model: str = DEFAULT_OPENAI_MODEL,
-) -> tuple[str, str, str]:
+) -> tuple[str, str, str, TokenUsage]:
     """Calls LLM providers in sticky round-robin:
 
     1. OpenRouter key_1 → key_2 → key_3 (free models via OpenRouter `models`)
@@ -166,7 +167,8 @@ def call_with_rotation(
     3. OpenAI (cheap gpt-4o-mini by default)
 
     On failure of a slot, cascades to the next; successful slot becomes
-    sticky start for the next call. Returns (raw_content, key_alias_used, model_used).
+    sticky start for the next call. Returns
+    (raw_content, key_alias_used, model_used, token_usage).
     """
     start = _current_key_alias(db)
     start_idx = KEY_ALIASES.index(start) if start in KEY_ALIASES else 0
@@ -180,7 +182,7 @@ def call_with_rotation(
         if not api_key:
             continue
         try:
-            content, model_used = _call_slot(
+            content, model_used, token_usage = _call_slot(
                 key_alias=key_alias,
                 api_key=api_key,
                 free_models=free_models,
@@ -211,7 +213,7 @@ def call_with_rotation(
             # whichever key most recently proved itself working.
             state.last_switched_at = datetime.now(UTC)
         db.commit()
-        return content, key_alias, model_used
+        return content, key_alias, model_used, token_usage or EMPTY_USAGE
 
     raise AllKeysExhaustedError(
         str(last_error) if last_error else "no LLM keys configured",

@@ -10,6 +10,7 @@ from rewrite_app.rewrite.openrouter_client import extract_json
 from rewrite_app.rewrite.rotation import AllKeysExhaustedError, call_with_rotation
 from rewrite_app.rewrite.schemas import RewriteResultSchema
 from rewrite_app.settings import RewriteSettings
+from common.token_usage import TokenUsage
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -70,8 +71,8 @@ def rewrite_cluster(
     facts_text: str,
     flags_text: str,
     style_overlay_note: str = "Оверлей стиля не назначен — используй house style.",
-) -> tuple[RewriteResultSchema, str, str]:
-    """Returns (result, key_alias_used, model_used). Raises RuntimeError
+) -> tuple[RewriteResultSchema, str, str, TokenUsage]:
+    """Returns (result, key_alias_used, model_used, token_usage). Raises RuntimeError
     after MAX_ATTEMPTS failed regenerate attempts (ТЗ §4.20 dead-letter)."""
     user_prompt = _build_user_prompt(
         sources_text=sources_text,
@@ -88,7 +89,7 @@ def rewrite_cluster(
     retry_note = ""
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
-            content, key_alias, model = call_with_rotation(
+            content, key_alias, model, token_usage = call_with_rotation(
                 db,
                 api_keys=settings.llm_provider_keys(),
                 system_prompt=system_prompt,
@@ -106,7 +107,7 @@ def rewrite_cluster(
                 db=db,
                 hint_text=hint,
             )
-            return result, key_alias, model
+            return result, key_alias, model, token_usage
         except AllKeysExhaustedError:
             raise
         except ValidationError as exc:

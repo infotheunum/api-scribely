@@ -569,6 +569,7 @@ default_freshness=today&default_max_age_hours=&default_limit=100
 | Image brief | `image_brief`, `image_alt`, `image_mood`, `image_subjects`, `image_style`, `image_do_not`, `image_caption`, `image_source_suggestion`, `image_license_confirmed` |
 | Источники | `sources[]`: `{ title, url, language, source_name }` |
 | Прочее | `attribution_urls[]`, `handoff_note`, `rewrite_llm_model`, `topic`, `assignee_user_id` |
+| Токены LLM (на статью) | `llm_prompt_tokens`, `llm_completion_tokens`, `llm_total_tokens` — сумма enrich+rewrite последнего цикла |
 
 **Формат текста:**
 
@@ -936,9 +937,22 @@ Authorization: Bearer <token>
     "key_usage": [
       { "key_alias": "key_1", "model": "openai/gpt-oss-20b:free", "usage_count": 120, "error_count": 5 }
     ]
+  },
+  "llm_tokens": {
+    "prompt_tokens": 1250000,
+    "completion_tokens": 890000,
+    "total_tokens": 2140000,
+    "calls": 412
   }
 }
 ```
+
+**Токены:**
+
+| Где | Поля | Смысл |
+|---|---|---|
+| Каждый draft (Export item) | `llm_prompt_tokens`, `llm_completion_tokens`, `llm_total_tokens` | Сумма enrich+rewrite **последнего** цикла генерации этой статьи |
+| `GET /status` и `meta` списка | `llm_tokens.{prompt,completion,total}_tokens`, `calls` | **Накопительный** lifetime-счётчик по всем успешным LLM-вызовам (AppSetting) |
 
 ---
 

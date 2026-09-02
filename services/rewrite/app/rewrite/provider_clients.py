@@ -7,6 +7,7 @@ import logging
 import httpx
 
 from common.integration_reasons import classify_openrouter_message
+from common.token_usage import TokenUsage, parse_anthropic_usage, parse_openai_compatible_usage
 from rewrite_app.rewrite.openrouter_client import OpenRouterError
 
 logger = logging.getLogger(__name__)
@@ -30,8 +31,8 @@ def call_anthropic(
     user_prompt: str,
     timeout: float = 90.0,
     max_tokens: int = DEFAULT_MAX_TOKENS,
-) -> tuple[str, str]:
-    """Anthropic Messages API. Returns (raw_content, model_used)."""
+) -> tuple[str, str, TokenUsage]:
+    """Anthropic Messages API. Returns (raw_content, model_used, token_usage)."""
     headers = {
         "x-api-key": api_key,
         "anthropic-version": "2023-06-01",
@@ -75,7 +76,7 @@ def call_anthropic(
         raise OpenRouterError("Anthropic returned empty message content", code="unknown")
 
     model_used = data.get("model") or model
-    return str(content), model_used
+    return str(content), model_used, parse_anthropic_usage(data)
 
 
 def call_openai(
@@ -86,8 +87,8 @@ def call_openai(
     user_prompt: str,
     timeout: float = 90.0,
     max_tokens: int = DEFAULT_MAX_TOKENS,
-) -> tuple[str, str]:
-    """OpenAI Chat Completions. Returns (raw_content, model_used)."""
+) -> tuple[str, str, TokenUsage]:
+    """OpenAI Chat Completions. Returns (raw_content, model_used, token_usage)."""
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     payload = {
         "model": model,
@@ -127,4 +128,4 @@ def call_openai(
         raise OpenRouterError("OpenAI returned empty message content", code="unknown")
 
     model_used = data.get("model") or model
-    return str(content), model_used
+    return str(content), model_used, parse_openai_compatible_usage(data)
