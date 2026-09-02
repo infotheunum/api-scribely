@@ -111,11 +111,15 @@ def _drafts_query(
     if cursor is not None:
         cursor_draft = db.get(Draft, cursor)
         if cursor_draft is not None:
+            # Newest-first page: walk toward older content_generated_at.
             stmt = stmt.where(
-                (Draft.created_at > cursor_draft.created_at)
-                | ((Draft.created_at == cursor_draft.created_at) & (Draft.id > cursor_draft.id))
+                (Draft.content_generated_at < cursor_draft.content_generated_at)
+                | (
+                    (Draft.content_generated_at == cursor_draft.content_generated_at)
+                    & (Draft.id < cursor_draft.id)
+                )
             )
-    return stmt.order_by(Draft.created_at.asc(), Draft.id.asc())
+    return stmt.order_by(Draft.content_generated_at.desc(), Draft.id.desc())
 
 
 def _list_export_drafts_impl(

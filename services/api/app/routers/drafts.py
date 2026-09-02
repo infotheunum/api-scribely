@@ -259,12 +259,12 @@ def list_drafts(
         select(Draft)
         .where(Draft.status.in_(statuses))
         .options(joinedload(Draft.cluster))
-        .order_by(Draft.created_at.asc())
+        .order_by(Draft.created_at.desc())
     ).all()
     summaries = [DraftSummary.from_model(d) for d in drafts]
-    # needs_attention first, oldest-first within each group — a noisy
-    # source's backlog still can't bury a flagged draft behind it.
-    summaries.sort(key=lambda s: (not s.needs_attention, s.created_at))
+    # needs_attention first, newest-first within each group — fresh AI
+    # drafts must not sit under a month-old needs_fix backlog.
+    summaries.sort(key=lambda s: (0 if s.needs_attention else 1, -s.created_at.timestamp()))
     return summaries
 
 

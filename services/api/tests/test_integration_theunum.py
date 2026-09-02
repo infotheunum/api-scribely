@@ -108,8 +108,11 @@ def test_list_pagination_cursor(client, clean_db):
     source = _source(clean_db)
     cluster1 = _cluster(clean_db, source)
     cluster2 = _cluster(clean_db, source)
-    _draft(clean_db, cluster1, title_en="First draft title here")
-    second = _draft(clean_db, cluster2, title_en="Second draft title here")
+    older = _draft(clean_db, cluster1, title_en="Older draft title here xx")
+    newer = _draft(clean_db, cluster2, title_en="Newer draft title here xx")
+    older.content_generated_at = datetime.now(UTC) - timedelta(hours=1)
+    newer.content_generated_at = datetime.now(UTC)
+    clean_db.commit()
 
     first_page = client.get(
         "/integrations/theunum/v1/drafts?limit=1",
@@ -118,6 +121,7 @@ def test_list_pagination_cursor(client, clean_db):
     assert first_page.status_code == 200
     body = first_page.json()
     assert len(body["items"]) == 1
+    assert body["items"][0]["id"] == str(newer.id)
     assert body["has_more"] is True
     assert body["next_cursor"] is not None
 
@@ -128,7 +132,7 @@ def test_list_pagination_cursor(client, clean_db):
     assert second_page.status_code == 200
     page2 = second_page.json()
     assert len(page2["items"]) == 1
-    assert page2["items"][0]["id"] == str(second.id)
+    assert page2["items"][0]["id"] == str(older.id)
 
 
 def test_list_empty_queue_meta(client, clean_db):
@@ -162,6 +166,21 @@ def test_list_returns_bilingual_draft(client, clean_db):
     assert items[0]["body_en_html"].count("<p>") == 3
     assert items[0]["body_ru_html"].count("<p>") == 3
     assert items[0]["consumed_at"] is None
+
+
+def test_list_orders_newest_content_generated_first(client, clean_db):
+    source = _source(clean_db)
+    cluster = _cluster(clean_db, source)
+    older = _draft(clean_db, cluster, title_en="Older generated draft title xx")
+    newer = _draft(clean_db, cluster, title_en="Newer generated draft title xx")
+    older.content_generated_at = datetime.now(UTC) - timedelta(hours=2)
+    newer.content_generated_at = datetime.now(UTC)
+    clean_db.commit()
+
+    resp = client.get("/integrations/theunum/v1/drafts?limit=10", headers=AUTH_HEADERS)
+    assert resp.status_code == 200
+    ids = [item["id"] for item in resp.json()["items"]]
+    assert ids.index(str(newer.id)) < ids.index(str(older.id))
 
 
 def test_list_filters_by_generated_since(client, clean_db):
