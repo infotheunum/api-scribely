@@ -99,7 +99,24 @@ def test_list_drafts_sorts_flagged_first(client, test_user, clean_db):
     assert ids_in_order.index(str(flagged.id)) < ids_in_order.index(str(clean.id))
 
 
+def test_list_drafts_sorts_newest_first_within_group(client, test_user, clean_db):
+    from datetime import UTC, datetime, timedelta
+
+    source = _source(clean_db)
+    older = _draft(clean_db, _cluster(clean_db, source), status=DraftStatus.READY_FOR_REVIEW)
+    newer = _draft(clean_db, _cluster(clean_db, source), status=DraftStatus.READY_FOR_REVIEW)
+    older.created_at = datetime.now(UTC) - timedelta(days=7)
+    newer.created_at = datetime.now(UTC)
+    clean_db.commit()
+
+    resp = client.get("/drafts", headers=_auth_headers(client, test_user))
+    ids_in_order = [d["id"] for d in resp.json()]
+    assert ids_in_order.index(str(newer.id)) < ids_in_order.index(str(older.id))
+
+
 def test_get_draft_detail_includes_sources(client, test_user, clean_db):
+    from common.rewrite_body_format import normalize_body_paragraphs
+
     source = _source(clean_db)
     cluster = _cluster(clean_db, source)
     draft = _draft(clean_db, cluster)
@@ -107,7 +124,7 @@ def test_get_draft_detail_includes_sources(client, test_user, clean_db):
     resp = client.get(f"/drafts/{draft.id}", headers=_auth_headers(client, test_user))
     assert resp.status_code == 200
     body = resp.json()
-    assert body["body_en"] == draft.body_en
+    assert body["body_en"] == normalize_body_paragraphs(draft.body_en)
     assert len(body["sources"]) == 1
     assert body["sources"][0]["source_name"] == "Test Wire"
 
