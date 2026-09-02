@@ -30,25 +30,31 @@ def test_call_anthropic_returns_text(monkeypatch):
             {"model": "claude-3-5-haiku-latest", "content": [{"type": "text", "text": '{"a":1}'}]}
         ),
     )
-    content, model = call_anthropic(
+    content, model, usage = call_anthropic(
         api_key="k", model="claude-3-5-haiku-latest", system_prompt="s", user_prompt="u"
     )
     assert content == '{"a":1}'
     assert model == "claude-3-5-haiku-latest"
+    assert usage.total_tokens == 0
 
 
 def test_call_openai_returns_content(monkeypatch):
     monkeypatch.setattr(
         "rewrite_app.rewrite.provider_clients.httpx.post",
         lambda *a, **k: _Resp(
-            {"model": "gpt-4o-mini", "choices": [{"message": {"content": '{"b":2}'}}]}
+            {
+                "model": "gpt-4o-mini",
+                "choices": [{"message": {"content": '{"b":2}'}}],
+                "usage": {"prompt_tokens": 5, "completion_tokens": 7, "total_tokens": 12},
+            }
         ),
     )
-    content, model = call_openai(
+    content, model, usage = call_openai(
         api_key="k", model="gpt-4o-mini", system_prompt="s", user_prompt="u"
     )
     assert content == '{"b":2}'
     assert model == "gpt-4o-mini"
+    assert usage.total_tokens == 12
 
 
 def test_call_anthropic_raises_on_http_error(monkeypatch):

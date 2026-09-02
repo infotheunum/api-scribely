@@ -220,6 +220,11 @@ class Draft(Base):
     translate_llm_key_alias: Mapped[str | None] = mapped_column(String(32))
     translate_llm_model: Mapped[str | None] = mapped_column(String(255))
 
+    # Token usage for the last enrich+rewrite cycle that produced this draft.
+    llm_prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    llm_completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    llm_total_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
     status: Mapped[DraftStatus] = mapped_column(
         String(20), nullable=False, default=DraftStatus.DRAFTING
     )

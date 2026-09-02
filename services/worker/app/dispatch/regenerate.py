@@ -5,16 +5,17 @@ import uuid
 
 import grpc
 from common.grpc_client import build_rewrite_channel, rewrite_stub
+from common.llm_token_totals import record_token_usage
+from common.rewrite_body_limits import BODY_MIN_CHARS
 from common.tracing import get_trace_id, new_trace_id, set_trace_id
 from db.enums import DraftRevisionKind, DraftStatus
 from db.models import Draft, DraftExportLog, NewsCluster, RawItem
-from common.rewrite_body_limits import BODY_MIN_CHARS
 from scribely.rewrite.v1 import rewrite_pb2
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, joinedload
 from worker_app.compliance.pipeline import _gate_draft
 from worker_app.dispatch.draft_apply import apply_rewrite_content
-from worker_app.dispatch.pipeline import _build_source_refs, _persist_cluster_context
+from worker_app.dispatch.pipeline import _build_source_refs, _persist_cluster_context, _usage_from_proto
 from worker_app.settings import WorkerSettings
 
 logger = logging.getLogger(__name__)
@@ -90,6 +91,9 @@ def regenerate_draft(
     rewrite_resp = stub.RewriteCluster(
         rewrite_pb2.RewriteClusterRequest(context=enrich_resp.context, trace_id=trace_id)
     )
+    tokens = _usage_from_proto(getattr(enrich_resp, "llm_usage", None)) + _usage_from_proto(
+        rewrite_resp.rewrite_usage
+    )
     apply_rewrite_content(
         db,
         draft,
@@ -100,10 +104,15 @@ def regenerate_draft(
         rewrite_model=rewrite_resp.rewrite_usage.model or None,
         translate_key_alias=rewrite_resp.translate_usage.key_alias or None,
         translate_model=rewrite_resp.translate_usage.model or None,
+        llm_prompt_tokens=tokens.prompt_tokens,
+        llm_completion_tokens=tokens.completion_tokens,
+        llm_total_tokens=tokens.total_tokens,
         revision_kind=DraftRevisionKind.REGEN,
         bump_version=True,
         editorial_topic=cluster.topic,
     )
+    if tokens.total_tokens or tokens.prompt_tokens or tokens.completion_tokens:
+        record_token_usage(db, tokens, calls=2)
     _gate_draft(db, draft)
 
     if clear_export:

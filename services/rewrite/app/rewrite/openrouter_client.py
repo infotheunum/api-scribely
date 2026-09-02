@@ -7,6 +7,7 @@ import re
 import httpx
 
 from common.integration_reasons import classify_openrouter_message
+from common.token_usage import TokenUsage, parse_openai_compatible_usage
 
 logger = logging.getLogger(__name__)
 
@@ -43,11 +44,11 @@ def call_openrouter(
     system_prompt: str,
     user_prompt: str,
     timeout: float = 90.0,
-) -> tuple[str, str]:
+) -> tuple[str, str, TokenUsage]:
     """One call to OpenRouter with the free-model fallback list (ТЗ
     §4.5) — OpenRouter itself retries across `models` on rate-limit/
     moderation/context/downtime errors, no extra code needed for that
-    part. Returns (raw_content, model_actually_used). Raises
+    part. Returns (raw_content, model_actually_used, token_usage). Raises
     OpenRouterError once the whole list is exhausted for this key."""
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     payload = {
@@ -89,4 +90,4 @@ def call_openrouter(
         raise OpenRouterError(message, code="unknown")
 
     model_used = data.get("model") or models[0]
-    return str(content), model_used
+    return str(content), model_used, parse_openai_compatible_usage(data)

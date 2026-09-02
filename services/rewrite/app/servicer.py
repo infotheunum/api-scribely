@@ -8,6 +8,7 @@ from rewrite_app.enrich.enrichment import enrich_cluster
 from rewrite_app.prompt.versions import get_active_prompt_version
 from rewrite_app.rewrite.orchestrator import rewrite_cluster
 from common.integration_reasons import format_integration_error
+from common.token_usage import TokenUsage
 from rewrite_app.rewrite.rotation import AllKeysExhaustedError
 from rewrite_app.settings import RewriteSettings
 from scribely.rewrite.v1 import rewrite_pb2, rewrite_pb2_grpc
@@ -17,6 +18,17 @@ logger = logging.getLogger(__name__)
 _NOT_IMPLEMENTED_MSG = (
     "{} is not implemented yet — scribely-rewrite business logic lands in Phase 4 (ТЗ §6.6)"
 )
+
+
+def _llm_usage_proto(key_alias: str, model: str, usage: TokenUsage) -> rewrite_pb2.LlmUsage:
+    return rewrite_pb2.LlmUsage(
+        key_alias=key_alias,
+        model=model,
+        attempt=1,
+        prompt_tokens=usage.prompt_tokens,
+        completion_tokens=usage.completion_tokens,
+        total_tokens=usage.total_tokens,
+    )
 
 
 def _sources_text(sources) -> str:
@@ -63,7 +75,9 @@ class RewriteServicer(rewrite_pb2_grpc.RewriteServiceServicer):
         try:
             sources_text = _sources_text(request.sources)
             try:
-                result, key_alias, model = enrich_cluster(db, settings, sources_text=sources_text)
+                result, key_alias, model, token_usage = enrich_cluster(
+                    db, settings, sources_text=sources_text
+                )
             except AllKeysExhaustedError as exc:
                 context.abort(
                     grpc.StatusCode.UNAVAILABLE,
@@ -95,14 +109,16 @@ class RewriteServicer(rewrite_pb2_grpc.RewriteServiceServicer):
                     fact_conflict=result.fact_conflict,
                     fact_conflict_note=result.fact_conflict_note,
                     trace_id=request.trace_id,
-                )
+                ),
+                llm_usage=_llm_usage_proto(key_alias, model, token_usage),
             )
             logger.info(
-                "EnrichCluster cluster=%s key=%s model=%s facts=%d",
+                "EnrichCluster cluster=%s key=%s model=%s facts=%d tokens=%s",
                 request.cluster_id,
                 key_alias,
                 model,
                 len(result.facts),
+                token_usage.total_tokens,
             )
             return response
         finally:
@@ -124,7 +140,7 @@ class RewriteServicer(rewrite_pb2_grpc.RewriteServiceServicer):
             )
 
             try:
-                result, key_alias, model = rewrite_cluster(
+                result, key_alias, model, token_usage = rewrite_cluster(
                     db,
                     settings,
                     prompt_version,
@@ -169,17 +185,19 @@ class RewriteServicer(rewrite_pb2_grpc.RewriteServiceServicer):
                 image_brief=rewrite_pb2.ImageBrief(**result.image_brief.model_dump()),
             )
             logger.info(
-                "RewriteCluster cluster=%s key=%s model=%s prompt_version=%s",
+                "RewriteCluster cluster=%s key=%s model=%s prompt_version=%s tokens=%s",
                 request.context.cluster_id,
                 key_alias,
                 model,
                 prompt_version.id,
+                token_usage.total_tokens,
             )
+            usage = _llm_usage_proto(key_alias, model, token_usage)
             return rewrite_pb2.RewriteClusterResponse(
                 draft=draft,
                 prompt_version_id=str(prompt_version.id),
-                rewrite_usage=rewrite_pb2.LlmUsage(key_alias=key_alias, model=model, attempt=1),
-                translate_usage=rewrite_pb2.LlmUsage(key_alias=key_alias, model=model, attempt=1),
+                rewrite_usage=usage,
+                translate_usage=usage,
             )
         finally:
             db.close()
