@@ -5,13 +5,16 @@ from datetime import UTC, datetime
 
 from common.integration_reasons import classify_openrouter_message
 from common.token_usage import EMPTY_USAGE, TokenUsage
-from db.models import LLMRotationState, LLMRotationUsage, LlmRotationModel
+from db.models import LlmRotationModel, LLMRotationState, LLMRotationUsage
 from rewrite_app.rewrite.openrouter_client import OpenRouterError, call_openrouter
 from rewrite_app.rewrite.provider_clients import (
     DEFAULT_ANTHROPIC_MODEL,
     DEFAULT_OPENAI_MODEL,
+    DEFAULT_QWEN_BASE_URL,
+    DEFAULT_QWEN_MODEL,
     call_anthropic,
     call_openai,
+    call_qwen,
 )
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -21,7 +24,7 @@ logger = logging.getLogger(__name__)
 # OpenRouter slots first, then paid cheap fallbacks — sticky round-robin
 # across the whole list (ТЗ §4.5 + provider fallback).
 OPENROUTER_KEY_ALIASES = ["key_1", "key_2", "key_3"]
-FALLBACK_ALIASES = ["anthropic", "openai"]
+FALLBACK_ALIASES = ["anthropic", "openai", "qwen"]
 KEY_ALIASES = OPENROUTER_KEY_ALIASES + FALLBACK_ALIASES
 
 # Fixed 2026-08-03 (ТЗ §8.2 open question, resolved in Фаза 4) —
@@ -125,6 +128,8 @@ def _call_slot(
     user_prompt: str,
     anthropic_model: str,
     openai_model: str,
+    qwen_model: str,
+    qwen_base_url: str,
 ) -> tuple[str, str, TokenUsage]:
     """Dispatch one rotation slot to the right provider client."""
     if key_alias in OPENROUTER_KEY_ALIASES:
@@ -148,6 +153,14 @@ def _call_slot(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
         )
+    if key_alias == "qwen":
+        return call_qwen(
+            api_key=api_key,
+            model=qwen_model,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            base_url=qwen_base_url,
+        )
     raise OpenRouterError(f"unknown provider slot: {key_alias}", code="unknown")
 
 
@@ -159,12 +172,15 @@ def call_with_rotation(
     user_prompt: str,
     anthropic_model: str = DEFAULT_ANTHROPIC_MODEL,
     openai_model: str = DEFAULT_OPENAI_MODEL,
+    qwen_model: str = DEFAULT_QWEN_MODEL,
+    qwen_base_url: str = DEFAULT_QWEN_BASE_URL,
 ) -> tuple[str, str, str, TokenUsage]:
     """Calls LLM providers in sticky round-robin:
 
     1. OpenRouter key_1 → key_2 → key_3 (free models via OpenRouter `models`)
     2. Anthropic (cheap Haiku by default)
     3. OpenAI (cheap gpt-4o-mini by default)
+    4. Qwen / DashScope (qwen-plus by default)
 
     On failure of a slot, cascades to the next; successful slot becomes
     sticky start for the next call. Returns
@@ -190,6 +206,8 @@ def call_with_rotation(
                 user_prompt=user_prompt,
                 anthropic_model=anthropic_model,
                 openai_model=openai_model,
+                qwen_model=qwen_model,
+                qwen_base_url=qwen_base_url,
             )
         except OpenRouterError as exc:
             logger.warning("slot %s exhausted: %s", key_alias, exc)
