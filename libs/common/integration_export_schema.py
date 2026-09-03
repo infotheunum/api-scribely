@@ -105,15 +105,15 @@ SUPPORTED_EXPORT_LIST_FILTERS: list[dict[str, Any]] = [
     {
         "name": "language",
         "type": "enum",
-        "default": "all",
+        "default": "from rewrite.output_locales",
         "enum": ["ru", "en", "all"],
-        "db_field": None,
+        "db_field": "AppSetting rewrite.output_locales",
         "description": (
-            "Какие локали заполнять в item: ru / en / all. "
-            "При ru|en поля другой локали — пустые строки (контракт полей сохраняется)."
+            "Проекция полей item. omit/null → из rewrite.output_locales "
+            "([ru]→ru, [en]→en, [ru,en]→all). Явный ru|en|all переопределяет."
         ),
         "endpoints": ["/drafts", "/drafts/today", "/drafts/{id}"],
-        "admin_default_key": None,
+        "admin_default_key": "rewrite.output_locales",
     },
 ]
 
