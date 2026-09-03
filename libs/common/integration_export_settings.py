@@ -14,7 +14,8 @@ DEFAULT_LIMIT_KEY = "integration.export.default_limit"
 
 DEFAULT_FRESHNESS_DESCRIPTION = (
     "Export API: default freshness when VPS omits query params — "
-    "today (UTC midnight), 48h, or empty (no default filter)"
+    "today (draft created since UTC midnight), 48h (draft created in last 48h), "
+    "or empty (no default filter)"
 )
 DEFAULT_MAX_AGE_HOURS_DESCRIPTION = (
     "Export API: default max_age_hours (1–168) when VPS omits query params; "

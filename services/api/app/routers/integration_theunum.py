@@ -5,7 +5,7 @@ from datetime import datetime
 
 from api_app.auth.integration import require_integration_token_dep
 from api_app.db import get_db
-from api_app.integrations.freshness import FreshnessPreset, resolve_content_generated_since
+from api_app.integrations.freshness import FreshnessPreset, resolve_export_time_cutoffs
 from api_app.integrations.pipeline_status import build_list_meta, build_pipeline_status
 from common.integration_export_settings import merge_export_freshness_query, merge_export_limit_query
 from common.integration_export_schema import build_export_schema_payload
@@ -89,6 +89,7 @@ def _drafts_query(
     consumed: bool | None,
     since: datetime | None,
     generated_since: datetime | None,
+    created_since: datetime | None,
     cursor: uuid.UUID | None,
 ):
     stmt = (
@@ -109,6 +110,8 @@ def _drafts_query(
         stmt = stmt.where(Draft.updated_at >= since)
     if generated_since is not None:
         stmt = stmt.where(Draft.content_generated_at >= generated_since)
+    if created_since is not None:
+        stmt = stmt.where(Draft.created_at >= created_since)
     if cursor is not None:
         cursor_draft = db.get(Draft, cursor)
         if cursor_draft is not None:
@@ -144,7 +147,7 @@ def _list_export_drafts_impl(
     )
     effective_limit, limit_source = merge_export_limit_query(db, limit=limit)
     try:
-        effective_generated_since = resolve_content_generated_since(
+        cutoffs = resolve_export_time_cutoffs(
             generated_since=generated_since,
             freshness=freshness,
             max_age_hours=max_age_hours,
@@ -157,7 +160,8 @@ def _list_export_drafts_impl(
         statuses=statuses,
         consumed=consumed,
         since=since,
-        generated_since=effective_generated_since,
+        generated_since=cutoffs.content_generated_since,
+        created_since=cutoffs.created_since,
         cursor=cursor,
     )
     drafts = db.scalars(stmt.limit(effective_limit + 1)).unique().all()
@@ -169,8 +173,10 @@ def _list_export_drafts_impl(
 
     channel = getattr(request.app.state, "rewrite_channel", None)
     meta = build_list_meta(db, rewrite_channel=channel, item_count=len(items))
-    if effective_generated_since is not None:
-        meta["content_generated_since"] = effective_generated_since.isoformat()
+    if cutoffs.content_generated_since is not None:
+        meta["content_generated_since"] = cutoffs.content_generated_since.isoformat()
+    if cutoffs.created_since is not None:
+        meta["created_since"] = cutoffs.created_since.isoformat()
     if freshness is not None:
         meta["freshness"] = freshness
     if max_age_hours is not None:
@@ -217,13 +223,13 @@ def list_export_drafts(
     ),
     freshness: FreshnessPreset | None = Query(
         None,
-        description="Preset freshness filter on content_generated_at: today (UTC midnight) or 48h",
+        description="today / 48h filter draft.created_at (UTC midnight / rolling 48h)",
     ),
     max_age_hours: int | None = Query(
         None,
         ge=1,
         le=168,
-        description="Only drafts generated within the last N hours (alternative to freshness)",
+        description="Only drafts with AI rewrite within the last N hours (content_generated_at)",
     ),
     cursor: uuid.UUID | None = Query(None),
     limit: int | None = Query(None, ge=1, le=100),
@@ -258,7 +264,7 @@ def list_export_drafts_today(
     cursor: uuid.UUID | None = Query(None),
     limit: int | None = Query(None, ge=1, le=100),
 ) -> DraftListResponse:
-    """Shortcut: queue drafts with content_generated_at >= UTC midnight today."""
+    """Shortcut: queue drafts with created_at >= UTC midnight today."""
     statuses = status_filter or DEFAULT_EXPORT_STATUSES
     return _list_export_drafts_impl(
         request,
