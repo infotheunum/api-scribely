@@ -133,6 +133,7 @@ def rewrite_cluster(
     facts_text: str,
     flags_text: str,
     style_overlay_note: str = "Оверлей стиля не назначен — используй house style.",
+    prefer_key_alias: str | None = None,
 ) -> tuple[RewriteResultSchema, str, str, TokenUsage]:
     """Returns (result, key_alias_used, model_used, token_usage). Raises RuntimeError
     after MAX_ATTEMPTS failed regenerate attempts (ТЗ §4.20 dead-letter)."""
@@ -167,6 +168,8 @@ def rewrite_cluster(
                 openai_model=settings.openai_model,
                 qwen_model=settings.qwen_model,
                 qwen_base_url=settings.qwen_base_url,
+                prefer_key_alias=prefer_key_alias,
+                advance=False,
             )
             data = fill_inactive_locale_fields(extract_json(content), locales)
             result = RewriteResultSchema.model_validate(data, context={"locales": locales})
