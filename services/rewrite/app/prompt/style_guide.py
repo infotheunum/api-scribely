@@ -4,19 +4,28 @@ from __future__ import annotations
 # IS the PromptVersion v1 template (ТЗ §4.13), not a paraphrase of it.
 # Changes to the source doc should be reflected here deliberately, not
 # silently drift apart from it.
-
 # Жёсткий диапазон длины body_en / body_ru — дублируется в schemas.py и
 # append'ится к каждому вызову RewriteCluster (даже если в БД старый
 # PromptVersion).
-from common.rewrite_body_limits import BODY_MAX_CHARS, BODY_MIN_CHARS
+from common.rewrite_body_limits import (
+    BODY_MAX_CHARS,
+    BODY_MIN_CHARS,
+    BODY_TARGET_MAX,
+    BODY_TARGET_MIN,
+)
 
-BODY_LENGTH_RULE = f"""\
-ОБЯЗАТЕЛЬНЫЙ ОБЪЁМ ТЕЛА (проверяется автоматически, отклонение = regenerate):
-- body_en: {BODY_MIN_CHARS}–{BODY_MAX_CHARS} символов с пробелами, ровно 3 абзаца через \\n\\n
-- body_ru: {BODY_MIN_CHARS}–{BODY_MAX_CHARS} символов с пробелами, ровно 3 абзаца через \\n\\n
-- Каждый язык — отдельный полноценный текст этой длины. НЕ делить лимит между EN и RU.
-- Короче {BODY_MIN_CHARS} — допиши контекст, цифры, реакцию рынка/сторон; длиннее {BODY_MAX_CHARS} — сожми без потери фактов.
-"""
+BODY_LENGTH_RULE = (
+    f"ОБЪЁМ ТЕЛА (hard-gate {BODY_MIN_CHARS}–{BODY_MAX_CHARS}; "
+    f"цель {BODY_TARGET_MIN}–{BODY_TARGET_MAX}):\n"
+    f"- Цель: ~{BODY_TARGET_MIN}–{BODY_TARGET_MAX} символов с пробелами "
+    f"на каждый активный язык, ровно 3 абзаца через \\n\\n.\n"
+    f"- Hard-gate (иначе regenerate): не короче {BODY_MIN_CHARS} "
+    f"и не длиннее {BODY_MAX_CHARS}.\n"
+    "- Каждый язык — отдельный полноценный текст. "
+    "НЕ делить лимит между EN и RU.\n"
+    "- Короче цели — допиши контекст, цифры, реакцию рынка/сторон; "
+    f"длиннее {BODY_MAX_CHARS} — сожми без потери фактов.\n"
+)
 
 GLOSSARY = """\
 Единые написания терминов (используй ровно так):
@@ -47,8 +56,9 @@ SYSTEM_PROMPT = f"""\
   никаких "эксперты считают".
 - Дай 2-3 варианта заголовка на каждый язык.
 
-ТЕКСТ — ОТДЕЛЬНО ДЛЯ КАЖДОГО ЯЗЫКА (body_en и body_ru), {BODY_MIN_CHARS}–{BODY_MAX_CHARS}
-символов с пробелами каждый, ровно 3 абзаца через \\n\\n:
+ТЕКСТ — ОТДЕЛЬНО ДЛЯ КАЖДОГО ЯЗЫКА (body_en и body_ru), цель
+{BODY_TARGET_MIN}–{BODY_TARGET_MAX} символов с пробелами каждый (hard-min
+{BODY_MIN_CHARS}, hard-max {BODY_MAX_CHARS}), ровно 3 абзаца через \\n\\n:
 1. Лид: кто, что, когда, почему важно — сразу, без предисловий
    (перевёрнутая пирамида). Не повторяет заголовок дословно.
 2. Контекст: ключевые цифры/детали, атрибуция источников.
@@ -57,7 +67,7 @@ SYSTEM_PROMPT = f"""\
 разная длина и структура — не однообразный ритм. Термины поясняются
 коротко при первом употреблении. Числа — с единицами и сопоставлением
 (было/стало, % изменения). Без эмодзи. Не сокращай текст ради краткости —
-целевой объём {BODY_MIN_CHARS}–{BODY_MAX_CHARS} символов на язык.
+цель {BODY_TARGET_MIN}–{BODY_TARGET_MAX} символов на язык.
 
 АТРИБУЦИЯ (обязательно, оба языка):
 - В самом тексте минимум раз называется издание-источник по формуле "как

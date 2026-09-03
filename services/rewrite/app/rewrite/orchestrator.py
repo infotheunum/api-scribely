@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 
+from common.rewrite_body_limits import BODY_TARGET_MAX, BODY_TARGET_MIN
 from common.rewrite_output_locales import (
     fill_inactive_locale_fields,
     get_output_locales,
@@ -20,7 +21,8 @@ from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
-MAX_ATTEMPTS = 3
+# One retry is enough once hard-min matches typical first-pass length.
+MAX_ATTEMPTS = 2
 
 
 def _output_schema_hint(locales: list[str]) -> str:
@@ -31,7 +33,8 @@ def _output_schema_hint(locales: list[str]) -> str:
     ]
     if locale_enabled(locales, "en"):
         lines.append(
-            f'  "title_en": "...", "body_en": "... ({BODY_MIN_CHARS}-{BODY_MAX_CHARS} символов, 3 абзаца)",'
+            f'  "title_en": "...", "body_en": "... (цель {BODY_TARGET_MIN}-{BODY_TARGET_MAX}, '
+            f'min {BODY_MIN_CHARS}, 3 абзаца)",'
         )
         lines.append('  "title_en_variants": ["...", "..."],')
         lines.append(
@@ -47,7 +50,8 @@ def _output_schema_hint(locales: list[str]) -> str:
         )
     if locale_enabled(locales, "ru"):
         lines.append(
-            f'  "title_ru": "...", "body_ru": "... ({BODY_MIN_CHARS}-{BODY_MAX_CHARS} символов, 3 абзаца)",'
+            f'  "title_ru": "...", "body_ru": "... (цель {BODY_TARGET_MIN}-{BODY_TARGET_MAX}, '
+            f'min {BODY_MIN_CHARS}, 3 абзаца)",'
         )
         lines.append('  "title_ru_variants": ["...", "..."],')
         lines.append(
@@ -64,7 +68,7 @@ def _output_schema_hint(locales: list[str]) -> str:
     lines.extend(
         [
             '  "sponsor_flag": <bool>, "press_release_flag": <bool>, "disclaimer_flag": <bool>,',
-            '  "suggested_category_slug": "... (один slug из списка категорий CMS в system prompt)",',
+            '  "suggested_category_slug": "... (slug из списка категорий CMS)",',
             '  "tags": [{"slug": "...", "name": "..."}],',
             '  "image_brief": {',
             '    "image_brief": "...", "image_mood": "...", "image_subjects": ["..."],',
@@ -83,19 +87,23 @@ def _body_length_rule(locales: list[str]) -> str:
     parts: list[str] = []
     if locale_enabled(locales, "en"):
         parts.append(
-            f"- body_en: {BODY_MIN_CHARS}–{BODY_MAX_CHARS} символов с пробелами, ровно 3 абзаца через \\n\\n"
+            f"- body_en: цель {BODY_TARGET_MIN}–{BODY_TARGET_MAX}, hard-gate "
+            f"{BODY_MIN_CHARS}–{BODY_MAX_CHARS}, ровно 3 абзаца через \\n\\n"
         )
     if locale_enabled(locales, "ru"):
         parts.append(
-            f"- body_ru: {BODY_MIN_CHARS}–{BODY_MAX_CHARS} символов с пробелами, ровно 3 абзаца через \\n\\n"
+            f"- body_ru: цель {BODY_TARGET_MIN}–{BODY_TARGET_MAX}, hard-gate "
+            f"{BODY_MIN_CHARS}–{BODY_MAX_CHARS}, ровно 3 абзаца через \\n\\n"
         )
     if not parts:
         return BODY_LENGTH_RULE
     return (
-        "ОБЯЗАТЕЛЬНЫЙ ОБЪЁМ ТЕЛА (проверяется автоматически, отклонение = regenerate):\n"
+        "ОБЪЁМ ТЕЛА (цель vs hard-gate; ниже hard-min = regenerate):\n"
         + "\n".join(parts)
-        + f"\n- Активные языки: {', '.join(locales)}. Не генерируй текст на выключенных языках."
-        f"\n- Короче {BODY_MIN_CHARS} — допиши контекст; длиннее {BODY_MAX_CHARS} — сожми без потери фактов."
+        + f"\n- Активные языки: {', '.join(locales)}. "
+        "Не генерируй текст на выключенных языках."
+        f"\n- Стремись к {BODY_TARGET_MIN}–{BODY_TARGET_MAX}; "
+        f"минимум {BODY_MIN_CHARS}, максимум {BODY_MAX_CHARS}."
     )
 
 
@@ -144,7 +152,9 @@ def rewrite_cluster(
     last_error: Exception | None = None
     retry_note = ""
     active_bodies = " и ".join(
-        name for name, code in (("body_en", "en"), ("body_ru", "ru")) if locale_enabled(locales, code)
+        name
+        for name, code in (("body_en", "en"), ("body_ru", "ru"))
+        if locale_enabled(locales, code)
     )
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
@@ -170,17 +180,27 @@ def rewrite_cluster(
         except AllKeysExhaustedError:
             raise
         except ValidationError as exc:
-            logger.warning("rewrite attempt %d/%d validation failed: %s", attempt, MAX_ATTEMPTS, exc)
+            logger.warning(
+                "rewrite attempt %d/%d validation failed: %s",
+                attempt,
+                MAX_ATTEMPTS,
+                exc,
+            )
             last_error = exc
             retry_note = (
                 f"\n\nПРЕДЫДУЩИЙ ОТВЕТ ОТКЛОНЁН: {str(exc)[:400]}. "
-                f"{active_bodies} должны быть {BODY_MIN_CHARS}–{BODY_MAX_CHARS} символов "
-                f"(считай с пробелами) и ровно 3 абзаца через \\n\\n. "
-                f"Активные языки: {', '.join(locales)}. "
-                f"Если текст короткий — допиши контекст, цифры и реакцию рынка; не сокращай. "
-                f"Перегенерируй полностью."
+                f"{active_bodies}: hard-gate {BODY_MIN_CHARS}–{BODY_MAX_CHARS} "
+                f"(цель {BODY_TARGET_MIN}–{BODY_TARGET_MAX}), ровно 3 абзаца "
+                f"через \\n\\n. Активные языки: {', '.join(locales)}. "
+                f"Если коротко — РАСШИРЬ тот же смысл (контекст, цифры, реакция), "
+                f"не пиши с нуля другой сюжет. Если длинно — сожми без потери фактов."
             )
         except (ValueError, KeyError) as exc:
-            logger.warning("rewrite attempt %d/%d failed: %s", attempt, MAX_ATTEMPTS, exc)
+            logger.warning(
+                "rewrite attempt %d/%d failed: %s",
+                attempt,
+                MAX_ATTEMPTS,
+                exc,
+            )
             last_error = exc
     raise RuntimeError(f"RewriteCluster failed after {MAX_ATTEMPTS} attempts: {last_error}")
