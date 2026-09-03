@@ -12,7 +12,11 @@ from common.site_categories import site_category_prompt_block
 from common.token_usage import TokenUsage
 from db.models import PromptVersion
 from pydantic import ValidationError
-from rewrite_app.prompt.style_guide import BODY_LENGTH_RULE, BODY_MAX_CHARS, BODY_MIN_CHARS
+from rewrite_app.prompt.style_guide import (
+    BODY_LENGTH_RULE,
+    BODY_MIN_CHARS,
+    BODY_SOFT_MAX_CHARS,
+)
 from rewrite_app.rewrite.openrouter_client import extract_json
 from rewrite_app.rewrite.rotation import AllKeysExhaustedError, call_with_rotation
 from rewrite_app.rewrite.schemas import RewriteResultSchema
@@ -87,23 +91,24 @@ def _body_length_rule(locales: list[str]) -> str:
     parts: list[str] = []
     if locale_enabled(locales, "en"):
         parts.append(
-            f"- body_en: цель {BODY_TARGET_MIN}–{BODY_TARGET_MAX}, hard-gate "
-            f"{BODY_MIN_CHARS}–{BODY_MAX_CHARS}, ровно 3 абзаца через \\n\\n"
+            f"- body_en: цель {BODY_TARGET_MIN}–{BODY_TARGET_MAX}, "
+            f"hard-min {BODY_MIN_CHARS} (свыше {BODY_SOFT_MAX_CHARS} ок), "
+            "ровно 3 абзаца через \\n\\n"
         )
     if locale_enabled(locales, "ru"):
         parts.append(
-            f"- body_ru: цель {BODY_TARGET_MIN}–{BODY_TARGET_MAX}, hard-gate "
-            f"{BODY_MIN_CHARS}–{BODY_MAX_CHARS}, ровно 3 абзаца через \\n\\n"
+            f"- body_ru: цель {BODY_TARGET_MIN}–{BODY_TARGET_MAX}, "
+            f"hard-min {BODY_MIN_CHARS} (свыше {BODY_SOFT_MAX_CHARS} ок), "
+            "ровно 3 абзаца через \\n\\n"
         )
     if not parts:
         return BODY_LENGTH_RULE
     return (
-        "ОБЪЁМ ТЕЛА (цель vs hard-gate; ниже hard-min = regenerate):\n"
-        + "\n".join(parts)
-        + f"\n- Активные языки: {', '.join(locales)}. "
+        "ОБЪЁМ ТЕЛА (цель vs hard-min; ниже hard-min = regenerate; "
+        "верхнего reject нет):\n" + "\n".join(parts) + f"\n- Активные языки: {', '.join(locales)}. "
         "Не генерируй текст на выключенных языках."
         f"\n- Стремись к {BODY_TARGET_MIN}–{BODY_TARGET_MAX}; "
-        f"минимум {BODY_MIN_CHARS}, максимум {BODY_MAX_CHARS}."
+        f"минимум {BODY_MIN_CHARS}."
     )
 
 
@@ -194,11 +199,12 @@ def rewrite_cluster(
             last_error = exc
             retry_note = (
                 f"\n\nПРЕДЫДУЩИЙ ОТВЕТ ОТКЛОНЁН: {str(exc)[:400]}. "
-                f"{active_bodies}: hard-gate {BODY_MIN_CHARS}–{BODY_MAX_CHARS} "
-                f"(цель {BODY_TARGET_MIN}–{BODY_TARGET_MAX}), ровно 3 абзаца "
+                f"{active_bodies}: hard-min {BODY_MIN_CHARS} "
+                f"(цель {BODY_TARGET_MIN}–{BODY_TARGET_MAX}; "
+                f"свыше {BODY_SOFT_MAX_CHARS} допустимо), ровно 3 абзаца "
                 f"через \\n\\n. Активные языки: {', '.join(locales)}. "
                 f"Если коротко — РАСШИРЬ тот же смысл (контекст, цифры, реакция), "
-                f"не пиши с нуля другой сюжет. Если длинно — сожми без потери фактов."
+                f"не пиши с нуля другой сюжет."
             )
         except (ValueError, KeyError) as exc:
             logger.warning(

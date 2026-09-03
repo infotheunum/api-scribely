@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, ValidationInfo, model_validator
-
-from common.rewrite_body_format import EXPECTED_PARAGRAPH_COUNT, normalize_body_paragraphs, paragraph_count
+from common.rewrite_body_format import (
+    EXPECTED_PARAGRAPH_COUNT,
+    normalize_body_paragraphs,
+    paragraph_count,
+)
 from common.rewrite_output_locales import DEFAULT_OUTPUT_LOCALES, locale_enabled
 from common.text_spaces import normalize_plain_spaces
-from rewrite_app.prompt.style_guide import BODY_MAX_CHARS, BODY_MIN_CHARS
+from pydantic import BaseModel, Field, ValidationInfo, model_validator
+from rewrite_app.prompt.style_guide import BODY_MIN_CHARS
 
 # Structured contracts the LLM's JSON response is validated against (ТЗ
 # §4.20 "жёсткая JSON-схема") — anything that doesn't parse into these
@@ -142,10 +145,9 @@ class RewriteResultSchema(BaseModel):
                     f"(got {count})"
                 )
             length = len(body)
-            if length < BODY_MIN_CHARS or length > BODY_MAX_CHARS:
+            if length < BODY_MIN_CHARS:
                 raise ValueError(
-                    f"{field_name} must be {BODY_MIN_CHARS}-{BODY_MAX_CHARS} chars "
-                    f"(got {length})"
+                    f"{field_name} must be at least {BODY_MIN_CHARS} chars (got {length})"
                 )
         return self
 

@@ -2,26 +2,28 @@ from __future__ import annotations
 
 # Distilled from docs/Правила_Рерайта_и_Стиля_Черновик.md — PromptVersion
 # template seed (ТЗ §4.13). Live SoT on prod is the ACTIVE row in Postgres;
-# factory v1 bootstrap is auto-upgraded once to v2 (see versions.py).
-
+# factory v1/v2 bootstrap is auto-upgraded once to v3 (see versions.py).
 from common.rewrite_body_limits import (
-    BODY_MAX_CHARS,
     BODY_MIN_CHARS,
+    BODY_SOFT_MAX_CHARS,
     BODY_TARGET_MAX,
     BODY_TARGET_MIN,
 )
 
+# Re-export for callers that historically imported BODY_MAX from style_guide.
+BODY_MAX_CHARS = BODY_SOFT_MAX_CHARS
+
 BODY_LENGTH_RULE = (
-    f"ОБЪЁМ ТЕЛА (hard-gate {BODY_MIN_CHARS}–{BODY_MAX_CHARS}; "
+    f"ОБЪЁМ ТЕЛА (hard-min {BODY_MIN_CHARS}; "
     f"цель {BODY_TARGET_MIN}–{BODY_TARGET_MAX}):\n"
     f"- Цель: ~{BODY_TARGET_MIN}–{BODY_TARGET_MAX} символов с пробелами "
     f"на каждый активный язык, ровно 3 абзаца через \\n\\n.\n"
-    f"- Hard-gate (иначе regenerate): не короче {BODY_MIN_CHARS} "
-    f"и не длиннее {BODY_MAX_CHARS}.\n"
+    f"- Hard-gate (иначе regenerate): не короче {BODY_MIN_CHARS}. "
+    f"Верхнего reject нет — текст длиннее {BODY_SOFT_MAX_CHARS} тоже принимают; "
+    f"лучше ужать к цели, но не режь факты ради лимита.\n"
     "- Каждый активный язык — отдельный полноценный SEO-текст. "
     "НЕ делить лимит между языками.\n"
-    "- Короче цели — допиши контекст, цифры, реакцию рынка/сторон; "
-    f"длиннее {BODY_MAX_CHARS} — сожми без потери фактов.\n"
+    "- Короче цели — допиши контекст, цифры, реакцию рынка/сторон.\n"
 )
 
 GLOSSARY = """\
@@ -60,7 +62,8 @@ SEO-новость для публикации на theunum.io: не постр�
 
 ТЕКСТ = SEO-НОВОСТЬ (каждый активный язык):
 - Цель {BODY_TARGET_MIN}–{BODY_TARGET_MAX} символов с пробелами
-  (hard-gate {BODY_MIN_CHARS}–{BODY_MAX_CHARS}), ровно 3 абзаца через \\n\\n.
+  (hard-min {BODY_MIN_CHARS}; свыше {BODY_SOFT_MAX_CHARS} допустимо),
+  ровно 3 абзаца через \\n\\n.
 - Абзац 1 (лид): кто, что, когда, ключевая цифра — сразу (перевёрнутая
   пирамида). Закрывает поисковый интент. Не повторяет заголовок дословно.
 - Абзац 2: контекст, детали, атрибуция; именованные сущности (проекты,

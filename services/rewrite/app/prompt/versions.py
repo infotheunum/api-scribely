@@ -6,11 +6,15 @@ from rewrite_app.prompt.style_guide import SYSTEM_PROMPT
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-PROMPT_V2_NOTES = (
-    "v2 — RU-first SEO news, locale-aware, body target 2000–2800 "
-    "(hard 1300–3000); seeded 2026-09-03"
+PROMPT_V3_NOTES = (
+    "v3 — RU-first SEO; body hard-min 1700, target 2000–2800, "
+    "no hard max (over 3000 accepted); seeded 2026-09-03"
 )
-_FACTORY_V1_PREFIX = "v1 — bootstrapped"
+# One-shot auto-upgrade prefixes for factory seeds only.
+_FACTORY_UPGRADE_PREFIXES = (
+    "v1 — bootstrapped",
+    "v2 — RU-first SEO",
+)
 
 
 def _create_active(db: Session, *, notes: str) -> PromptVersion:
@@ -25,28 +29,31 @@ def _create_active(db: Session, *, notes: str) -> PromptVersion:
     return version
 
 
+def _should_auto_upgrade(notes: str) -> bool:
+    return any(notes.startswith(prefix) for prefix in _FACTORY_UPGRADE_PREFIXES)
+
+
 def get_active_prompt_version(db: Session) -> PromptVersion:
     """Returns the active PromptVersion.
 
-    Fresh DB: bootstrap v2 from style_guide.
-    Factory v1 bootstrap (notes start with ``v1 — bootstrapped``): one-shot
-    retire + create v2 so prod picks up RU-first SEO prompt without a manual
-    Admin click. Custom Admin prompts (other notes) are left untouched —
-    activate a new version in Admin if needed.
+    Fresh DB: bootstrap v3 from style_guide.
+    Factory v1/v2 seeds: one-shot retire + create v3 so prod picks up
+    body-limit / SEO prompt changes without a manual Admin click.
+    Custom Admin prompts (other notes) are left untouched.
     """
     active = db.scalar(
         select(PromptVersion).where(PromptVersion.status == PromptVersionStatus.ACTIVE)
     )
     if active is None:
-        return _create_active(db, notes=PROMPT_V2_NOTES)
+        return _create_active(db, notes=PROMPT_V3_NOTES)
 
     notes = active.notes or ""
-    if notes.startswith(_FACTORY_V1_PREFIX):
+    if _should_auto_upgrade(notes):
         for row in db.scalars(
             select(PromptVersion).where(PromptVersion.status == PromptVersionStatus.ACTIVE)
         ):
             row.status = PromptVersionStatus.RETIRED
         db.flush()
-        return _create_active(db, notes=PROMPT_V2_NOTES)
+        return _create_active(db, notes=PROMPT_V3_NOTES)
 
     return active
