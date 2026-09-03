@@ -129,7 +129,7 @@ def test_missing_key_is_skipped(clean_db, monkeypatch):
     assert calls == ["b"]
 
 
-def test_cascades_to_anthropic_after_openrouter(clean_db, monkeypatch):
+def test_cascades_to_anthropic_when_qwen_openai_missing(clean_db, monkeypatch):
     calls = []
 
     def _or(*, api_key, **kw):
@@ -154,16 +154,16 @@ def test_cascades_to_anthropic_after_openrouter(clean_db, monkeypatch):
     assert key_alias == "anthropic"
     assert model == "claude-3-5-haiku-latest"
     assert usage.total_tokens == 33
-    assert calls[0][0] == "or"
-    assert calls[-1][0] == "anthropic"
+    assert calls[0][0] == "anthropic"
+    assert "or" not in {c[0] for c in calls}
 
 
-def test_cascades_openrouter_then_anthropic_then_openai(clean_db, monkeypatch):
+def test_prefers_openai_before_anthropic_and_openrouter(clean_db, monkeypatch):
     def _or(**kw):
         raise OpenRouterError("or down")
 
     def _anthropic(**kw):
-        raise OpenRouterError("anthropic down")
+        raise AssertionError("anthropic must not run before openai")
 
     def _openai(*, model, **kw):
         return "content", model, _USAGE
@@ -191,15 +191,15 @@ def test_cascades_openrouter_then_anthropic_then_openai(clean_db, monkeypatch):
     assert usage.total_tokens == 33
 
 
-def test_cascades_to_qwen_after_openai(clean_db, monkeypatch):
+def test_prefers_qwen_first_when_configured(clean_db, monkeypatch):
     def _or(**kw):
-        raise OpenRouterError("or down")
+        raise AssertionError("openrouter must not run before qwen")
 
     def _anthropic(**kw):
-        raise OpenRouterError("anthropic down")
+        raise AssertionError("anthropic must not run before qwen")
 
     def _openai(**kw):
-        raise OpenRouterError("openai down")
+        raise AssertionError("openai must not run before qwen")
 
     def _qwen(*, model, **kw):
         return "content", model, _USAGE
@@ -225,6 +225,48 @@ def test_cascades_to_qwen_after_openai(clean_db, monkeypatch):
     assert key_alias == "qwen"
     assert model == "qwen-plus"
     assert usage.total_tokens == 33
+
+
+def test_cascades_qwen_to_openai_to_anthropic(clean_db, monkeypatch):
+    order: list[str] = []
+
+    def _qwen(**kw):
+        order.append("qwen")
+        raise OpenRouterError("qwen down")
+
+    def _openai(*, model, **kw):
+        order.append("openai")
+        raise OpenRouterError("openai down")
+
+    def _anthropic(*, model, **kw):
+        order.append("anthropic")
+        return "content", model, _USAGE
+
+    def _or(**kw):
+        order.append("or")
+        raise OpenRouterError("or down")
+
+    monkeypatch.setattr("rewrite_app.rewrite.rotation.call_qwen", _qwen)
+    monkeypatch.setattr("rewrite_app.rewrite.rotation.call_openai", _openai)
+    monkeypatch.setattr("rewrite_app.rewrite.rotation.call_anthropic", _anthropic)
+    monkeypatch.setattr("rewrite_app.rewrite.rotation.call_openrouter", _or)
+
+    _, key_alias, model, _ = call_with_rotation(
+        clean_db,
+        api_keys={
+            "qwen": "q",
+            "openai": "o",
+            "anthropic": "a",
+            "key_1": "or1",
+        },
+        system_prompt="s",
+        user_prompt="u",
+        anthropic_model="claude-3-5-haiku-latest",
+    )
+
+    assert order == ["qwen", "openai", "anthropic"]
+    assert key_alias == "anthropic"
+    assert model == "claude-3-5-haiku-latest"
 
 
 def test_active_free_models_bootstraps_from_constant_on_first_use(clean_db):
