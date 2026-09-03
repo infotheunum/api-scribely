@@ -4,6 +4,7 @@ from worker_app.dedup.embeddings import (
     EMBED_TEXT_CHARS,
     cosine_similarity,
     embed_text,
+    embed_texts,
     embedding_text,
 )
 
@@ -25,6 +26,22 @@ def test_cosine_similarity_identical_vectors_is_one():
 
 def test_cosine_similarity_orthogonal_vectors_is_zero():
     assert abs(cosine_similarity([1.0, 0.0], [0.0, 1.0])) < 1e-9
+
+
+def test_embed_texts_returns_one_vector_per_input(monkeypatch):
+    import numpy as np
+
+    class _FakeModel:
+        def encode(self, texts, **kwargs):
+            return np.array([[1.0, 0.0], [0.0, 1.0]][: len(texts)])
+
+    monkeypatch.setattr("worker_app.dedup.embeddings._model", lambda: _FakeModel())
+
+    vectors = embed_texts(["alpha", "beta"], batch_size=8)
+    assert len(vectors) == 2
+    assert vectors[0] == [1.0, 0.0]
+    assert vectors[1] == [0.0, 1.0]
+    assert embed_texts([]) == []
 
 
 def test_real_model_scores_same_event_en_ru_higher_than_unrelated():

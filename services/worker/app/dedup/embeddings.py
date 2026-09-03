@@ -19,6 +19,9 @@ SIMILARITY_THRESHOLD = 0.6
 # benefit; the lede carries the "what event is this" signal.
 EMBED_TEXT_CHARS = 500
 
+DEFAULT_EMBED_BATCH_SIZE = 32
+EMBED_BATCH_SIZE_SETTING_KEY = "dedup.embed_batch_size"
+
 
 @lru_cache
 def _model():
@@ -37,9 +40,28 @@ def embedding_text(title: str, body: str | None) -> str:
     return text[:EMBED_TEXT_CHARS]
 
 
+def embed_texts(
+    texts: list[str],
+    *,
+    batch_size: int = DEFAULT_EMBED_BATCH_SIZE,
+) -> list[list[float]]:
+    """Encode many texts in one model pass (much faster than per-item on CPU)."""
+    if not texts:
+        return []
+    import numpy as np
+
+    vectors = _model().encode(
+        texts,
+        batch_size=batch_size,
+        normalize_embeddings=True,
+        show_progress_bar=False,
+    )
+    arr = np.atleast_2d(np.asarray(vectors))
+    return [row.tolist() for row in arr]
+
+
 def embed_text(text: str) -> list[float]:
-    vector = _model().encode(text, normalize_embeddings=True)
-    return vector.tolist()
+    return embed_texts([text], batch_size=1)[0]
 
 
 def cosine_similarity(a: list[float], b: list[float]) -> float:

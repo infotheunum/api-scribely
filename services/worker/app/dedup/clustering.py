@@ -9,9 +9,11 @@ from db.models import NewsCluster, RawItem
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from worker_app.dedup.embeddings import (
+    DEFAULT_EMBED_BATCH_SIZE,
+    EMBED_BATCH_SIZE_SETTING_KEY,
     SIMILARITY_THRESHOLD,
     cosine_similarity,
-    embed_text,
+    embed_texts,
     embedding_text,
 )
 
@@ -24,9 +26,29 @@ logger = logging.getLogger(__name__)
 CLUSTER_WINDOW = timedelta(hours=72)
 CLUSTER_WINDOW_HOURS_SETTING_KEY = "dedup.cluster_window_hours"
 SIMILARITY_THRESHOLD_SETTING_KEY = "dedup.similarity_threshold"
+CLUSTER_PER_TICK_LIMIT_KEY = "dedup.cluster_per_tick_limit"
+DEFAULT_CLUSTER_PER_TICK_LIMIT = 20
 
 
-def unclustered_raw_items(db: Session, *, limit: int = 200) -> list[RawItem]:
+def _cluster_per_tick_limit(db: Session) -> int:
+    raw = get_setting(db, CLUSTER_PER_TICK_LIMIT_KEY, DEFAULT_CLUSTER_PER_TICK_LIMIT)
+    try:
+        limit = int(raw)
+    except (TypeError, ValueError):
+        limit = DEFAULT_CLUSTER_PER_TICK_LIMIT
+    return max(1, limit)
+
+
+def _embed_batch_size(db: Session) -> int:
+    raw = get_setting(db, EMBED_BATCH_SIZE_SETTING_KEY, DEFAULT_EMBED_BATCH_SIZE)
+    try:
+        size = int(raw)
+    except (TypeError, ValueError):
+        size = DEFAULT_EMBED_BATCH_SIZE
+    return max(1, size)
+
+
+def unclustered_raw_items(db: Session, *, limit: int) -> list[RawItem]:
     return list(
         db.scalars(
             select(RawItem)
@@ -68,6 +90,19 @@ def _best_match(
     return best_cluster, best_score
 
 
+def _prefetch_embeddings(db: Session, raw_items: list[RawItem]) -> None:
+    pending: list[tuple[RawItem, str]] = []
+    for raw_item in raw_items:
+        if raw_item.embedding is None:
+            pending.append((raw_item, embedding_text(raw_item.title, raw_item.body)))
+    if not pending:
+        return
+    texts = [text for _, text in pending]
+    vectors = embed_texts(texts, batch_size=_embed_batch_size(db))
+    for (raw_item, _), vector in zip(pending, vectors, strict=True):
+        raw_item.embedding = vector
+
+
 def cluster_raw_item(
     db: Session,
     raw_item: RawItem,
@@ -85,7 +120,7 @@ def cluster_raw_item(
             db, SIMILARITY_THRESHOLD_SETTING_KEY, SIMILARITY_THRESHOLD
         )
     if raw_item.embedding is None:
-        raw_item.embedding = embed_text(embedding_text(raw_item.title, raw_item.body))
+        raise ValueError(f"raw_item {raw_item.id} has no embedding — prefetch first")
 
     best_cluster, score = _best_match(raw_item.embedding, clusters)
     if best_cluster is not None and score >= similarity_threshold:
@@ -106,11 +141,18 @@ def cluster_raw_item(
 
 def run_clustering_cycle(db: Session) -> dict[str, int]:
     similarity_threshold = get_setting(db, SIMILARITY_THRESHOLD_SETTING_KEY, SIMILARITY_THRESHOLD)
+    limit = _cluster_per_tick_limit(db)
+    raw_items = unclustered_raw_items(db, limit=limit)
+    if not raw_items:
+        return {"attached": 0, "created": 0}
+
+    _prefetch_embeddings(db, raw_items)
+
     clusters = recent_clusters(db)
     stats = {"attached": 0, "created": 0}
     initial_cluster_ids = {c.id for c in clusters}
 
-    for raw_item in unclustered_raw_items(db):
+    for raw_item in raw_items:
         cluster = cluster_raw_item(
             db, raw_item, clusters, similarity_threshold=similarity_threshold
         )
