@@ -129,15 +129,15 @@ flowchart LR
 
 1. **Worker** на Railway создаёт `Draft` со статусом `ready_for_review`
    (EN + RU в одной записи).
-2. **Cron на VPS** периодически вызывает
+2. **Cron / кнопка Sync** на theunum вызывает
    `GET /integrations/theunum/v1/drafts?consumed=false` с service token.
-3. Scribely отдаёт только черновики **без** записи в `draft_export_log`
-   (ещё не забранные theunum).
-4. VPS сохраняет черновики локально (dedupe по `scribely_draft_id`).
-5. После успешного сохранения cron вызывает
-   `POST /integrations/theunum/v1/drafts/mark-consumed` (batch).
-6. Scribely пишет `DraftExportLog` — повторный GET **не вернёт** эти
-   черновики. Статус `Draft` в scribely **не меняется** (export ≠ publish).
+3. Scribely отдаёт только черновики **без** записи в `draft_export_log`.
+4. theunum сохраняет их в локальный QA (dedupe по `scribely_draft_id`).
+5. **mark-consumed не на sync.** Редактор жмёт Одобрить / Отклонить /
+   Удалить из очереди — тогда
+   `POST /integrations/theunum/v1/drafts/mark-consumed`.
+6. Scribely пишет `DraftExportLog` — повторный GET `consumed=false`
+   **не вернёт** эти черновики. Статус `Draft` в scribely **не меняется**.
 
 Пустая очередь — **не ошибка**: HTTP 200, `items: []`, в `meta.reason_code`
 обычно `queue_empty`. Если очередь пуста из‑за проблем пайплайна

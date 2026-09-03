@@ -190,13 +190,13 @@ flowchart LR
     ApiT --> PgT
   end
 
-  Cron -->|"HTTPS GET /drafts"| Api
-  Cron -->|"POST mark-consumed"| Api
+  Cron -->|"HTTPS GET /drafts?consumed=false"| Api
+  Cron -->|"POST mark-consumed (только решение редактора)"| Api
 ```
 
 - **scribely** генерирует черновики: `RawItem → cluster → AI → Draft (ready_for_review)`.
-- **theunum backend** на VPS периодически **тянет** unconsumed черновики.
-- После сохранения на VPS cron вызывает **mark-consumed** — повторный GET не отдаёт те же `draft_id`.
+- **theunum backend** периодически **тянет** unconsumed черновики (`consumed=false`).
+- **mark-consumed не на sync.** Редактор жмёт Одобрить / Отклонить / Удалить из очереди — тогда POST mark-consumed, повторный GET `consumed=false` эти `draft_id` не отдаёт.
 - **gRPC между зонами не используется** — только внутри Railway (`api`/`worker` → `rewrite`).
 - UI `/drafts` (JWT rewriter/admin) и Export API — **разные контракты**, не смешивать.
 
@@ -205,17 +205,19 @@ sequenceDiagram
   participant W as worker scribely
   participant DB as Postgres scribely
   participant API as api scribely
-  participant Cron as cron VPS
+  participant Cron as cron / sync theunum
   participant TDB as Postgres theunum
+  participant Ed as редактор admin
 
   W->>DB: Draft ready_for_review
   Cron->>API: GET /drafts?consumed=false
   API->>DB: drafts без DraftExportLog
   API-->>Cron: items[] EN+RU
   Cron->>TDB: upsert QA (dedupe по draft.id)
-  Cron->>API: POST /mark-consumed batch
+  Note over Cron,API: sync НЕ вызывает mark-consumed
+  Ed->>TDB: одобрить / отклонить / удалить
+  Ed->>API: POST /mark-consumed
   API->>DB: DraftExportLog.consumed_at
-  Note over Cron,API: items=[] → exit, без mark-consumed
 ```
 
 ---
@@ -376,7 +378,7 @@ Authorization: Bearer <token>
 |---|---|---|---|---|---|
 | `consumed` | `boolean` | `false` | `true`, `false` | `draft_export_log` (LEFT JOIN) | **`false`** — только черновики **без** строки в `draft_export_log` (ещё не забраны theunum). **`true`** — только уже помеченные `mark-consumed` (отладка, аудит повторной выгрузки) |
 
-**Неявное правило:** при `consumed=false` cron видит только то, что ещё не вызывало `POST mark-consumed` для данного `draft_id`.
+**Неявное правило:** при `consumed=false` theunum видит только то, что редактор ещё не одобрил / не отклонил / не удалил из очереди (`POST mark-consumed`).
 
 ### 2. Статус черновика в scribely
 
@@ -1037,6 +1039,7 @@ async function syncDraftsFromScribely() {
   do {
     const url = new URL(`${SCRIBELY_BASE_URL}/integrations/theunum/v1/drafts`);
     url.searchParams.set("limit", "50");
+    url.searchParams.set("consumed", "false");
     if (cursor) url.searchParams.set("cursor", cursor);
 
     const resp = await fetch(url, { headers });
@@ -1062,20 +1065,10 @@ async function syncDraftsFromScribely() {
       return;
     }
 
-    const toMark: { draft_id: string; theunum_reference_id: string }[] = [];
-
     for (const draft of items) {
-      const localId = await upsertQaDraft(draft); // unique index по scribely_draft_id
-      toMark.push({ draft_id: draft.id, theunum_reference_id: localId });
+      await upsertQaDraft(draft); // unique index по scribely_draft_id
     }
-
-    if (toMark.length) {
-      await fetch(`${SCRIBELY_BASE_URL}/integrations/theunum/v1/drafts/mark-consumed`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ items: toMark }),
-      });
-    }
+    // mark-consumed — только когда редактор одобрил / отклонил / удалил из очереди
 
     cursor = has_more ? next_cursor : null;
   } while (cursor);

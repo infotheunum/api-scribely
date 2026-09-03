@@ -17,9 +17,11 @@ SUPPORTED_EXPORT_LIST_FILTERS: list[dict[str, Any]] = [
         "enum": [True, False, None],
         "db_field": "draft_export_log.draft_id",
         "description": (
-            "omit/null — все черновики за период (игнорирует mark-consumed; нужен, "
-            "пока theunum помечает consumed только на promote). "
-            "false — только ещё не помеченные. true — только уже mark-consumed."
+            "false — только ещё не помеченные (живая очередь theunum). "
+            "true — только уже mark-consumed. "
+            "omit/null — все черновики за период (отладка). "
+            "theunum sync всегда шлёт consumed=false; mark-consumed — на "
+            "одобрить / отклонить / удалить из очереди, не на sync."
         ),
         "endpoints": ["/drafts", "/drafts/today"],
         "admin_default_key": None,
