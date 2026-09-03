@@ -408,7 +408,10 @@ Export API **не меняет** статус при `mark-consumed`. Стату
 | Параметр | Тип | Default | Диапазон / формат | SQL | Описание |
 |---|---|---|---|---|---|
 | `freshness` | enum | — | `today`, `48h` | оба → `created_at` | **`today`** — черновик **создан** с **UTC 00:00** текущих суток. **`48h`** — создан за последние 48 часов. Regen старой новости не попадает в cron/sync |
+<<<<<<< HEAD
 | `language` | enum | `all` | `ru`, `en`, `all` | проекция полей | **`ru`/`en`** — заполнена одна локаль, вторая пустые строки (контракт полей тот же). **`all`** — обе |
+=======
+>>>>>>> origin/main
 | `max_age_hours` | integer | — | `1` … `168` | `content_generated_at >= now−Nч` | Скользящее окно по дате последнего рерайта (опционально, AND с freshness) |
 | `generated_since` | datetime ISO8601 | — | `2026-09-01T17:00:00Z` или без TZ (трактуется как UTC) | `content_generated_at >= generated_since` | Явная нижняя граница AI-даты |
 
