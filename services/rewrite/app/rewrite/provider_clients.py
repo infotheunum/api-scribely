@@ -16,8 +16,9 @@ OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 # DashScope OpenAI-compatible (intl). CN: dashscope.aliyuncs.com
 DEFAULT_QWEN_BASE_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
 
-# Cheap text models — Haiku / mini / qwen-plus keep token cost low for rewrite JSON.
-DEFAULT_ANTHROPIC_MODEL = "claude-3-5-haiku-latest"
+# Cheap text models — Haiku 4.5 / mini / qwen-plus keep token cost low for rewrite JSON.
+# claude-3-5-haiku-latest alias removed; see Anthropic "Migrating to Claude Haiku 4.5".
+DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"
 DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
 DEFAULT_QWEN_MODEL = "qwen-plus"
 
