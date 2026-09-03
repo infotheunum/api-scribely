@@ -144,7 +144,7 @@ UNSUPPORTED_EXPORT_FILTERS: list[dict[str, str]] = [
     {"name": "similarity_score", "reason": "нет фильтра по similarity"},
     {"name": "sensitive_hold / fact_conflict / sponsor_flag", "reason": "нет фильтра по compliance-флагам"},
     {"name": "needs_attention", "reason": "computed поле, фильтра нет"},
-    {"name": "rewrite_llm_model", "reason": "нет фильтра по модели LLM"},
+    {"name": "rewrite_llm_model / rewrite_llm_key_alias", "reason": "нет фильтра по модели LLM"},
     {"name": "source_name / source_url", "reason": "нет фильтра по RSS-источнику"},
     {"name": "assignee_user_id", "reason": "нет фильтра по rewriter"},
     {"name": "created_since / created_before", "reason": "нет — только cursor по created_at"},

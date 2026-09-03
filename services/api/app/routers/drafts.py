@@ -131,6 +131,7 @@ class DraftDetail(DraftSummary):
     pending_category_slug: str | None
     pending_tags: list
     handoff_note: str | None
+    rewrite_llm_key_alias: str | None
     rewrite_llm_model: str | None
     llm_prompt_tokens: int = 0
     llm_completion_tokens: int = 0
@@ -185,6 +186,7 @@ class DraftDetail(DraftSummary):
             pending_category_slug=draft.pending_category_slug,
             pending_tags=draft.pending_tags,
             handoff_note=draft.handoff_note,
+            rewrite_llm_key_alias=draft.rewrite_llm_key_alias,
             rewrite_llm_model=draft.rewrite_llm_model,
             llm_prompt_tokens=int(draft.llm_prompt_tokens or 0),
             llm_completion_tokens=int(draft.llm_completion_tokens or 0),

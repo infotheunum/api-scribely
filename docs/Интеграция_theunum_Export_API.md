@@ -569,7 +569,7 @@ default_freshness=today&default_max_age_hours=&default_limit=100
 | Теги/категория | `pending_tags`, `pending_category_slug`, `tag_ids`, `category_id` |
 | Image brief | `image_brief`, `image_alt`, `image_mood`, `image_subjects`, `image_style`, `image_do_not`, `image_caption`, `image_source_suggestion`, `image_license_confirmed` |
 | Источники | `sources[]`: `{ title, url, language, source_name }` |
-| Прочее | `attribution_urls[]`, `handoff_note`, `rewrite_llm_model`, `topic`, `assignee_user_id` |
+| Прочее | `attribution_urls[]`, `handoff_note`, `rewrite_llm_model`, `rewrite_llm_key_alias` (`qwen`/`openai`/`anthropic`), `topic`, `assignee_user_id` |
 | Токены LLM (на статью) | `llm_prompt_tokens`, `llm_completion_tokens`, `llm_total_tokens` — сумма enrich+rewrite последнего цикла |
 
 **Формат текста:**
@@ -618,7 +618,7 @@ default_freshness=today&default_max_age_hours=&default_limit=100
 | По `similarity_score` | ❌ нет |
 | По compliance-флагам (`sensitive_hold`, `fact_conflict`, `sponsor_flag`, …) | ❌ нет |
 | По `needs_attention` | ❌ нет |
-| По `rewrite_llm_model` | ❌ nет |
+| По `rewrite_llm_model` / `rewrite_llm_key_alias` | ❌ нет |
 | По источнику RSS / `source_name` / домену URL | ❌ нет |
 | Full-text search по title/body | ❌ нет |
 | По `assignee_user_id` (rewriter) | ❌ нет |
@@ -827,7 +827,7 @@ Fallback slug (обычно «мир»): AppSetting `site_category.fallback_slug
 
 | Image brief | `image_brief`, `image_alt`, `image_mood`, … |
 | Источники | `sources[]`: `{ title, url, language, source_name }` |
-| Прочее | `attribution_urls`, `handoff_note`, `rewrite_llm_model` |
+| Прочее | `attribution_urls`, `handoff_note`, `rewrite_llm_model`, `rewrite_llm_key_alias` |
 
 **Даты:**
 

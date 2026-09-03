@@ -51,13 +51,16 @@ def _base_payload(**overrides):
 
 
 def test_schema_normalizes_three_paragraph_bodies():
-    body = "Lead paragraph.\n\nMiddle paragraph.\n\nClosing paragraph."
+    # Keep three paragraphs but meet hard-gate length.
+    pad = "x" * ((BODY_MIN_CHARS // 3) + 10)
+    body = f"Lead {pad}.\n\nMiddle {pad}.\n\nClosing {pad}."
     result = RewriteResultSchema.model_validate(
         _base_payload(body_en=body, body_ru=body),
         context={"locales": ["en", "ru"]},
     )
     assert result.body_en.count("\n\n") == 2
     assert result.body_ru.count("\n\n") == 2
+    assert len(result.body_en) >= BODY_MIN_CHARS
 
 
 def test_schema_normalizes_unicode_spaces_in_titles():

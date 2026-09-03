@@ -75,10 +75,13 @@ def _enable_both_locales(clean_db) -> None:
 
 def test_rewrite_cluster_parses_valid_response(clean_db, prompt_version, monkeypatch):
     _enable_both_locales(clean_db)
-    monkeypatch.setattr(
-        "rewrite_app.rewrite.orchestrator.call_with_rotation",
-        lambda *a, **kw: (json.dumps(VALID_RESULT), "key_1", "openai/gpt-oss-20b:free", _USAGE),
-    )
+    seen: dict = {}
+
+    def _fake(*a, **kw):
+        seen.update(kw)
+        return (json.dumps(VALID_RESULT), "openai", "gpt-4o-mini", _USAGE)
+
+    monkeypatch.setattr("rewrite_app.rewrite.orchestrator.call_with_rotation", _fake)
     monkeypatch.setattr(
         "rewrite_app.rewrite.orchestrator.site_category_prompt_block",
         lambda db: "",
@@ -95,13 +98,17 @@ def test_rewrite_cluster_parses_valid_response(clean_db, prompt_version, monkeyp
         sources_text="s",
         facts_text="f",
         flags_text="fl",
+        prefer_key_alias="openai",
     )
 
     assert result.title_en == VALID_RESULT["title_en"]
     assert result.disclaimer_flag is True
     assert len(result.tags) == 1
-    assert model == "openai/gpt-oss-20b:free"
+    assert key_alias == "openai"
+    assert model == "gpt-4o-mini"
     assert usage.total_tokens == 17
+    assert seen.get("prefer_key_alias") == "openai"
+    assert seen.get("advance") is False
 
 
 def test_rewrite_cluster_ru_only_clears_en(clean_db, prompt_version, monkeypatch):
