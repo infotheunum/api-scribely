@@ -165,6 +165,8 @@ def rewrite_cluster(
                 user_prompt=user_prompt + retry_note,
                 anthropic_model=settings.anthropic_model,
                 openai_model=settings.openai_model,
+                qwen_model=settings.qwen_model,
+                qwen_base_url=settings.qwen_base_url,
             )
             data = fill_inactive_locale_fields(extract_json(content), locales)
             result = RewriteResultSchema.model_validate(data, context={"locales": locales})

@@ -4,6 +4,8 @@ from common.settings import CommonSettings
 from rewrite_app.rewrite.provider_clients import (
     DEFAULT_ANTHROPIC_MODEL,
     DEFAULT_OPENAI_MODEL,
+    DEFAULT_QWEN_BASE_URL,
+    DEFAULT_QWEN_MODEL,
 )
 
 
@@ -27,11 +29,16 @@ class RewriteSettings(CommonSettings):
     openrouter_key_3: str = ""
 
     # Fallback providers after OpenRouter keys are exhausted / missing.
-    # Cheap text models by default (Haiku / 4o-mini) — override via env.
+    # Cheap text models by default (Haiku / 4o-mini / qwen-plus).
     anthropic_api_key: str = ""
     openai_api_key: str = ""
+    # DashScope key — also accepted as DASHSCOPE_API_KEY via alias below.
+    qwen_api_key: str = ""
+    dashscope_api_key: str = ""
     anthropic_model: str = DEFAULT_ANTHROPIC_MODEL
     openai_model: str = DEFAULT_OPENAI_MODEL
+    qwen_model: str = DEFAULT_QWEN_MODEL
+    qwen_base_url: str = DEFAULT_QWEN_BASE_URL
 
     def openrouter_keys(self) -> dict[str, str]:
         return {
@@ -40,12 +47,16 @@ class RewriteSettings(CommonSettings):
             "key_3": self.openrouter_key_3,
         }
 
+    def resolved_qwen_api_key(self) -> str:
+        return (self.qwen_api_key or self.dashscope_api_key or "").strip()
+
     def llm_provider_keys(self) -> dict[str, str]:
-        """All rotation slots: OpenRouter keys + Anthropic + OpenAI."""
+        """All rotation slots: OpenRouter keys + Anthropic + OpenAI + Qwen."""
         return {
             **self.openrouter_keys(),
             "anthropic": self.anthropic_api_key,
             "openai": self.openai_api_key,
+            "qwen": self.resolved_qwen_api_key(),
         }
 
     def configured_llm_key_count(self) -> int:
