@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from common.rewrite_body_limits import BODY_MAX_CHARS, BODY_MIN_CHARS
+from common.rewrite_body_limits import BODY_MIN_CHARS
 
 # Machine-readable codes returned to api.theunum.io cron (integrations API).
 
@@ -103,7 +103,7 @@ def human_reason_message(reason_code: str, *, detail: str | None = None) -> str:
         REASON_PIPELINE_DEGRADED: "Есть сырьё в очереди, но черновики не создаются.",
         REASON_REWRITE_VALIDATION_FAILED: (
             "LLM вернул черновик, который не прошёл валидацию "
-            f"(длина body {BODY_MIN_CHARS}–{BODY_MAX_CHARS} символов, формат). "
+            f"(длина body ≥{BODY_MIN_CHARS} символов, формат). "
             "Кластер уйдёт в retry."
         ),
         REASON_OPENROUTER_KEYS_EXHAUSTED: (

@@ -7,7 +7,7 @@ from common.rewrite_output_locales import set_output_locales
 from common.token_usage import TokenUsage
 from db.enums import PromptVersionStatus
 from db.models import PromptVersion
-from rewrite_app.prompt.style_guide import BODY_MAX_CHARS, BODY_MIN_CHARS
+from rewrite_app.prompt.style_guide import BODY_MIN_CHARS, BODY_SOFT_MAX_CHARS
 from rewrite_app.rewrite.orchestrator import rewrite_cluster
 from rewrite_app.settings import RewriteSettings
 
@@ -140,12 +140,13 @@ def test_rewrite_cluster_ru_only_clears_en(clean_db, prompt_version, monkeypatch
     assert result.title_ru == VALID_RESULT["title_ru"]
 
 
-def test_rewrite_cluster_rejects_too_long_body(clean_db, prompt_version, monkeypatch):
+def test_rewrite_cluster_accepts_body_over_soft_max(clean_db, prompt_version, monkeypatch):
+    """Bodies longer than soft aspiration (~3000) must not be regenerated."""
     _enable_both_locales(clean_db)
-    bad = dict(VALID_RESULT, body_en="x" * (BODY_MAX_CHARS + 1))
+    long_ok = dict(VALID_RESULT, body_en="x" * (BODY_SOFT_MAX_CHARS + 500))
     monkeypatch.setattr(
         "rewrite_app.rewrite.orchestrator.call_with_rotation",
-        lambda *a, **kw: (json.dumps(bad), "key_1", "m", _USAGE),
+        lambda *a, **kw: (json.dumps(long_ok), "openai", "gpt-4o-mini", _USAGE),
     )
     monkeypatch.setattr(
         "rewrite_app.rewrite.orchestrator.site_category_prompt_block",
@@ -155,15 +156,15 @@ def test_rewrite_cluster_rejects_too_long_body(clean_db, prompt_version, monkeyp
         "common.site_categories.resolve_site_category_slug",
         lambda slug, **kw: slug or "world",
     )
-    with pytest.raises(RuntimeError, match="failed after"):
-        rewrite_cluster(
-            clean_db,
-            RewriteSettings(),
-            prompt_version,
-            sources_text="s",
-            facts_text="f",
-            flags_text="fl",
-        )
+    result, *_ = rewrite_cluster(
+        clean_db,
+        RewriteSettings(),
+        prompt_version,
+        sources_text="s",
+        facts_text="f",
+        flags_text="fl",
+    )
+    assert len(result.body_en) > BODY_SOFT_MAX_CHARS
 
 
 def test_rewrite_cluster_rejects_too_short_body(clean_db, prompt_version, monkeypatch):
