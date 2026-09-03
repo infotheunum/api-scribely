@@ -21,11 +21,13 @@ from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
-# OpenRouter slots first, then paid cheap fallbacks — sticky round-robin
-# across the whole list (ТЗ §4.5 + provider fallback).
+# Paid providers first (OpenRouter free keys often exhausted / dead).
+# Sticky round-robin across the whole list (ТЗ §4.5 + provider fallback).
 OPENROUTER_KEY_ALIASES = ["key_1", "key_2", "key_3"]
-FALLBACK_ALIASES = ["anthropic", "openai", "qwen"]
-KEY_ALIASES = OPENROUTER_KEY_ALIASES + FALLBACK_ALIASES
+PRIMARY_ALIASES = ["qwen", "openai", "anthropic"]
+KEY_ALIASES = PRIMARY_ALIASES + OPENROUTER_KEY_ALIASES
+# Back-compat name used in docs/comments.
+FALLBACK_ALIASES = PRIMARY_ALIASES
 
 # Fixed 2026-08-03 (ТЗ §8.2 open question, resolved in Фаза 4) —
 # live-verified against GET https://openrouter.ai/api/v1/models the same
@@ -177,16 +179,22 @@ def call_with_rotation(
 ) -> tuple[str, str, str, TokenUsage]:
     """Calls LLM providers in sticky round-robin:
 
-    1. OpenRouter key_1 → key_2 → key_3 (free models via OpenRouter `models`)
-    2. Anthropic (cheap Haiku by default)
-    3. OpenAI (cheap gpt-4o-mini by default)
-    4. Qwen / DashScope (qwen-plus by default)
+    1. Qwen / DashScope (qwen-plus by default)
+    2. OpenAI (gpt-4o-mini by default)
+    3. Anthropic (Haiku by default)
+    4. OpenRouter key_1 → key_2 → key_3 (free models; last resort)
 
     On failure of a slot, cascades to the next; successful slot becomes
     sticky start for the next call. Returns
     (raw_content, key_alias_used, model_used, token_usage).
     """
     start = _current_key_alias(db)
+    # Don't sticky-start on OpenRouter if any paid primary key is set —
+    # free OR slots are often exhausted and would burn 3 failed calls first.
+    if start in OPENROUTER_KEY_ALIASES and any(
+        (api_keys.get(alias) or "").strip() for alias in PRIMARY_ALIASES
+    ):
+        start = PRIMARY_ALIASES[0]
     start_idx = KEY_ALIASES.index(start) if start in KEY_ALIASES else 0
     ordered = KEY_ALIASES[start_idx:] + KEY_ALIASES[:start_idx]
     free_models = active_free_models(db)
