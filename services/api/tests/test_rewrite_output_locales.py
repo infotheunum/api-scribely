@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from common.export_language import parse_export_language, project_export_item
+from common.export_language import (
+    output_locales_to_export_language,
+    parse_export_language,
+    project_export_item,
+    resolve_export_language,
+)
 from common.rewrite_output_locales import parse_output_locales, set_output_locales
 
 
@@ -40,4 +45,18 @@ def test_project_export_item_language_ru_blanks_en():
     assert out["body_en_html"] == ""
     assert out["title_ru"] == "RU"
     assert parse_export_language("ru") == "ru"
-    assert parse_export_language("nope") == "all"
+    assert parse_export_language("nope") is None
+
+
+def test_output_locales_to_export_language():
+    assert output_locales_to_export_language(["ru"]) == "ru"
+    assert output_locales_to_export_language(["en"]) == "en"
+    assert output_locales_to_export_language(["ru", "en"]) == "all"
+
+
+def test_resolve_export_language_defaults_from_settings(clean_db):
+    assert resolve_export_language(clean_db, None) == "ru"
+    set_output_locales(clean_db, ["en"])
+    clean_db.commit()
+    assert resolve_export_language(clean_db, None) == "en"
+    assert resolve_export_language(clean_db, "all") == "all"

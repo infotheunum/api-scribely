@@ -7,7 +7,7 @@ from api_app.auth.integration import require_integration_token_dep
 from api_app.db import get_db
 from api_app.integrations.freshness import FreshnessPreset, resolve_export_time_cutoffs
 from api_app.integrations.pipeline_status import build_list_meta, build_pipeline_status
-from common.export_language import ExportLanguage, parse_export_language, project_export_item
+from common.export_language import ExportLanguage, resolve_export_language, project_export_item
 from common.integration_export_settings import merge_export_freshness_query, merge_export_limit_query
 from common.integration_export_schema import build_export_schema_payload
 from api_app.routers.drafts import DEFAULT_QUEUE_STATUSES, DraftDetail
@@ -250,11 +250,14 @@ def list_export_drafts(
     limit: int | None = Query(None, ge=1, le=100),
     language: str | None = Query(
         None,
-        description="ru | en | all — which locale fields to populate (default all)",
+        description=(
+            "ru | en | all — locale projection. "
+            "Omit = rewrite.output_locales (default ru-only)."
+        ),
     ),
 ) -> DraftListResponse:
     statuses = status_filter or DEFAULT_EXPORT_STATUSES
-    export_language = parse_export_language(language)
+    export_language = resolve_export_language(db, language)
     return _list_export_drafts_impl(
         request,
         db,
@@ -286,7 +289,10 @@ def list_export_drafts_today(
     limit: int | None = Query(None, ge=1, le=100),
     language: str | None = Query(
         None,
-        description="ru | en | all — which locale fields to populate (default all)",
+        description=(
+            "ru | en | all — locale projection. "
+            "Omit = rewrite.output_locales (default ru-only)."
+        ),
     ),
 ) -> DraftListResponse:
     """Shortcut: queue drafts with created_at >= UTC midnight today."""
@@ -302,7 +308,7 @@ def list_export_drafts_today(
         max_age_hours=None,
         cursor=cursor,
         limit=limit,
-        language=parse_export_language(language),
+        language=resolve_export_language(db, language),
     )
 
 
@@ -310,11 +316,18 @@ def list_export_drafts_today(
 def get_export_draft(
     draft_id: uuid.UUID,
     db: Session = Depends(get_db),
-    language: str | None = Query(None, description="ru | en | all"),
+    language: str | None = Query(
+        None,
+        description="ru | en | all; omit = rewrite.output_locales",
+    ),
 ) -> IntegrationDraftExport:
     draft = _load_draft(db, draft_id)
     export_log = db.get(DraftExportLog, draft_id)
-    return _to_integration_export(draft, export_log, language=parse_export_language(language))
+    return _to_integration_export(
+        draft,
+        export_log,
+        language=resolve_export_language(db, language),
+    )
 
 
 def _mark_one(db: Session, item: MarkConsumedItem) -> uuid.UUID | None:
