@@ -27,14 +27,14 @@ def test_call_anthropic_returns_text(monkeypatch):
     monkeypatch.setattr(
         "rewrite_app.rewrite.provider_clients.httpx.post",
         lambda *a, **k: _Resp(
-            {"model": "claude-3-5-haiku-latest", "content": [{"type": "text", "text": '{"a":1}'}]}
+            {"model": "claude-haiku-4-5-20251001", "content": [{"type": "text", "text": '{"a":1}'}]}
         ),
     )
     content, model, usage = call_anthropic(
-        api_key="k", model="claude-3-5-haiku-latest", system_prompt="s", user_prompt="u"
+        api_key="k", model="claude-haiku-4-5-20251001", system_prompt="s", user_prompt="u"
     )
     assert content == '{"a":1}'
-    assert model == "claude-3-5-haiku-latest"
+    assert model == "claude-haiku-4-5-20251001"
     assert usage.total_tokens == 0
 
 
