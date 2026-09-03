@@ -11,7 +11,12 @@ FreshnessPreset = Literal["today", "48h"]
 
 @dataclass(frozen=True)
 class ExportTimeCutoffs:
-    """Lower bounds applied as AND. 48h is created_at so regen of old news is excluded."""
+    """Lower bounds applied as AND.
+
+    Presets ``today`` / ``48h`` filter ``draft.created_at`` so cron and sync
+    never pull regen of old news. ``generated_since`` / ``max_age_hours`` still
+    use ``content_generated_at``.
+    """
 
     content_generated_since: datetime | None = None
     created_since: datetime | None = None
@@ -34,7 +39,7 @@ def resolve_export_time_cutoffs(
 
     current = now or datetime.now(UTC)
     if freshness == "today":
-        generated_cutoffs.append(current.replace(hour=0, minute=0, second=0, microsecond=0))
+        created_cutoffs.append(current.replace(hour=0, minute=0, second=0, microsecond=0))
     elif freshness == "48h":
         created_cutoffs.append(current - timedelta(hours=48))
 
@@ -56,7 +61,7 @@ def resolve_content_generated_since(
     max_age_hours: int | None,
     now: datetime | None = None,
 ) -> datetime | None:
-    """Lower bound for draft.content_generated_at (today / generated_since / max_age_hours)."""
+    """Lower bound for draft.content_generated_at (generated_since / max_age_hours only)."""
     return resolve_export_time_cutoffs(
         generated_since=generated_since,
         freshness=freshness,

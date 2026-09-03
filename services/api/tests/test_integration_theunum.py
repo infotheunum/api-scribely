@@ -221,7 +221,9 @@ def test_list_freshness_today_excludes_yesterday(client, clean_db):
     cluster = _cluster(clean_db, source)
     fresh = _draft(clean_db, cluster, title_en="Today draft title here now")
     stale = _draft(clean_db, cluster, title_en="Yesterday draft title here now")
-    stale.content_generated_at = datetime.now(UTC) - timedelta(days=1)
+    # Regen of an old draft must not enter the today queue.
+    stale.created_at = datetime.now(UTC) - timedelta(days=1)
+    stale.content_generated_at = datetime.now(UTC)
     clean_db.commit()
 
     resp = client.get(
@@ -234,7 +236,7 @@ def test_list_freshness_today_excludes_yesterday(client, clean_db):
     assert str(fresh.id) in ids
     assert str(stale.id) not in ids
     assert body["meta"]["freshness"] == "today"
-    assert body["meta"]["content_generated_since"]
+    assert body["meta"]["created_since"]
 
 
 def test_drafts_today_endpoint(client, clean_db):
@@ -276,7 +278,8 @@ def test_list_uses_admin_default_freshness(client, clean_db):
     cluster = _cluster(clean_db, source)
     fresh = _draft(clean_db, cluster, title_en="Today draft from admin default")
     stale = _draft(clean_db, cluster, title_en="Yesterday draft excluded by admin")
-    stale.content_generated_at = datetime.now(UTC) - timedelta(days=1)
+    stale.created_at = datetime.now(UTC) - timedelta(days=1)
+    stale.content_generated_at = datetime.now(UTC)
     set_setting(clean_db, DEFAULT_FRESHNESS_KEY, "today")
     clean_db.commit()
 
