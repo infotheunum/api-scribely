@@ -3,12 +3,13 @@ from __future__ import annotations
 import json
 
 import pytest
+from common.rewrite_output_locales import set_output_locales
+from common.token_usage import TokenUsage
 from db.enums import PromptVersionStatus
 from db.models import PromptVersion
 from rewrite_app.prompt.style_guide import BODY_MAX_CHARS, BODY_MIN_CHARS
 from rewrite_app.rewrite.orchestrator import rewrite_cluster
 from rewrite_app.settings import RewriteSettings
-from common.token_usage import TokenUsage
 
 _USAGE = TokenUsage(9, 8, 17)
 
@@ -67,7 +68,13 @@ def prompt_version(clean_db) -> PromptVersion:
     return version
 
 
+def _enable_both_locales(clean_db) -> None:
+    set_output_locales(clean_db, ["en", "ru"])
+    clean_db.commit()
+
+
 def test_rewrite_cluster_parses_valid_response(clean_db, prompt_version, monkeypatch):
+    _enable_both_locales(clean_db)
     monkeypatch.setattr(
         "rewrite_app.rewrite.orchestrator.call_with_rotation",
         lambda *a, **kw: (json.dumps(VALID_RESULT), "key_1", "openai/gpt-oss-20b:free", _USAGE),
@@ -97,7 +104,37 @@ def test_rewrite_cluster_parses_valid_response(clean_db, prompt_version, monkeyp
     assert usage.total_tokens == 17
 
 
+def test_rewrite_cluster_ru_only_clears_en(clean_db, prompt_version, monkeypatch):
+    set_output_locales(clean_db, ["ru"])
+    clean_db.commit()
+    monkeypatch.setattr(
+        "rewrite_app.rewrite.orchestrator.call_with_rotation",
+        lambda *a, **kw: (json.dumps(VALID_RESULT), "key_1", "openai/gpt-oss-20b:free", _USAGE),
+    )
+    monkeypatch.setattr(
+        "rewrite_app.rewrite.orchestrator.site_category_prompt_block",
+        lambda db: "",
+    )
+    monkeypatch.setattr(
+        "common.site_categories.resolve_site_category_slug",
+        lambda slug, **kw: slug or "world",
+    )
+
+    result, *_ = rewrite_cluster(
+        clean_db,
+        RewriteSettings(),
+        prompt_version,
+        sources_text="s",
+        facts_text="f",
+        flags_text="fl",
+    )
+    assert result.title_en == ""
+    assert result.body_en == ""
+    assert result.title_ru == VALID_RESULT["title_ru"]
+
+
 def test_rewrite_cluster_rejects_too_long_body(clean_db, prompt_version, monkeypatch):
+    _enable_both_locales(clean_db)
     bad = dict(VALID_RESULT, body_en="x" * (BODY_MAX_CHARS + 1))
     monkeypatch.setattr(
         "rewrite_app.rewrite.orchestrator.call_with_rotation",
@@ -123,6 +160,7 @@ def test_rewrite_cluster_rejects_too_long_body(clean_db, prompt_version, monkeyp
 
 
 def test_rewrite_cluster_rejects_too_short_body(clean_db, prompt_version, monkeypatch):
+    _enable_both_locales(clean_db)
     bad = dict(VALID_RESULT, body_en="too short")
     monkeypatch.setattr(
         "rewrite_app.rewrite.orchestrator.call_with_rotation",

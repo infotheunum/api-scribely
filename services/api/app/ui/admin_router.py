@@ -8,6 +8,7 @@ from api_app.auth.dependencies import get_current_user_optional
 from api_app.db import get_db
 from api_app.routers import admin as admin_api
 from common.integration_export_settings import load_export_defaults, save_export_defaults
+from common.rewrite_output_locales import get_output_locales, set_output_locales
 from db.enums import SourceTier
 from db.models import User
 from fastapi import APIRouter, Depends, Form, Request, status
@@ -264,6 +265,7 @@ def settings_page(
         return redirect
     settings = admin_api.list_settings(db=db)
     export_defaults = load_export_defaults(db)
+    output_locales = get_output_locales(db)
     return templates.TemplateResponse(
         request,
         "admin_settings.html",
@@ -279,6 +281,8 @@ def settings_page(
             "export_limit": export_defaults.get("default_limit")
             if export_defaults.get("default_limit") is not None
             else "",
+            "output_locale_ru": "ru" in output_locales,
+            "output_locale_en": "en" in output_locales,
         },
     )
 
@@ -312,6 +316,26 @@ def upsert_export_freshness_ui(
         default_limit=limit,
         updated_by=user.id if user else None,
     )
+    db.commit()
+    return RedirectResponse("/ui/admin/settings", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/settings/output-locales")
+def upsert_output_locales_ui(
+    locale_ru: str | None = Form(None),
+    locale_en: str | None = Form(None),
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
+    redirect = _require_admin(user)
+    if redirect:
+        return redirect
+    selected: list[str] = []
+    if locale_ru:
+        selected.append("ru")
+    if locale_en:
+        selected.append("en")
+    set_output_locales(db, selected, updated_by=user.id if user else None)
     db.commit()
     return RedirectResponse("/ui/admin/settings", status_code=status.HTTP_303_SEE_OTHER)
 
