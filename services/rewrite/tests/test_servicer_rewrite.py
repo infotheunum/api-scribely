@@ -163,4 +163,7 @@ def _fake_enrich_result():
 def _fake_rewrite_result():
     from rewrite_app.rewrite.schemas import RewriteResultSchema
 
-    return RewriteResultSchema.model_validate(json.loads(json.dumps(VALID_RESULT)))
+    return RewriteResultSchema.model_validate(
+        json.loads(json.dumps(VALID_RESULT)),
+        context={"locales": ["en", "ru"]},
+    )

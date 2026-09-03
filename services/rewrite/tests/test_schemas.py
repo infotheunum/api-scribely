@@ -52,7 +52,10 @@ def _base_payload(**overrides):
 
 def test_schema_normalizes_three_paragraph_bodies():
     body = "Lead paragraph.\n\nMiddle paragraph.\n\nClosing paragraph."
-    result = RewriteResultSchema.model_validate(_base_payload(body_en=body, body_ru=body))
+    result = RewriteResultSchema.model_validate(
+        _base_payload(body_en=body, body_ru=body),
+        context={"locales": ["en", "ru"]},
+    )
     assert result.body_en.count("\n\n") == 2
     assert result.body_ru.count("\n\n") == 2
 
@@ -60,8 +63,20 @@ def test_schema_normalizes_three_paragraph_bodies():
 def test_schema_normalizes_unicode_spaces_in_titles():
     title = "Lazarus moved $30\u202fмлн through Hyperliquid"
     result = RewriteResultSchema.model_validate(
-        _base_payload(title_en=title, title_ru=title)
+        _base_payload(title_en=title, title_ru=title),
+        context={"locales": ["en", "ru"]},
     )
     assert "\u202f" not in result.title_en
     assert result.title_en == "Lazarus moved $30 млн through Hyperliquid"
     assert result.title_ru == result.title_en
+
+
+def test_schema_ru_only_clears_en_fields():
+    result = RewriteResultSchema.model_validate(
+        _base_payload(),
+        context={"locales": ["ru"]},
+    )
+    assert result.title_en == ""
+    assert result.body_en == ""
+    assert len(result.body_ru) >= BODY_MIN_CHARS
+    assert len(result.title_ru) >= 10

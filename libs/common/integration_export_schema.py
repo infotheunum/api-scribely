@@ -102,6 +102,19 @@ SUPPORTED_EXPORT_LIST_FILTERS: list[dict[str, Any]] = [
         "endpoints": ["/drafts", "/drafts/today"],
         "admin_default_key": None,
     },
+    {
+        "name": "language",
+        "type": "enum",
+        "default": "all",
+        "enum": ["ru", "en", "all"],
+        "db_field": None,
+        "description": (
+            "Какие локали заполнять в item: ru / en / all. "
+            "При ru|en поля другой локали — пустые строки (контракт полей сохраняется)."
+        ),
+        "endpoints": ["/drafts", "/drafts/today", "/drafts/{id}"],
+        "admin_default_key": None,
+    },
 ]
 
 IMPLICIT_EXPORT_RULES: list[dict[str, str]] = [
@@ -127,7 +140,6 @@ UNSUPPORTED_EXPORT_FILTERS: list[dict[str, str]] = [
     {"name": "topic", "reason": "topic только в теле ответа item, фильтра нет"},
     {"name": "category_id / pending_category_slug", "reason": "нет фильтра по категории"},
     {"name": "tag_ids / pending_tags", "reason": "нет фильтра по тегам"},
-    {"name": "language", "reason": "EN+RU всегда в одном item"},
     {"name": "body_min_chars / body_max_chars", "reason": "нет фильтра по длине текста"},
     {"name": "similarity_score", "reason": "нет фильтра по similarity"},
     {"name": "sensitive_hold / fact_conflict / sponsor_flag", "reason": "нет фильтра по compliance-флагам"},
