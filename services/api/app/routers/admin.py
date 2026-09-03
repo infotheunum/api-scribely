@@ -439,6 +439,48 @@ def upsert_integration_export_settings(
 
 
 # ---------------------------------------------------------------------
+# Rewrite output locales
+# ---------------------------------------------------------------------
+
+
+class RewriteOutputLocalesIn(BaseModel):
+    locales: list[str] = Field(default_factory=lambda: ["ru"])
+
+
+class RewriteOutputLocalesOut(BaseModel):
+    locales: list[str]
+
+
+@router.get("/rewrite/output-locales", response_model=RewriteOutputLocalesOut)
+def get_rewrite_output_locales(db: Session = Depends(get_db)) -> RewriteOutputLocalesOut:
+    from common.rewrite_output_locales import get_output_locales
+
+    return RewriteOutputLocalesOut(locales=list(get_output_locales(db)))
+
+
+@router.put("/rewrite/output-locales", response_model=RewriteOutputLocalesOut)
+def upsert_rewrite_output_locales(
+    body: RewriteOutputLocalesIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("admin")),
+) -> RewriteOutputLocalesOut:
+    from common.rewrite_output_locales import get_output_locales, set_output_locales
+
+    previous = list(get_output_locales(db))
+    saved = set_output_locales(db, body.locales, updated_by=user.id)
+    db.flush()
+    _audit(
+        db,
+        user,
+        action="admin_update",
+        entity_type="AppSetting",
+        entity_id="rewrite.output_locales",
+        details={"previous": previous, "new": list(saved)},
+    )
+    return RewriteOutputLocalesOut(locales=list(saved))
+
+
+# ---------------------------------------------------------------------
 # PromptVersion
 # ---------------------------------------------------------------------
 

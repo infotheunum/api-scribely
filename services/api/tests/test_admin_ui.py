@@ -142,6 +142,30 @@ def test_admin_ui_export_freshness_defaults(client, admin_user, clean_db):
     assert "Export API" in page.text
 
 
+def test_admin_ui_output_locales(client, admin_user, clean_db):
+    headers = _auth_headers(client, admin_user)
+    client.post(
+        "/ui/admin/settings/output-locales",
+        data={"locale_ru": "1", "locale_en": "1"},
+        headers=headers,
+        follow_redirects=False,
+    )
+    from db.models import AppSetting
+
+    assert clean_db.get(AppSetting, "rewrite.output_locales").value == ["ru", "en"]
+
+    client.post(
+        "/ui/admin/settings/output-locales",
+        data={"locale_ru": "1"},
+        headers=headers,
+        follow_redirects=False,
+    )
+    assert clean_db.get(AppSetting, "rewrite.output_locales").value == ["ru"]
+
+    page = client.get("/ui/admin/settings", headers=headers)
+    assert "Языки генерации" in page.text
+
+
 def test_admin_ui_prompt_versions_create_and_activate(client, admin_user, clean_db):
     headers = _auth_headers(client, admin_user)
     resp = client.post(

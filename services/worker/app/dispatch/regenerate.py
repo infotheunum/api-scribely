@@ -7,6 +7,7 @@ import grpc
 from common.grpc_client import build_rewrite_channel, rewrite_stub
 from common.llm_token_totals import record_token_usage
 from common.rewrite_body_limits import BODY_MIN_CHARS
+from common.rewrite_output_locales import get_output_locales, locale_enabled
 from common.tracing import get_trace_id, new_trace_id, set_trace_id
 from db.enums import DraftRevisionKind, DraftStatus
 from db.models import Draft, DraftExportLog, NewsCluster, RawItem
@@ -21,6 +22,18 @@ from worker_app.settings import WorkerSettings
 logger = logging.getLogger(__name__)
 
 REGENERATABLE_STATUSES = (DraftStatus.READY_FOR_REVIEW, DraftStatus.NEEDS_FIX)
+
+
+def _short_body_clause(db: Session):
+    locales = get_output_locales(db)
+    clauses = []
+    if locale_enabled(locales, "en"):
+        clauses.append(func.length(Draft.body_en) < BODY_MIN_CHARS)
+    if locale_enabled(locales, "ru"):
+        clauses.append(func.length(Draft.body_ru) < BODY_MIN_CHARS)
+    if not clauses:
+        clauses.append(func.length(Draft.body_ru) < BODY_MIN_CHARS)
+    return or_(*clauses)
 
 
 def select_drafts_for_regeneration(
@@ -38,24 +51,14 @@ def select_drafts_for_regeneration(
         .limit(limit)
     )
     if not all_queue:
-        stmt = stmt.where(
-            or_(
-                func.length(Draft.body_en) < BODY_MIN_CHARS,
-                func.length(Draft.body_ru) < BODY_MIN_CHARS,
-            )
-        )
+        stmt = stmt.where(_short_body_clause(db))
     return list(db.scalars(stmt).all())
 
 
 def count_drafts_for_regeneration(db: Session, *, all_queue: bool) -> int:
     stmt = select(func.count()).select_from(Draft).where(Draft.status.in_(REGENERATABLE_STATUSES))
     if not all_queue:
-        stmt = stmt.where(
-            or_(
-                func.length(Draft.body_en) < BODY_MIN_CHARS,
-                func.length(Draft.body_ru) < BODY_MIN_CHARS,
-            )
-        )
+        stmt = stmt.where(_short_body_clause(db))
     return int(db.scalar(stmt) or 0)
 
 

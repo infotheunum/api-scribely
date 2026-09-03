@@ -7,6 +7,7 @@ from api_app.auth.integration import require_integration_token_dep
 from api_app.db import get_db
 from api_app.integrations.freshness import FreshnessPreset, resolve_export_time_cutoffs
 from api_app.integrations.pipeline_status import build_list_meta, build_pipeline_status
+from common.export_language import ExportLanguage, parse_export_language, project_export_item
 from common.integration_export_settings import merge_export_freshness_query, merge_export_limit_query
 from common.integration_export_schema import build_export_schema_payload
 from api_app.routers.drafts import DEFAULT_QUEUE_STATUSES, DraftDetail
@@ -33,14 +34,23 @@ class IntegrationDraftExport(DraftDetail):
     body_ru_html: str = ""
 
 
-def _to_integration_export(draft: Draft, export_log: DraftExportLog | None) -> IntegrationDraftExport:
+def _to_integration_export(
+    draft: Draft,
+    export_log: DraftExportLog | None,
+    *,
+    language: ExportLanguage = "all",
+) -> IntegrationDraftExport:
     detail = DraftDetail.from_model(draft)
-    return IntegrationDraftExport(
-        **detail.model_dump(),
-        body_en_html=body_to_html(detail.body_en),
-        body_ru_html=body_to_html(detail.body_ru),
-        consumed_at=export_log.consumed_at if export_log else None,
+    payload = project_export_item(
+        {
+            **detail.model_dump(),
+            "body_en_html": body_to_html(detail.body_en),
+            "body_ru_html": body_to_html(detail.body_ru),
+            "consumed_at": export_log.consumed_at if export_log else None,
+        },
+        language,
     )
+    return IntegrationDraftExport(**payload)
 
 
 class DraftListResponse(BaseModel):
@@ -138,6 +148,7 @@ def _list_export_drafts_impl(
     max_age_hours: int | None,
     cursor: uuid.UUID | None,
     limit: int | None,
+    language: ExportLanguage = "all",
 ) -> DraftListResponse:
     generated_since, freshness, max_age_hours, freshness_source = merge_export_freshness_query(
         db,
@@ -169,7 +180,10 @@ def _list_export_drafts_impl(
     page = drafts[:effective_limit]
     next_cursor = str(page[-1].id) if has_more and page else None
 
-    items = [_to_integration_export(draft, draft.export_log if draft.export_log else None) for draft in page]
+    items = [
+        _to_integration_export(draft, draft.export_log if draft.export_log else None, language=language)
+        for draft in page
+    ]
 
     channel = getattr(request.app.state, "rewrite_channel", None)
     meta = build_list_meta(db, rewrite_channel=channel, item_count=len(items))
@@ -184,6 +198,7 @@ def _list_export_drafts_impl(
     meta["freshness_source"] = freshness_source
     meta["limit"] = effective_limit
     meta["limit_source"] = limit_source
+    meta["language"] = language
     return DraftListResponse(
         items=items,
         next_cursor=next_cursor,
@@ -233,8 +248,13 @@ def list_export_drafts(
     ),
     cursor: uuid.UUID | None = Query(None),
     limit: int | None = Query(None, ge=1, le=100),
+    language: str | None = Query(
+        None,
+        description="ru | en | all — which locale fields to populate (default all)",
+    ),
 ) -> DraftListResponse:
     statuses = status_filter or DEFAULT_EXPORT_STATUSES
+    export_language = parse_export_language(language)
     return _list_export_drafts_impl(
         request,
         db,
@@ -246,6 +266,7 @@ def list_export_drafts(
         max_age_hours=max_age_hours,
         cursor=cursor,
         limit=limit,
+        language=export_language,
     )
 
 
@@ -263,6 +284,10 @@ def list_export_drafts_today(
     ),
     cursor: uuid.UUID | None = Query(None),
     limit: int | None = Query(None, ge=1, le=100),
+    language: str | None = Query(
+        None,
+        description="ru | en | all — which locale fields to populate (default all)",
+    ),
 ) -> DraftListResponse:
     """Shortcut: queue drafts with created_at >= UTC midnight today."""
     statuses = status_filter or DEFAULT_EXPORT_STATUSES
@@ -277,14 +302,19 @@ def list_export_drafts_today(
         max_age_hours=None,
         cursor=cursor,
         limit=limit,
+        language=parse_export_language(language),
     )
 
 
 @router.get("/drafts/{draft_id}", response_model=IntegrationDraftExport)
-def get_export_draft(draft_id: uuid.UUID, db: Session = Depends(get_db)) -> IntegrationDraftExport:
+def get_export_draft(
+    draft_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    language: str | None = Query(None, description="ru | en | all"),
+) -> IntegrationDraftExport:
     draft = _load_draft(db, draft_id)
     export_log = db.get(DraftExportLog, draft_id)
-    return _to_integration_export(draft, export_log)
+    return _to_integration_export(draft, export_log, language=parse_export_language(language))
 
 
 def _mark_one(db: Session, item: MarkConsumedItem) -> uuid.UUID | None:

@@ -4,8 +4,25 @@
 <p class="note">Тонкие/грубые настройки пайплайна (ТЗ §4.21) — значение подхватывается на следующем тике воркера, без редеплоя. Значение можно задать числом, строкой, true/false или JSON.</p>
 
 <div class="card">
+  <h2>Языки генерации рерайта</h2>
+  <p class="note">На каких языках Rewrite Orchestrator пишет статьи. Сейчас по умолчанию только <strong>RU</strong>; позже можно включить несколько. Ключ БД: <code>rewrite.output_locales</code> (JSON-массив).</p>
+  <form class="inline-form" method="post" action="/ui/admin/settings/output-locales">
+    <div class="field">
+      <label><input type="checkbox" name="locale_ru" value="1" {% if output_locale_ru %}checked{% endif %}> RU</label>
+    </div>
+    <div class="field">
+      <label><input type="checkbox" name="locale_en" value="1" {% if output_locale_en %}checked{% endif %}> EN</label>
+    </div>
+    <div class="field field-narrow">
+      <button class="btn btn-primary" type="submit">Сохранить языки</button>
+    </div>
+  </form>
+  <p class="note">REST: <code>GET/PUT /admin/rewrite/output-locales</code> (JWT admin). Если ничего не отмечено — сохранится <code>["ru"]</code>.</p>
+</div>
+
+<div class="card">
   <h2>Export API — свежесть для VPS cron</h2>
-  <p class="note">Дефолтный фильтр по <code>content_generated_at</code> (дата последнего AI-рерайта). Применяется, если VPS вызывает <code>GET /integrations/theunum/v1/drafts?consumed=false</code> <strong>без</strong> <code>freshness</code>, <code>max_age_hours</code> и <code>generated_since</code>. Явные query-параметры всегда важнее.</p>
+  <p class="note">Дефолтный фильтр по <code>created_at</code> (дата создания черновика). Применяется, если VPS вызывает <code>GET /integrations/theunum/v1/drafts?consumed=false</code> <strong>без</strong> <code>freshness</code>, <code>max_age_hours</code> и <code>generated_since</code>. Явные query-параметры всегда важнее.</p>
   <form class="inline-form" method="post" action="/ui/admin/settings/export-freshness">
     <div class="field">
       <label>Пресет</label>
