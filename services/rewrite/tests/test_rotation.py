@@ -191,6 +191,42 @@ def test_cascades_openrouter_then_anthropic_then_openai(clean_db, monkeypatch):
     assert usage.total_tokens == 33
 
 
+def test_cascades_to_qwen_after_openai(clean_db, monkeypatch):
+    def _or(**kw):
+        raise OpenRouterError("or down")
+
+    def _anthropic(**kw):
+        raise OpenRouterError("anthropic down")
+
+    def _openai(**kw):
+        raise OpenRouterError("openai down")
+
+    def _qwen(*, model, **kw):
+        return "content", model, _USAGE
+
+    monkeypatch.setattr("rewrite_app.rewrite.rotation.call_openrouter", _or)
+    monkeypatch.setattr("rewrite_app.rewrite.rotation.call_anthropic", _anthropic)
+    monkeypatch.setattr("rewrite_app.rewrite.rotation.call_openai", _openai)
+    monkeypatch.setattr("rewrite_app.rewrite.rotation.call_qwen", _qwen)
+
+    _, key_alias, model, usage = call_with_rotation(
+        clean_db,
+        api_keys={
+            "key_1": "a",
+            "anthropic": "ant",
+            "openai": "oai",
+            "qwen": "qwen-key",
+        },
+        system_prompt="s",
+        user_prompt="u",
+        qwen_model="qwen-plus",
+    )
+
+    assert key_alias == "qwen"
+    assert model == "qwen-plus"
+    assert usage.total_tokens == 33
+
+
 def test_active_free_models_bootstraps_from_constant_on_first_use(clean_db):
     models = active_free_models(clean_db)
 

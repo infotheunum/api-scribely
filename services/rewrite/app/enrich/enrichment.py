@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import logging
 
+from common.token_usage import TokenUsage
 from rewrite_app.rewrite.openrouter_client import extract_json
 from rewrite_app.rewrite.rotation import AllKeysExhaustedError, call_with_rotation
 from rewrite_app.rewrite.schemas import EnrichResultSchema
 from rewrite_app.settings import RewriteSettings
-from common.token_usage import TokenUsage
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -59,6 +59,8 @@ def enrich_cluster(
                 user_prompt=f"Источники кластера:\n\n{sources_text}",
                 anthropic_model=settings.anthropic_model,
                 openai_model=settings.openai_model,
+                qwen_model=settings.qwen_model,
+                qwen_base_url=settings.qwen_base_url,
             )
             data = extract_json(content)
             return EnrichResultSchema.model_validate(data), key_alias, model, token_usage
