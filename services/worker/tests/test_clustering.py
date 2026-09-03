@@ -15,6 +15,13 @@ TOPIC_A_VARIANT = [0.9, (1 - 0.9**2) ** 0.5]
 TOPIC_B = [0.0, 1.0]
 
 
+def _mock_embed_texts_factory(embeddings_by_title: dict[str, list[float]]):
+    def _mock(texts, **kwargs):
+        return [embeddings_by_title[t.split("\n")[0]] for t in texts]
+
+    return _mock
+
+
 def _source(clean_db) -> Source:
     source = Source(
         name="Test Source",
@@ -56,8 +63,8 @@ def test_two_similar_items_join_one_cluster_then_third_starts_new(clean_db, monk
         "unrelated": TOPIC_B,
     }
     monkeypatch.setattr(
-        "worker_app.dedup.clustering.embed_text",
-        lambda text: embeddings_by_title[text.split("\n")[0]],
+        "worker_app.dedup.clustering.embed_texts",
+        _mock_embed_texts_factory(embeddings_by_title),
     )
 
     _raw_item(clean_db, source, "en-article")
@@ -75,8 +82,8 @@ def test_two_similar_items_join_one_cluster_then_third_starts_new(clean_db, monk
 def test_similarity_threshold_honors_app_setting_override(clean_db, monkeypatch):
     embeddings_by_title = {"en-article": TOPIC_A, "ru-article": TOPIC_A_VARIANT}
     monkeypatch.setattr(
-        "worker_app.dedup.clustering.embed_text",
-        lambda text: embeddings_by_title[text.split("\n")[0]],
+        "worker_app.dedup.clustering.embed_texts",
+        _mock_embed_texts_factory(embeddings_by_title),
     )
     # TOPIC_A_VARIANT scores 0.9 against TOPIC_A — passes the 0.6 default
     # but not a much stricter 0.99 threshold set via AppSetting.
@@ -91,6 +98,34 @@ def test_similarity_threshold_honors_app_setting_override(clean_db, monkeypatch)
     assert stats == {"attached": 0, "created": 2}
 
 
+def test_cluster_per_tick_limit_caps_batch(clean_db, monkeypatch):
+    source = _source(clean_db)
+    embeddings_by_title = {
+        "a": TOPIC_A,
+        "b": TOPIC_B,
+        "c": TOPIC_B,
+    }
+    monkeypatch.setattr(
+        "worker_app.dedup.clustering.embed_texts",
+        _mock_embed_texts_factory(embeddings_by_title),
+    )
+    set_setting(clean_db, "dedup.cluster_per_tick_limit", 2)
+    clean_db.commit()
+
+    _raw_item(clean_db, source, "a", external_id="a-guid")
+    _raw_item(clean_db, source, "b", external_id="b-guid")
+    _raw_item(clean_db, source, "c", external_id="c-guid")
+
+    stats = run_clustering_cycle(clean_db)
+
+    assert stats == {"attached": 0, "created": 2}
+    clustered = [item for item in clean_db.query(RawItem).all() if item.cluster_id is not None]
+    unclustered = [item for item in clean_db.query(RawItem).all() if item.cluster_id is None]
+    assert len(clustered) == 2
+    assert len(unclustered) == 1
+    assert unclustered[0].title == "c"
+
+
 def test_already_clustered_items_are_left_alone(clean_db):
     source = _source(clean_db)
     cluster = NewsCluster(embedding=TOPIC_A, trace_id="t")
@@ -100,7 +135,7 @@ def test_already_clustered_items_are_left_alone(clean_db):
 
     item = _raw_item(clean_db, source, "already-done", embedding=TOPIC_A, cluster_id=cluster.id)
 
-    assert unclustered_raw_items(clean_db) == []
+    assert unclustered_raw_items(clean_db, limit=200) == []
     assert item.cluster_id == cluster.id
 
 

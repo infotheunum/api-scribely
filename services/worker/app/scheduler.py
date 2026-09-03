@@ -4,14 +4,7 @@ import logging
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from db.app_settings import get_setting
-from worker_app.compliance.pipeline import run_compliance_cycle
 from worker_app.db import new_session
-from worker_app.dedup.clustering import run_clustering_cycle
-from worker_app.dispatch.pipeline import run_dispatch_cycle
-from worker_app.filter.pipeline import run_filter_cycle
-from worker_app.ingestion.poller import poll_due_sources
-from worker_app.lifecycle.archival import run_archival_cycle
-from worker_app.sync.theunum_categories import run_theunum_categories_sync_if_due
 from worker_app.settings import WorkerSettings
 
 logger = logging.getLogger(__name__)
@@ -39,21 +32,11 @@ def _stage_enabled(session, stage: str) -> bool:
     return bool(get_setting(session, _STAGE_SETTING_KEYS[stage], True))
 
 
-def _run_poll_tick() -> None:
-    session = new_session()
-    try:
-        if _stage_enabled(session, "poll"):
-            results = poll_due_sources(session)
-            if results:
-                logger.info("poll tick: %s", results)
-    except Exception:
-        logger.exception("poll tick failed unexpectedly")
-    finally:
-        session.close()
+def _run_cluster_tick() -> None:
+    """Cross-language clustering (ТЗ §4.2) — separate job so slow CPU
+    embedding does not block poll/filter/dispatch."""
+    from worker_app.dedup.clustering import run_clustering_cycle
 
-    # Cross-language clustering (ТЗ §4.2, План §4) — runs right after
-    # ingestion in the same tick so freshly-polled items don't sit
-    # unclustered until the next cycle.
     session = new_session()
     try:
         if _stage_enabled(session, "cluster"):
@@ -65,9 +48,27 @@ def _run_poll_tick() -> None:
     finally:
         session.close()
 
-    # Topic filter + priority scoring (ТЗ §4.3) — runs right after
-    # clustering, same tick, so a freshly-formed cluster gets a
-    # in-topic/out-of-topic flag and a score before the next poll cycle.
+
+def _run_poll_tick() -> None:
+    from worker_app.compliance.pipeline import run_compliance_cycle
+    from worker_app.dispatch.pipeline import run_dispatch_cycle
+    from worker_app.filter.pipeline import run_filter_cycle
+    from worker_app.ingestion.poller import poll_due_sources
+    from worker_app.lifecycle.archival import run_archival_cycle
+
+    session = new_session()
+    try:
+        if _stage_enabled(session, "poll"):
+            results = poll_due_sources(session)
+            if results:
+                logger.info("poll tick: %s", results)
+    except Exception:
+        logger.exception("poll tick failed unexpectedly")
+    finally:
+        session.close()
+
+    # Topic filter + priority scoring (ТЗ §4.3) — clustering runs in a
+    # parallel scheduler job; filter picks up clusters as they appear.
     session = new_session()
     try:
         if _stage_enabled(session, "filter"):
@@ -124,6 +125,8 @@ def _run_poll_tick() -> None:
 
 
 def _run_categories_sync_tick() -> None:
+    from worker_app.sync.theunum_categories import run_theunum_categories_sync_if_due
+
     session = new_session()
     try:
         stats = run_theunum_categories_sync_if_due(session, WorkerSettings())
@@ -137,7 +140,14 @@ def _run_categories_sync_tick() -> None:
 
 def build_scheduler() -> BackgroundScheduler:
     scheduler = BackgroundScheduler()
-    scheduler.add_job(_run_poll_tick, "interval", seconds=POLL_TICK_SECONDS, id="poll_sources")
+    scheduler.add_job(_run_poll_tick, "interval", seconds=POLL_TICK_SECONDS, id="poll_pipeline")
+    scheduler.add_job(
+        _run_cluster_tick,
+        "interval",
+        seconds=POLL_TICK_SECONDS,
+        id="cluster_dedup",
+        max_instances=1,
+    )
     scheduler.add_job(
         _run_categories_sync_tick,
         "interval",
