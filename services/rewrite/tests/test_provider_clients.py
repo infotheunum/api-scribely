@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import httpx
 from rewrite_app.rewrite.openrouter_client import OpenRouterError
-from rewrite_app.rewrite.provider_clients import call_anthropic, call_openai
+from rewrite_app.rewrite.provider_clients import call_anthropic, call_openai, call_qwen
 
 
 class _Resp:
@@ -55,6 +55,30 @@ def test_call_openai_returns_content(monkeypatch):
     assert content == '{"b":2}'
     assert model == "gpt-4o-mini"
     assert usage.total_tokens == 12
+
+
+def test_call_qwen_uses_dashscope_url(monkeypatch):
+    seen = {}
+
+    def _post(url, **kw):
+        seen["url"] = url
+        return _Resp(
+            {
+                "model": "qwen-plus",
+                "choices": [{"message": {"content": '{"q":1}'}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3},
+            }
+        )
+
+    monkeypatch.setattr("rewrite_app.rewrite.provider_clients.httpx.post", _post)
+    content, model, usage = call_qwen(
+        api_key="k", model="qwen-plus", system_prompt="s", user_prompt="u"
+    )
+    assert content == '{"q":1}'
+    assert model == "qwen-plus"
+    assert usage.total_tokens == 3
+    assert "dashscope-intl.aliyuncs.com" in seen["url"]
+    assert seen["url"].endswith("/chat/completions")
 
 
 def test_call_anthropic_raises_on_http_error(monkeypatch):
