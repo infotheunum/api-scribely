@@ -51,13 +51,16 @@ def _base_payload(**overrides):
 
 
 def test_schema_normalizes_three_paragraph_bodies():
-    body = "Lead paragraph.\n\nMiddle paragraph.\n\nClosing paragraph."
+    # Keep three paragraphs but meet hard-gate length.
+    pad = "x" * ((BODY_MIN_CHARS // 3) + 10)
+    body = f"Lead {pad}.\n\nMiddle {pad}.\n\nClosing {pad}."
     result = RewriteResultSchema.model_validate(
         _base_payload(body_en=body, body_ru=body),
         context={"locales": ["en", "ru"]},
     )
     assert result.body_en.count("\n\n") == 2
     assert result.body_ru.count("\n\n") == 2
+    assert len(result.body_en) >= BODY_MIN_CHARS
 
 
 def test_schema_normalizes_unicode_spaces_in_titles():
@@ -80,3 +83,29 @@ def test_schema_ru_only_clears_en_fields():
     assert result.body_en == ""
     assert len(result.body_ru) >= BODY_MIN_CHARS
     assert len(result.title_ru) >= 10
+
+
+def test_schema_accepts_body_over_soft_max():
+    from rewrite_app.prompt.style_guide import BODY_SOFT_MAX_CHARS
+
+    long_body = "x" * (BODY_SOFT_MAX_CHARS + 400)
+    # Keep three paragraphs for the length-ok case.
+    long_body = f"{long_body[:600]}\n\n{long_body[600:1200]}\n\n{long_body[1200:]}"
+    result = RewriteResultSchema.model_validate(
+        _base_payload(body_en=long_body, body_ru=long_body),
+        context={"locales": ["en", "ru"]},
+    )
+    assert len(result.body_en) > BODY_SOFT_MAX_CHARS
+
+
+def test_schema_rejects_body_below_hard_min():
+    import pytest
+    from pydantic import ValidationError
+
+    short = "Lead.\n\nMiddle.\n\nClosing."
+    assert len(short) < BODY_MIN_CHARS
+    with pytest.raises(ValidationError, match="at least"):
+        RewriteResultSchema.model_validate(
+            _base_payload(body_en=short, body_ru=short),
+            context={"locales": ["en", "ru"]},
+        )

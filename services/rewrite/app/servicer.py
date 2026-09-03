@@ -3,15 +3,15 @@ from __future__ import annotations
 import logging
 
 import grpc
-from rewrite_app.db import new_session
-from rewrite_app.enrich.enrichment import enrich_cluster
-from rewrite_app.prompt.versions import get_active_prompt_version
-from rewrite_app.rewrite.orchestrator import rewrite_cluster
 from common.integration_reasons import (
     REASON_REWRITE_VALIDATION_FAILED,
     format_integration_error,
 )
 from common.token_usage import TokenUsage
+from rewrite_app.db import new_session
+from rewrite_app.enrich.enrichment import enrich_cluster
+from rewrite_app.prompt.versions import get_active_prompt_version
+from rewrite_app.rewrite.orchestrator import rewrite_cluster
 from rewrite_app.rewrite.rotation import AllKeysExhaustedError
 from rewrite_app.settings import RewriteSettings
 from scribely.rewrite.v1 import rewrite_pb2, rewrite_pb2_grpc
@@ -130,6 +130,7 @@ class RewriteServicer(rewrite_pb2_grpc.RewriteServiceServicer):
                     fact_conflict=result.fact_conflict,
                     fact_conflict_note=result.fact_conflict_note,
                     trace_id=request.trace_id,
+                    llm_key_alias=key_alias,
                 ),
                 llm_usage=_llm_usage_proto(key_alias, model, token_usage),
             )
@@ -169,6 +170,7 @@ class RewriteServicer(rewrite_pb2_grpc.RewriteServiceServicer):
                     facts_text=facts_text,
                     flags_text=flags_text,
                     style_overlay_note=style_note,
+                    prefer_key_alias=(request.context.llm_key_alias or None),
                 )
             except AllKeysExhaustedError as exc:
                 context.abort(

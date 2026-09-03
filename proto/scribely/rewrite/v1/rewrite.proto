@@ -62,6 +62,8 @@ message ClusterContext {
   string topic = 9;
   double priority_score = 10;
   string trace_id = 11;
+  // Paid LLM slot pinned for this cluster (enrich+rewrite): qwen|openai|anthropic.
+  string llm_key_alias = 12;
 }
 
 // Which rewriter's style overlay to apply, if any (ТЗ §4.14 — only after

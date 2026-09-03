@@ -61,6 +61,7 @@ def enrich_cluster(
                 openai_model=settings.openai_model,
                 qwen_model=settings.qwen_model,
                 qwen_base_url=settings.qwen_base_url,
+                advance=True,
             )
             data = extract_json(content)
             return EnrichResultSchema.model_validate(data), key_alias, model, token_usage
