@@ -9,6 +9,8 @@ https://ru.investing.com/webmaster-tools/rss (all 30 returned
 application/rss+xml; broker promo feeds are not seeded).
 CoinJournal feeds were live-verified 2026-09-03 from
 https://coinjournal.net/feeds/.
+Category catalog feeds (CMS: crypto/economics/finance/technology/world/ai)
+were live-verified 2026-09-03 — 5–10 per category, see CATEGORY_RSS_SOURCES.
 
 Usage: DATABASE_URL=... python scripts/seed_sources.py
 """
@@ -202,6 +204,204 @@ COINJOURNAL_SOURCES = [
     ),
 ]
 
+# Каталог по CMS-категориям theunum.io (libs/common/site_categories.py):
+# crypto | economics | finance | technology | world | ai.
+# Live curl 2026-09-03; URL уже из RSS_SOURCES / Investing / CoinJournal не дублируем.
+# Цель — 5–10 лент на категорию (с учётом уже существующих crypto-сидов).
+CATEGORY_RSS_SOURCES = [
+    # --- crypto (Криптовалюта) ---
+    ("The Block", "https://www.theblock.co/rss.xml", "en", SourceTier.TIER_1, 900),
+    ("Blockworks", "https://blockworks.co/feed/", "en", SourceTier.TIER_1, 900),
+    ("The Defiant", "https://thedefiant.io/api/feed", "en", SourceTier.TIER_1, 1200),
+    ("CryptoPotato", "https://cryptopotato.com/feed", "en", SourceTier.TIER_1, 1200),
+    ("AMBCrypto", "https://ambcrypto.com/feed", "en", SourceTier.TIER_1, 1200),
+    ("U.Today", "https://u.today/rss", "en", SourceTier.TIER_1, 1200),
+    ("Crypto.News", "https://crypto.news/feed/", "en", SourceTier.TIER_1, 1200),
+    ("ForkLog", "https://forklog.com/feed/", "ru", SourceTier.TIER_1, 1800),
+    ("Incrypted", "https://incrypted.com/feed/", "ru", SourceTier.TIER_1, 1800),
+    ("Protos", "https://protos.com/feed/", "en", SourceTier.TIER_1, 1800),
+    ("DL News", "https://www.dlnews.com/arc/outboundfeeds/rss/", "en", SourceTier.TIER_1, 1800),
+    ("Bankless", "https://www.bankless.com/rss/feed", "en", SourceTier.TIER_1, 1800),
+    # --- economics (Экономика) ---
+    (
+        "Federal Reserve — All Press",
+        "https://www.federalreserve.gov/feeds/press_all.xml",
+        "en",
+        SourceTier.TIER_3,
+        1800,
+    ),
+    (
+        "Federal Reserve — Monetary Policy",
+        "https://www.federalreserve.gov/feeds/press_monetary.xml",
+        "en",
+        SourceTier.TIER_3,
+        1800,
+    ),
+    (
+        "ECB Press",
+        "https://www.ecb.europa.eu/rss/press.html",
+        "en",
+        SourceTier.TIER_3,
+        1800,
+    ),
+    (
+        "BIS Press Releases",
+        "https://www.bis.org/doclist/all_pressrels.rss",
+        "en",
+        SourceTier.TIER_3,
+        3600,
+    ),
+    (
+        "BBC Business",
+        "https://feeds.bbci.co.uk/news/business/rss.xml",
+        "en",
+        SourceTier.TIER_4,
+        1800,
+    ),
+    # --- finance (Финансы / финтех / регуляторы) ---
+    ("Finextra", "https://www.finextra.com/rss/headlines.aspx", "en", SourceTier.TIER_4, 1800),
+    (
+        "Finextra Blockchain",
+        "https://www.finextra.com/rss/blogs.aspx?topic=Blockchain",
+        "en",
+        SourceTier.TIER_4,
+        1800,
+    ),
+    ("PYMNTS", "https://www.pymnts.com/feed", "en", SourceTier.TIER_4, 1800),
+    (
+        "TechCrunch Fintech",
+        "https://techcrunch.com/tag/fintech/feed/",
+        "en",
+        SourceTier.TIER_4,
+        1800,
+    ),
+    (
+        "Crunchbase Crypto",
+        "https://news.crunchbase.com/sections/crypto/feed/",
+        "en",
+        SourceTier.TIER_4,
+        1800,
+    ),
+    ("FSB News", "https://www.fsb.org/feed/", "en", SourceTier.TIER_3, 3600),
+    ("Kraken Blog", "https://blog.kraken.com/feed", "en", SourceTier.TIER_5, 3600),
+    # --- technology (Технологии / security) ---
+    ("TechCrunch", "https://techcrunch.com/feed/", "en", SourceTier.TIER_4, 1800),
+    (
+        "Ars Technica Technology Lab",
+        "https://feeds.arstechnica.com/arstechnica/technology-lab",
+        "en",
+        SourceTier.TIER_4,
+        1800,
+    ),
+    ("The Verge", "https://www.theverge.com/rss/index.xml", "en", SourceTier.TIER_4, 1800),
+    ("Krebs on Security", "https://krebsonsecurity.com/feed/", "en", SourceTier.TIER_4, 1800),
+    (
+        "The Hacker News",
+        "https://feeds.feedburner.com/TheHackersNews",
+        "en",
+        SourceTier.TIER_4,
+        1800,
+    ),
+    (
+        "BleepingComputer",
+        "https://www.bleepingcomputer.com/feed/",
+        "en",
+        SourceTier.TIER_4,
+        1800,
+    ),
+    ("Wired", "https://www.wired.com/feed/rss", "en", SourceTier.TIER_4, 1800),
+    (
+        "BBC Technology",
+        "https://feeds.bbci.co.uk/news/technology/rss.xml",
+        "en",
+        SourceTier.TIER_4,
+        1800,
+    ),
+    (
+        "Chainalysis Blog",
+        "https://blog.chainalysis.com/feed/",
+        "en",
+        SourceTier.TIER_5,
+        3600,
+    ),
+    # --- world (Мир) ---
+    (
+        "BBC World",
+        "https://feeds.bbci.co.uk/news/world/rss.xml",
+        "en",
+        SourceTier.TIER_4,
+        1800,
+    ),
+    (
+        "Al Jazeera",
+        "https://www.aljazeera.com/xml/rss/all.xml",
+        "en",
+        SourceTier.TIER_4,
+        1800,
+    ),
+    ("NPR World", "https://feeds.npr.org/1004/rss.xml", "en", SourceTier.TIER_4, 1800),
+    (
+        "The Guardian World",
+        "https://www.theguardian.com/world/rss",
+        "en",
+        SourceTier.TIER_4,
+        1800,
+    ),
+    (
+        "NYTimes World",
+        "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
+        "en",
+        SourceTier.TIER_4,
+        1800,
+    ),
+    # --- ai (ИИ) ---
+    ("OpenAI Blog", "https://openai.com/blog/rss.xml", "en", SourceTier.TIER_5, 3600),
+    (
+        "Google AI Blog",
+        "https://blog.google/technology/ai/rss/",
+        "en",
+        SourceTier.TIER_5,
+        3600,
+    ),
+    (
+        "Hugging Face Blog",
+        "https://huggingface.co/blog/feed.xml",
+        "en",
+        SourceTier.TIER_5,
+        3600,
+    ),
+    (
+        "TechCrunch AI",
+        "https://techcrunch.com/category/artificial-intelligence/feed/",
+        "en",
+        SourceTier.TIER_4,
+        1800,
+    ),
+    (
+        "MIT Technology Review",
+        "https://www.technologyreview.com/feed/",
+        "en",
+        SourceTier.TIER_4,
+        1800,
+    ),
+    (
+        "The Verge AI",
+        "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml",
+        "en",
+        SourceTier.TIER_4,
+        1800,
+    ),
+    ("MarkTechPost", "https://www.marktechpost.com/feed/", "en", SourceTier.TIER_4, 1800),
+    ("Synced Review", "https://syncedreview.com/feed/", "en", SourceTier.TIER_4, 1800),
+    (
+        "Artificial Intelligence News",
+        "https://artificialintelligence-news.com/feed/",
+        "en",
+        SourceTier.TIER_4,
+        1800,
+    ),
+]
+
 MANUAL_SOURCE_NAME = "Manual Inject"
 MANUAL_SOURCE_URL = "manual://inject"
 
@@ -247,6 +447,9 @@ def seed(db) -> None:
             SourceTier.TIER_1,
             COINJOURNAL_POLL_SECONDS,
         )
+
+    for name, url, language, tier, poll_interval in CATEGORY_RSS_SOURCES:
+        _add_rss(db, name, url, language, tier, poll_interval)
 
     existing_manual = db.scalar(select(Source).where(Source.type == SourceType.MANUAL))
     if existing_manual is None:
