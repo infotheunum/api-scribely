@@ -223,13 +223,13 @@ def list_export_drafts(
     ),
     freshness: FreshnessPreset | None = Query(
         None,
-        description="today = AI rewrite since UTC midnight; 48h = draft created in last 48 hours",
+        description="today / 48h filter draft.created_at (UTC midnight / rolling 48h)",
     ),
     max_age_hours: int | None = Query(
         None,
         ge=1,
         le=168,
-        description="Only drafts generated within the last N hours (alternative to freshness)",
+        description="Only drafts with AI rewrite within the last N hours (content_generated_at)",
     ),
     cursor: uuid.UUID | None = Query(None),
     limit: int | None = Query(None, ge=1, le=100),
@@ -264,7 +264,7 @@ def list_export_drafts_today(
     cursor: uuid.UUID | None = Query(None),
     limit: int | None = Query(None, ge=1, le=100),
 ) -> DraftListResponse:
-    """Shortcut: queue drafts with content_generated_at >= UTC midnight today."""
+    """Shortcut: queue drafts with created_at >= UTC midnight today."""
     statuses = status_filter or DEFAULT_EXPORT_STATUSES
     return _list_export_drafts_impl(
         request,
