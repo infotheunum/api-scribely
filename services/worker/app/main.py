@@ -7,8 +7,9 @@ from common.http_middleware import TraceIdMiddleware
 from common.logging import configure_logging
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
 from pydantic import BaseModel, Field
-from worker_app.dispatch.regenerate import run_regenerate_batch
 from worker_app.db import get_db
+from worker_app.dedup.embeddings import embed_text
+from worker_app.dispatch.regenerate import run_regenerate_batch
 from worker_app.grpc_client.client import build_rewrite_channel, check_rewrite_health
 from worker_app.scheduler import build_scheduler
 from worker_app.settings import WorkerSettings
@@ -38,6 +39,7 @@ def _require_internal_token(x_internal_service_token: str = Header(...)) -> None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.rewrite_channel = build_rewrite_channel(settings)
+    embed_text("warmup")
     app.state.scheduler = build_scheduler()
     app.state.scheduler.start()
     yield
