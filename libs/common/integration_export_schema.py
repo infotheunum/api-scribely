@@ -61,10 +61,13 @@ SUPPORTED_EXPORT_LIST_FILTERS: list[dict[str, Any]] = [
         "type": "enum",
         "default": None,
         "enum": ["today", "48h"],
-        "db_field": "draft.content_generated_at",
+        "db_field": "draft.created_at (48h) / draft.content_generated_at (today)",
         "description": (
-            "today — с UTC 00:00 текущих суток; 48h — не старше 48 часов. "
-            "Комбинируется с max_age_hours/generated_since — берётся более строгая граница."
+            "today — AI-рерайт с UTC 00:00 текущих суток (content_generated_at). "
+            "48h — черновик создан за последние 48 часов (created_at), "
+            "чтобы не тянуть протухшие новости после regen. "
+            "max_age_hours/generated_since по-прежнему режут content_generated_at "
+            "и комбинируются через AND."
         ),
         "endpoints": ["/drafts"],
         "admin_default_key": "integration.export.default_freshness",

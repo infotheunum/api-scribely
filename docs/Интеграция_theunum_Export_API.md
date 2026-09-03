@@ -403,25 +403,22 @@ Authorization: Bearer <token>
 
 Export API **не меняет** статус при `mark-consumed`. Статус `published` на scribely ≠ «забрали на VPS».
 
-### 3. Свежесть AI-текста (главное для cron «сегодня за сегодня»)
-
-Все параметры этого блока фильтруют по **`draft.content_generated_at`** — момент **последнего** AI-рерайта (dispatch worker) или regen. **Не** `created_at`, **не** `updated_at` (кроме отдельного `since`).
+### 3. Свежесть очереди
 
 | Параметр | Тип | Default | Диапазон / формат | SQL | Описание |
 |---|---|---|---|---|---|
-| `freshness` | enum | — | `today`, `48h` | `content_generated_at >= cutoff` | **`today`** — с **UTC 00:00:00** текущих суток. **`48h`** — не старше 48 часов от «сейчас» (UTC) |
-| `max_age_hours` | integer | — | `1` … `168` | то же | Скользящее окно: не старше N часов |
-| `generated_since` | datetime ISO8601 | — | `2026-09-01T17:00:00Z` или без TZ (трактуется как UTC) | `content_generated_at >= generated_since` | Явная нижняя граница |
+| `freshness` | enum | — | `today`, `48h` | `today` → `content_generated_at`; `48h` → `created_at` | **`today`** — AI-рерайт с **UTC 00:00** текущих суток. **`48h`** — черновик **создан** за последние 48 часов (не regen старой новости) |
+| `max_age_hours` | integer | — | `1` … `168` | `content_generated_at >= now−Nч` | Скользящее окно по дате последнего рерайта |
+| `generated_since` | datetime ISO8601 | — | `2026-09-01T17:00:00Z` или без TZ (трактуется как UTC) | `content_generated_at >= generated_since` | Явная нижняя граница AI-даты |
 
-**Комбинация нескольких freshness-параметров:**
-
-Если передано больше одного из `generated_since`, `freshness`, `max_age_hours` — вычисляются все cutoffs, в SQL уходит **самый строгий** (`max` из cutoffs = самая поздняя нижняя граница).
+**Комбинация:** `today` / `generated_since` / `max_age_hours` на одном поле `content_generated_at` — в SQL уходит **самый строгий** cutoff. **`48h`** — отдельный фильтр по `created_at`; с `max_age_hours` это **AND**.
 
 Примеры:
 
 | Query | Эффективный cutoff |
 |---|---|
-| `freshness=48h` + `max_age_hours=24` | последние **24 ч** |
+| `freshness=48h` + `max_age_hours=24` | создан за **48 ч** **и** AI-рерайт за **24 ч** |
+| `freshness=48h` | черновик **создан** за последние 48 часов (UTC) |
 | `freshness=today` + `generated_since=2026-09-01T06:00:00Z` (если 06:00 UTC позже полуночи) | с 06:00 UTC |
 | только `freshness=today` | с UTC 00:00 сегодня |
 
@@ -533,7 +530,8 @@ default_freshness=today&default_max_age_hours=&default_limit=100
 | `limit_source` | string | всегда | `query` | `admin_default` | `api_default` (50) |
 | `freshness` | string | если задан | `today`, `48h` |
 | `max_age_hours` | integer | если задан | `1`–`168` |
-| `content_generated_since` | string ISO8601 | если cutoff вычислен | Итоговая нижняя граница для `content_generated_at` |
+| `content_generated_since` | string ISO8601 | если cutoff вычислен | Нижняя граница `content_generated_at` (`today` / `max_age_hours` / `generated_since`) |
+| `created_since` | string ISO8601 | если `freshness=48h` | Нижняя граница `draft.created_at` (сейчас − 48ч) |
 | `pipeline_status` | string | всегда | `ok`, `degraded` |
 | `reason_code` | string | всегда | см. [справочник reason_code](#meta-reason_code--полный-справочник) |
 | `reason_message` | string | всегда | Локализованное пояснение |
@@ -844,7 +842,7 @@ Fallback slug (обычно «мир»): AppSetting `site_category.fallback_slug
 GET /integrations/theunum/v1/drafts/today?consumed=false&limit=100
 ```
 
-Пример **не старше 2 суток**:
+Пример **созданные за последние 48 часов** (`draft.created_at`, не рерайт):
 
 ```http
 GET /integrations/theunum/v1/drafts?consumed=false&freshness=48h&limit=100

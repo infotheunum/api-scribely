@@ -252,16 +252,20 @@ def test_list_freshness_48h(client, clean_db):
     cluster = _cluster(clean_db, source)
     fresh = _draft(clean_db, cluster, title_en="Recent draft title here now")
     stale = _draft(clean_db, cluster, title_en="Old draft title here now")
-    stale.content_generated_at = datetime.now(UTC) - timedelta(hours=72)
+    stale.created_at = datetime.now(UTC) - timedelta(hours=72)
+    stale.content_generated_at = datetime.now(UTC)
     clean_db.commit()
 
     resp = client.get(
         "/integrations/theunum/v1/drafts?freshness=48h",
         headers=AUTH_HEADERS,
     )
-    ids = {item["id"] for item in resp.json()["items"]}
+    body = resp.json()
+    ids = {item["id"] for item in body["items"]}
     assert str(fresh.id) in ids
     assert str(stale.id) not in ids
+    assert body["meta"]["freshness"] == "48h"
+    assert body["meta"]["created_since"]
 
 
 def test_list_uses_admin_default_freshness(client, clean_db):
