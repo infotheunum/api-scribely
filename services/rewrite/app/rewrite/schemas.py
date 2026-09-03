@@ -3,6 +3,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field, model_validator
 
 from common.rewrite_body_format import EXPECTED_PARAGRAPH_COUNT, normalize_body_paragraphs, paragraph_count
+from common.text_spaces import normalize_plain_spaces
 from rewrite_app.prompt.style_guide import BODY_MAX_CHARS, BODY_MIN_CHARS
 
 # Structured contracts the LLM's JSON response is validated against (ТЗ
@@ -72,6 +73,32 @@ class RewriteResultSchema(BaseModel):
     seo_en: SeoPackSchema
     seo_ru: SeoPackSchema
     image_brief: ImageBriefSchema
+
+    @model_validator(mode="after")
+    def _normalize_spaces(self) -> RewriteResultSchema:
+        # Same class of fix as ё→е: free models emit em/nbsp/narrow spaces.
+        self.title_en = normalize_plain_spaces(self.title_en)
+        self.title_ru = normalize_plain_spaces(self.title_ru)
+        self.body_en = normalize_plain_spaces(self.body_en)
+        self.body_ru = normalize_plain_spaces(self.body_ru)
+        self.title_en_variants = [normalize_plain_spaces(t) for t in self.title_en_variants]
+        self.title_ru_variants = [normalize_plain_spaces(t) for t in self.title_ru_variants]
+        self.seo_en.seo_title = normalize_plain_spaces(self.seo_en.seo_title)
+        self.seo_en.seo_description = normalize_plain_spaces(self.seo_en.seo_description)
+        self.seo_en.og_title = normalize_plain_spaces(self.seo_en.og_title)
+        self.seo_en.og_description = normalize_plain_spaces(self.seo_en.og_description)
+        self.seo_en.focus_keyphrase = normalize_plain_spaces(self.seo_en.focus_keyphrase)
+        self.seo_en.keywords = [normalize_plain_spaces(k) for k in self.seo_en.keywords]
+        self.seo_ru.seo_title = normalize_plain_spaces(self.seo_ru.seo_title)
+        self.seo_ru.seo_description = normalize_plain_spaces(self.seo_ru.seo_description)
+        self.seo_ru.og_title = normalize_plain_spaces(self.seo_ru.og_title)
+        self.seo_ru.og_description = normalize_plain_spaces(self.seo_ru.og_description)
+        self.seo_ru.focus_keyphrase = normalize_plain_spaces(self.seo_ru.focus_keyphrase)
+        self.seo_ru.keywords = [normalize_plain_spaces(k) for k in self.seo_ru.keywords]
+        self.image_brief.image_brief = normalize_plain_spaces(self.image_brief.image_brief)
+        self.image_brief.image_alt = normalize_plain_spaces(self.image_brief.image_alt)
+        self.image_brief.image_caption = normalize_plain_spaces(self.image_brief.image_caption)
+        return self
 
     @model_validator(mode="after")
     def _normalize_paragraphs(self) -> RewriteResultSchema:

@@ -55,3 +55,13 @@ def test_schema_normalizes_three_paragraph_bodies():
     result = RewriteResultSchema.model_validate(_base_payload(body_en=body, body_ru=body))
     assert result.body_en.count("\n\n") == 2
     assert result.body_ru.count("\n\n") == 2
+
+
+def test_schema_normalizes_unicode_spaces_in_titles():
+    title = "Lazarus moved $30\u202fмлн through Hyperliquid"
+    result = RewriteResultSchema.model_validate(
+        _base_payload(title_en=title, title_ru=title)
+    )
+    assert "\u202f" not in result.title_en
+    assert result.title_en == "Lazarus moved $30 млн through Hyperliquid"
+    assert result.title_ru == result.title_en
