@@ -2,15 +2,36 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 ExportLanguage = Literal["ru", "en", "all"]
 
 
-def parse_export_language(raw: str | None) -> ExportLanguage:
+def output_locales_to_export_language(locales: list[str] | tuple[str, ...]) -> ExportLanguage:
+    """Map rewrite.output_locales to Export API language projection."""
+    ordered = [code for code in ("ru", "en") if code in locales]
+    if len(ordered) == 1:
+        return ordered[0]  # type: ignore[return-value]
+    return "all"
+
+
+def parse_export_language(raw: str | None) -> ExportLanguage | None:
     if raw in ("ru", "en", "all"):
         return raw  # type: ignore[return-value]
-    return "all"
+    return None
+
+
+def resolve_export_language(db: Session, raw: str | None) -> ExportLanguage:
+    """Explicit query wins; otherwise follow rewrite.output_locales (default ru-only)."""
+    explicit = parse_export_language(raw)
+    if explicit is not None:
+        return explicit
+    from common.rewrite_output_locales import get_output_locales
+
+    return output_locales_to_export_language(get_output_locales(db))
 
 
 def project_export_item(item: dict[str, Any], language: ExportLanguage) -> dict[str, Any]:
