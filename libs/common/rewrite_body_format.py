@@ -5,6 +5,8 @@ from __future__ import annotations
 import html
 import re
 
+from common.text_spaces import normalize_plain_spaces
+
 EXPECTED_PARAGRAPH_COUNT = 3
 
 _PARA_BREAK = re.compile(r"\n\s*\n+")
@@ -13,7 +15,7 @@ _SENTENCE_END = re.compile(r"(?<=[.!?…])\s+")
 
 def split_paragraphs(text: str) -> list[str]:
     """Return non-empty paragraph chunks from plain text."""
-    normalized = (text or "").replace("\r\n", "\n").strip()
+    normalized = normalize_plain_spaces(text or "").strip()
     if not normalized:
         return []
     if _PARA_BREAK.search(normalized):

@@ -54,3 +54,11 @@ def test_body_to_html_escapes_and_wraps_paragraphs():
         "<p>Second paragraph.</p>"
         "<p>Third paragraph.</p>"
     )
+
+
+def test_normalize_replaces_unicode_wide_spaces():
+    # em-space, nbsp, narrow nbsp — as seen in LLM titles like "$30 млн"
+    text = "Lead\u2003with\u00a0wide.\n\nMiddle\u202fpara.\n\nClosing  double."
+    assert normalize_body_paragraphs(text) == (
+        "Lead with wide.\n\nMiddle para.\n\nClosing double."
+    )
