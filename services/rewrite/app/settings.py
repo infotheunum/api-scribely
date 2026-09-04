@@ -39,6 +39,10 @@ class RewriteSettings(CommonSettings):
     openai_model: str = DEFAULT_OPENAI_MODEL
     qwen_model: str = DEFAULT_QWEN_MODEL
     qwen_base_url: str = DEFAULT_QWEN_BASE_URL
+    # Comma-separated primary slots allowed in article RR (qwen,openai,anthropic).
+    # Empty = all keys that are set. Example for Qwen-only: LLM_ENABLED_PROVIDERS=qwen
+    # OpenRouter (key_1/2/3) is never in article RR regardless of this setting.
+    llm_enabled_providers: str = ""
 
     def openrouter_keys(self) -> dict[str, str]:
         return {
@@ -50,14 +54,33 @@ class RewriteSettings(CommonSettings):
     def resolved_qwen_api_key(self) -> str:
         return (self.qwen_api_key or self.dashscope_api_key or "").strip()
 
+    def enabled_primary_aliases(self) -> list[str] | None:
+        """None = no filter (all configured primaries). Else allow-list order."""
+        raw = (self.llm_enabled_providers or "").strip()
+        if not raw:
+            return None
+        aliases = [part.strip().lower() for part in raw.split(",") if part.strip()]
+        return aliases or None
+
     def llm_provider_keys(self) -> dict[str, str]:
-        """All rotation slots: OpenRouter keys + Anthropic + OpenAI + Qwen."""
-        return {
+        """Rotation slots: paid primaries (+ OpenRouter keys kept for legacy tooling).
+
+        Article RR only uses primaries; OpenRouter is never called for articles.
+        ``LLM_ENABLED_PROVIDERS`` can blank out openai/anthropic while keys stay in env.
+        """
+        keys = {
             **self.openrouter_keys(),
             "anthropic": self.anthropic_api_key,
             "openai": self.openai_api_key,
             "qwen": self.resolved_qwen_api_key(),
         }
+        enabled = self.enabled_primary_aliases()
+        if enabled is not None:
+            allowed = set(enabled)
+            for alias in ("qwen", "openai", "anthropic"):
+                if alias not in allowed:
+                    keys[alias] = ""
+        return keys
 
     def configured_llm_key_count(self) -> int:
         return sum(1 for value in self.llm_provider_keys().values() if value)

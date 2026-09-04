@@ -256,6 +256,39 @@ def test_skips_missing_primary_and_advances(clean_db, monkeypatch):
     assert calls == aliases
 
 
+def test_qwen_only_keys_never_call_openai_or_anthropic(clean_db, monkeypatch):
+    """LLM_ENABLED_PROVIDERS=qwen blanks other slots before call_with_rotation."""
+    order: list[str] = []
+
+    def _qwen(*, model, **kw):
+        order.append("qwen")
+        return "c", model, _USAGE
+
+    def _openai(*, model, **kw):
+        order.append("openai")
+        return "c", model, _USAGE
+
+    def _anthropic(*, model, **kw):
+        order.append("anthropic")
+        return "c", model, _USAGE
+
+    _patch_primaries(monkeypatch, qwen=_qwen, openai=_openai, anthropic=_anthropic)
+
+    # Same shape RewriteSettings.llm_provider_keys() produces for qwen-only.
+    keys = {"qwen": "q", "openai": "", "anthropic": "", "key_1": "or"}
+    for _ in range(3):
+        _, alias, _, _ = call_with_rotation(
+            clean_db,
+            api_keys=keys,
+            system_prompt="s",
+            user_prompt="u",
+            advance=True,
+        )
+        assert alias == "qwen"
+
+    assert order == ["qwen", "qwen", "qwen"]
+
+
 def test_records_usage_on_success(clean_db, monkeypatch):
     _patch_primaries(monkeypatch)
     content, key_alias, model, usage = call_with_rotation(
