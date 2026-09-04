@@ -90,10 +90,18 @@ class DraftSummary(BaseModel):
 
 
 class SourceRefOut(BaseModel):
+    """Cluster source article as seen by Review UI + theunum Export.
+
+    `body` is whatever we ingested (often an RSS excerpt when
+    `is_full_text` is false) — not a live scrape of the URL.
+    """
+
     title: str
     url: str
     language: str
     source_name: str
+    body: str = ""
+    is_full_text: bool = False
 
 
 class DraftDetail(DraftSummary):
@@ -147,6 +155,8 @@ class DraftDetail(DraftSummary):
                 url=item.url,
                 language=item.language,
                 source_name=item.source.name if item.source else "",
+                body=item.body or "",
+                is_full_text=bool(item.is_full_text),
             )
             for item in (draft.cluster.raw_items if draft.cluster else [])
         ]

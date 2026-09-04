@@ -568,7 +568,7 @@ default_freshness=today&default_max_age_hours=&default_limit=100
 | Качество | `compliance_notes[]`, `sensitive_hold`, `fact_conflict`, `similarity_score`, `sponsor_flag`, `press_release_flag`, `disclaimer_flag`, `needs_attention` (computed) |
 | Теги/категория | `pending_tags`, `pending_category_slug`, `tag_ids`, `category_id` |
 | Image brief | `image_brief`, `image_alt`, `image_mood`, `image_subjects`, `image_style`, `image_do_not`, `image_caption`, `image_source_suggestion`, `image_license_confirmed` |
-| Источники | `sources[]`: `{ title, url, language, source_name }` |
+| Источники | `sources[]`: `{ title, url, language, source_name, body, is_full_text }` — `body` = текст с ingestion (часто RSS-excerpt при `is_full_text=false`); `url`/`attribution_urls` без изменений |
 | Прочее | `attribution_urls[]`, `handoff_note`, `rewrite_llm_model`, `rewrite_llm_key_alias` (`qwen`/`openai`/`anthropic`), `topic`, `assignee_user_id` |
 | Токены LLM (на статью) | `llm_prompt_tokens`, `llm_completion_tokens`, `llm_total_tokens` — сумма enrich+rewrite последнего цикла |
 
@@ -826,7 +826,7 @@ Fallback slug (обычно «мир»): AppSetting `site_category.fallback_slug
 На VPS маппить `pending_category_slug` → id категории в CMS (можно брать `id` из Export, если scribely прокинет `category_id` после sync — пока только slug в `pending_category_slug`).
 
 | Image brief | `image_brief`, `image_alt`, `image_mood`, … |
-| Источники | `sources[]`: `{ title, url, language, source_name }` |
+| Источники | `sources[]`: `{ title, url, language, source_name, body, is_full_text }` — `body` = текст с ingestion (часто RSS-excerpt при `is_full_text=false`); `url`/`attribution_urls` без изменений |
 | Прочее | `attribution_urls`, `handoff_note`, `rewrite_llm_model`, `rewrite_llm_key_alias` |
 
 **Даты:**
