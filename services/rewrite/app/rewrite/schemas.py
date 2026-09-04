@@ -16,7 +16,7 @@ from rewrite_app.prompt.style_guide import BODY_MIN_CHARS
 
 
 class ExtractedFactSchema(BaseModel):
-    kind: str  # who|what|when|number|quote
+    kind: str  # who|what|when|number|quote|essence
     text: str
 
 
