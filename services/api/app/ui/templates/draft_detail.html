@@ -130,7 +130,14 @@
   <h2>Источники кластера</h2>
   <ul class="source-list">
     {% for s in draft.sources %}
-    <li><strong>{{ s.source_name }}</strong> ({{ s.language }}) — <a href="{{ s.url }}" target="_blank" rel="noopener">{{ s.title }}</a></li>
+    <li>
+      <strong>{{ s.source_name }}</strong> ({{ s.language }})
+      {% if s.is_full_text %}<span class="note">полный текст</span>{% else %}<span class="note">excerpt / RSS</span>{% endif %}
+      — <a href="{{ s.url }}" target="_blank" rel="noopener">{{ s.title }}</a>
+      {% if s.body %}
+      <pre class="source-body" style="white-space:pre-wrap;max-height:240px;overflow:auto;margin:8px 0 16px;padding:8px;background:#f6f6f6;border-radius:4px;font-size:13px;">{{ s.body }}</pre>
+      {% endif %}
+    </li>
     {% endfor %}
   </ul>
   <div class="note">Атрибуция: {{ draft.attribution_urls|join(', ') }}</div>

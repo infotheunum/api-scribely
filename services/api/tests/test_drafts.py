@@ -127,6 +127,9 @@ def test_get_draft_detail_includes_sources(client, test_user, clean_db):
     assert body["body_en"] == normalize_body_paragraphs(draft.body_en)
     assert len(body["sources"]) == 1
     assert body["sources"][0]["source_name"] == "Test Wire"
+    assert body["sources"][0]["body"] == "Original body text."
+    assert body["sources"][0]["url"].startswith("https://example.com/")
+    assert body["sources"][0]["is_full_text"] is False
 
 
 def test_get_draft_404(client, test_user, clean_db):
