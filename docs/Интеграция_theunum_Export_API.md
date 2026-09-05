@@ -157,7 +157,7 @@ fetch("https://api-scribely-production.up.railway.app/integrations/theunum/v1/dr
 ```
 1. GET  /integrations/theunum/v1/drafts?limit=50
        Header: X-Theunum-Service-Token: <token>
-2. if items.length === 0 && meta.reason_code !== 'queue_empty' → alert
+2. if items.length === 0 && meta.reason_code !== 'queue_empty' && meta.reason_code !== 'generation_outside_hours' → alert
 3. save each item to VPS DB (dedupe по draft.id)
 4. POST /integrations/theunum/v1/drafts/mark-consumed
        Body: { "items": [{ "draft_id": "...", "theunum_reference_id": "..." }] }
@@ -785,7 +785,7 @@ GET /integrations/theunum/v1/drafts?consumed=false&limit=100&cursor=<uuid>
 - `items` **всегда массив**, никогда `null`.
 - Если `items` не пуст — `meta.reason_code` = `ok`.
 - При пустом `items` — **не вызывать** mark-consumed.
-- `if (meta.reason_code !== 'queue_empty')` при пустом списке → alert/log.
+- `if (meta.reason_code !== 'queue_empty' && meta.reason_code !== 'generation_outside_hours')` при пустом списке → alert/log.
 
 ---
 
@@ -970,6 +970,7 @@ Authorization: Bearer <token>
 | `openrouter_auth_failed` | HTTP 401/403, invalid API key | **Alert**, проверить `OPENROUTER_KEY_*` |
 | `openrouter_no_keys_configured` | Ключи пустые в env rewrite | **Alert** |
 | `dispatch_disabled` | `pipeline.dispatch_enabled=false` | Info/alert |
+| `generation_outside_hours` | Вне окна генерации (будни 06:00–18:00 Europe/Minsk по умолчанию); сырьё есть, черновики намеренно не создаются | **Exit quietly**, без alert (как `queue_empty`) |
 | `rewrite_unavailable` | gRPC rewrite не отвечает | **Alert**, Railway |
 | `ingestion_disabled` | `pipeline.poll_enabled=false`, нет новых кластеров | Info |
 
@@ -1054,7 +1055,10 @@ async function syncDraftsFromScribely() {
     const { items, meta, next_cursor, has_more } = await resp.json();
 
     if (!items?.length) {
-      if (meta.reason_code !== "queue_empty") {
+      if (
+        meta.reason_code !== "queue_empty" &&
+        meta.reason_code !== "generation_outside_hours"
+      ) {
         await alertOps({
           code: meta.reason_code,
           message: meta.reason_message,
@@ -1168,6 +1172,6 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
 1. Env: `SCRIBELY_BASE_URL`, `SCRIBELY_INTEGRATION_TOKEN`.
 2. NestJS `@Cron` или system cron → код выше.
 3. Таблица QA с unique index по `scribely_draft_id`.
-4. Alerting при `meta.reason_code !== 'queue_empty'`.
+4. Alerting при `meta.reason_code` не из `{queue_empty, generation_outside_hours}`.
 
 Publish на theunum.io и CreateTag/EnsureCategory — **отдельный flow**, не часть Export API scribely.

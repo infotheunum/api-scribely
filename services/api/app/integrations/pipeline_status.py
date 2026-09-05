@@ -3,9 +3,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import grpc
+from common.generation_hours import generation_allowed, generation_hours_as_dict, load_generation_hours
 from common.grpc_client import check_rewrite_health
 from common.integration_reasons import (
     REASON_DISPATCH_DISABLED,
+    REASON_GENERATION_OUTSIDE_HOURS,
     REASON_INGESTION_DISABLED,
     REASON_OK,
     REASON_OPENROUTER_NO_KEYS,
@@ -87,6 +89,8 @@ def build_pipeline_status(
     undrafted = count_undrafted_in_topic_clusters(db)
     poll_enabled = bool(get_setting(db, "pipeline.poll_enabled", True))
     dispatch_enabled = bool(get_setting(db, "pipeline.dispatch_enabled", True))
+    hours_config = load_generation_hours(db)
+    within_generation_hours = generation_allowed(db)
     rewrite_reachable = _rewrite_reachable(rewrite_channel)
     keys_configured = _openrouter_keys_configured(db)
 
@@ -106,6 +110,10 @@ def build_pipeline_status(
     elif keys_configured == 0 and undrafted > 0:
         reason_code = REASON_OPENROUTER_NO_KEYS
         pipeline_status = "degraded"
+    elif not within_generation_hours and undrafted > 0 and unconsumed_drafts == 0:
+        # Intentional pause (nights/weekends) — not an incident for VPS cron.
+        reason_code = REASON_GENERATION_OUTSIDE_HOURS
+        pipeline_status = "ok"
     elif not dispatch_enabled and undrafted > 0:
         reason_code = REASON_DISPATCH_DISABLED
         pipeline_status = "degraded"
@@ -147,8 +155,10 @@ def build_pipeline_status(
         "stages": {
             "poll_enabled": poll_enabled,
             "dispatch_enabled": dispatch_enabled,
+            "within_generation_hours": within_generation_hours,
             "rewrite_reachable": rewrite_reachable,
         },
+        "generation_hours": generation_hours_as_dict(hours_config),
         "queue": {
             "unconsumed_drafts": unconsumed_drafts,
             "undrafted_in_topic_clusters": undrafted,

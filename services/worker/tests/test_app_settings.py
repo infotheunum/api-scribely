@@ -24,11 +24,19 @@ def test_set_setting_updates_existing_row(clean_db):
     assert get_setting(clean_db, "queue.daily_limit", 0) == 75
 
 
-def test_stage_enabled_defaults_true_when_unseeded(clean_db):
+def test_stage_enabled_defaults_true_when_unseeded(clean_db, monkeypatch):
+    monkeypatch.setattr(
+        "worker_app.scheduler.generation_allowed",
+        lambda _session: True,
+    )
     assert _stage_enabled(clean_db, "dispatch") is True
 
 
-def test_stage_enabled_respects_kill_switch(clean_db):
+def test_stage_enabled_respects_kill_switch(clean_db, monkeypatch):
+    monkeypatch.setattr(
+        "worker_app.scheduler.generation_allowed",
+        lambda _session: True,
+    )
     set_setting(clean_db, "pipeline.dispatch_enabled", False)
     clean_db.commit()
 
