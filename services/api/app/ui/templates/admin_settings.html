@@ -4,6 +4,48 @@
 <p class="note">Тонкие/грубые настройки пайплайна (ТЗ §4.21) — значение подхватывается на следующем тике воркера, без редеплоя. Значение можно задать числом, строкой, true/false или JSON.</p>
 
 <div class="card">
+  <h2>Окно генерации статей</h2>
+  <p class="note">
+    Poll / cluster / filter / dispatch / compliance работают только в этом окне.
+    Архивация и sync категорий идут круглосуточно.
+    Сейчас: {% if generation_hours.within_hours %}<strong>внутри окна</strong>{% else %}<strong>вне окна (генерация на паузе)</strong>{% endif %}.
+  </p>
+  <form class="inline-form" method="post" action="/ui/admin/settings/generation-hours">
+    <div class="field">
+      <label><input type="checkbox" name="enabled" value="1" {% if generation_hours.enabled %}checked{% endif %}> Включить расписание</label>
+    </div>
+    <div class="field" style="flex:2;">
+      <label>Рабочие дни</label>
+      <div style="display:flex; flex-wrap:wrap; gap:12px;">
+        <label><input type="checkbox" name="working_days" value="0" {% if 0 in generation_hours.working_days %}checked{% endif %}> Пн</label>
+        <label><input type="checkbox" name="working_days" value="1" {% if 1 in generation_hours.working_days %}checked{% endif %}> Вт</label>
+        <label><input type="checkbox" name="working_days" value="2" {% if 2 in generation_hours.working_days %}checked{% endif %}> Ср</label>
+        <label><input type="checkbox" name="working_days" value="3" {% if 3 in generation_hours.working_days %}checked{% endif %}> Чт</label>
+        <label><input type="checkbox" name="working_days" value="4" {% if 4 in generation_hours.working_days %}checked{% endif %}> Пт</label>
+        <label><input type="checkbox" name="working_days" value="5" {% if 5 in generation_hours.working_days %}checked{% endif %}> Сб</label>
+        <label><input type="checkbox" name="working_days" value="6" {% if 6 in generation_hours.working_days %}checked{% endif %}> Вс</label>
+      </div>
+    </div>
+    <div class="field">
+      <label>Часовой пояс</label>
+      <input type="text" name="timezone_name" value="{{ generation_hours.timezone }}" required>
+    </div>
+    <div class="field field-narrow">
+      <label>С (час)</label>
+      <input type="number" name="start_hour" min="0" max="23" value="{{ generation_hours.start_hour }}" required>
+    </div>
+    <div class="field field-narrow">
+      <label>До (час, не включая)</label>
+      <input type="number" name="end_hour" min="1" max="24" value="{{ generation_hours.end_hour }}" required>
+    </div>
+    <div class="field field-narrow">
+      <button class="btn btn-primary" type="submit">Сохранить окно</button>
+    </div>
+  </form>
+  <p class="note">По умолчанию: Пн–Пт 06:00–18:00 Europe/Minsk. REST: <code>GET/PUT /admin/pipeline/generation-hours</code>.</p>
+</div>
+
+<div class="card">
   <h2>Языки генерации рерайта</h2>
   <p class="note">На каких языках Rewrite Orchestrator пишет статьи. Сейчас по умолчанию только <strong>RU</strong>; позже можно включить несколько. Ключ БД: <code>rewrite.output_locales</code> (JSON-массив).</p>
   <form class="inline-form" method="post" action="/ui/admin/settings/output-locales">
