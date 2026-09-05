@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 from apscheduler.schedulers.background import BackgroundScheduler
+from common.generation_hours import generation_allowed
 from db.app_settings import get_setting
 from worker_app.db import new_session
 from worker_app.settings import WorkerSettings
@@ -27,9 +28,17 @@ _STAGE_SETTING_KEYS = {
     "archival": "pipeline.archival_enabled",
 }
 
+# Stages that produce / advance article generation. Outside working hours
+# these skip; archival and categories sync keep running.
+_GENERATION_STAGES = frozenset({"poll", "cluster", "filter", "dispatch", "compliance"})
+
 
 def _stage_enabled(session, stage: str) -> bool:
-    return bool(get_setting(session, _STAGE_SETTING_KEYS[stage], True))
+    if not bool(get_setting(session, _STAGE_SETTING_KEYS[stage], True)):
+        return False
+    if stage in _GENERATION_STAGES and not generation_allowed(session):
+        return False
+    return True
 
 
 def _run_cluster_tick() -> None:
@@ -112,6 +121,7 @@ def _run_poll_tick() -> None:
     # TTL-архивация (ТЗ §4.20, §6.5, Фаза 6) — a draft that sat in
     # READY_FOR_REVIEW past the TTL without a human decision archives
     # itself; cheap query, fine to run every tick like everything else.
+    # Not gated by generation hours — cleanup must keep working overnight.
     session = new_session()
     try:
         if _stage_enabled(session, "archival"):
