@@ -16,6 +16,7 @@ REASON_REWRITE_VALIDATION_FAILED = "rewrite_validation_failed"
 REASON_DISPATCH_DISABLED = "dispatch_disabled"
 REASON_INGESTION_DISABLED = "ingestion_disabled"
 REASON_REWRITE_UNAVAILABLE = "rewrite_unavailable"
+REASON_GENERATION_OUTSIDE_HOURS = "generation_outside_hours"
 
 OPENROUTER_ERROR_CODES = frozenset(
     {
@@ -127,6 +128,10 @@ def human_reason_message(reason_code: str, *, detail: str | None = None) -> str:
         REASON_DISPATCH_DISABLED: "Dispatch выключен в Admin Settings (pipeline.dispatch_enabled).",
         REASON_INGESTION_DISABLED: "Ingestion выключен (pipeline.poll_enabled).",
         REASON_REWRITE_UNAVAILABLE: "scribely-rewrite недоступен по gRPC.",
+        REASON_GENERATION_OUTSIDE_HOURS: (
+            "Генерация статей вне рабочего окна (по умолчанию будни "
+            "06:00–18:00 Europe/Minsk). Это штатно — без alert."
+        ),
     }
     base = messages.get(reason_code, "Пайплайн scribely: см. detail.")
     if detail:

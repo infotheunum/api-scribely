@@ -7,6 +7,11 @@ from pathlib import Path
 from api_app.auth.dependencies import get_current_user_optional
 from api_app.db import get_db
 from api_app.routers import admin as admin_api
+from common.generation_hours import (
+    generation_hours_as_dict,
+    load_generation_hours,
+    save_generation_hours,
+)
 from common.integration_export_settings import load_export_defaults, save_export_defaults
 from common.rewrite_output_locales import get_output_locales, set_output_locales
 from db.enums import SourceTier
@@ -266,6 +271,7 @@ def settings_page(
     settings = admin_api.list_settings(db=db)
     export_defaults = load_export_defaults(db)
     output_locales = get_output_locales(db)
+    generation_hours = generation_hours_as_dict(load_generation_hours(db))
     return templates.TemplateResponse(
         request,
         "admin_settings.html",
@@ -283,6 +289,7 @@ def settings_page(
             else "",
             "output_locale_ru": "ru" in output_locales,
             "output_locale_en": "en" in output_locales,
+            "generation_hours": generation_hours,
         },
     )
 
@@ -314,6 +321,32 @@ def upsert_export_freshness_ui(
         default_freshness=default_freshness.strip(),
         default_max_age_hours=hours,
         default_limit=limit,
+        updated_by=user.id if user else None,
+    )
+    db.commit()
+    return RedirectResponse("/ui/admin/settings", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/settings/generation-hours")
+def upsert_generation_hours_ui(
+    enabled: str | None = Form(None),
+    timezone_name: str = Form("Europe/Minsk"),
+    start_hour: int = Form(6),
+    end_hour: int = Form(18),
+    working_days: list[str] | None = Form(None),
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
+    redirect = _require_admin(user)
+    if redirect:
+        return redirect
+    save_generation_hours(
+        db,
+        enabled=bool(enabled),
+        timezone_name=timezone_name,
+        start_hour=start_hour,
+        end_hour=end_hour,
+        working_days=[int(day) for day in (working_days or [])],
         updated_by=user.id if user else None,
     )
     db.commit()

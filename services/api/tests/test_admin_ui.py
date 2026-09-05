@@ -142,6 +142,34 @@ def test_admin_ui_export_freshness_defaults(client, admin_user, clean_db):
     assert "Export API" in page.text
 
 
+def test_admin_ui_generation_hours(client, admin_user, clean_db):
+    headers = _auth_headers(client, admin_user)
+    client.post(
+        "/ui/admin/settings/generation-hours",
+        data={
+            "enabled": "1",
+            "timezone_name": "Europe/Minsk",
+            "start_hour": "6",
+            "end_hour": "18",
+            "working_days": ["0", "1", "2", "3", "4", "5"],
+        },
+        headers=headers,
+        follow_redirects=False,
+    )
+
+    from db.models import AppSetting
+
+    assert clean_db.get(AppSetting, "pipeline.generation_hours_enabled").value is True
+    assert clean_db.get(AppSetting, "pipeline.generation_start_hour").value == 6
+    assert clean_db.get(AppSetting, "pipeline.generation_end_hour").value == 18
+    assert clean_db.get(AppSetting, "pipeline.generation_working_days").value == [0, 1, 2, 3, 4, 5]
+
+    page = client.get("/ui/admin/settings", headers=headers)
+    assert page.status_code == 200
+    assert "Окно генерации" in page.text
+    assert "Пн" in page.text
+
+
 def test_admin_ui_output_locales(client, admin_user, clean_db):
     headers = _auth_headers(client, admin_user)
     client.post(

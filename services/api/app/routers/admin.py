@@ -481,6 +481,70 @@ def upsert_rewrite_output_locales(
 
 
 # ---------------------------------------------------------------------
+# Generation working hours
+# ---------------------------------------------------------------------
+
+
+class GenerationHoursIn(BaseModel):
+    enabled: bool = True
+    timezone: str = "Europe/Minsk"
+    start_hour: int = Field(6, ge=0, le=23)
+    end_hour: int = Field(18, ge=1, le=24)
+    working_days: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4])
+
+
+class GenerationHoursOut(BaseModel):
+    enabled: bool
+    timezone: str
+    start_hour: int
+    end_hour: int
+    working_days: list[int]
+    within_hours: bool
+
+
+@router.get("/pipeline/generation-hours", response_model=GenerationHoursOut)
+def get_generation_hours(db: Session = Depends(get_db)) -> GenerationHoursOut:
+    from common.generation_hours import generation_hours_as_dict, load_generation_hours
+
+    return GenerationHoursOut(**generation_hours_as_dict(load_generation_hours(db)))
+
+
+@router.put("/pipeline/generation-hours", response_model=GenerationHoursOut)
+def upsert_generation_hours(
+    body: GenerationHoursIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("admin")),
+) -> GenerationHoursOut:
+    from common.generation_hours import (
+        generation_hours_as_dict,
+        load_generation_hours,
+        save_generation_hours,
+    )
+
+    previous = generation_hours_as_dict(load_generation_hours(db))
+    saved = save_generation_hours(
+        db,
+        enabled=body.enabled,
+        timezone_name=body.timezone,
+        start_hour=body.start_hour,
+        end_hour=body.end_hour,
+        working_days=body.working_days,
+        updated_by=user.id,
+    )
+    db.flush()
+    current = generation_hours_as_dict(saved)
+    _audit(
+        db,
+        user,
+        action="admin_update",
+        entity_type="AppSetting",
+        entity_id="pipeline.generation_hours",
+        details={"previous": previous, "new": current},
+    )
+    return GenerationHoursOut(**current)
+
+
+# ---------------------------------------------------------------------
 # PromptVersion
 # ---------------------------------------------------------------------
 

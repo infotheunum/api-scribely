@@ -144,6 +144,35 @@ def test_upsert_setting_creates_then_updates(client, admin_user, clean_db):
     assert any(s["key"] == "dispatch.batch_size" and s["value"] == 5 for s in listed)
 
 
+def test_generation_hours_get_and_put(client, admin_user, clean_db):
+    headers = _auth_headers(client, admin_user)
+    defaults = client.get("/admin/pipeline/generation-hours", headers=headers)
+    assert defaults.status_code == 200
+    body = defaults.json()
+    assert body["enabled"] is True
+    assert body["timezone"] == "Europe/Minsk"
+    assert body["start_hour"] == 6
+    assert body["end_hour"] == 18
+    assert body["working_days"] == [0, 1, 2, 3, 4]
+    assert "within_hours" in body
+
+    updated = client.put(
+        "/admin/pipeline/generation-hours",
+        json={
+            "enabled": True,
+            "timezone": "Europe/Minsk",
+            "start_hour": 7,
+            "end_hour": 17,
+            "working_days": [0, 1, 2, 3, 4, 5],
+        },
+        headers=headers,
+    )
+    assert updated.status_code == 200
+    assert updated.json()["start_hour"] == 7
+    assert updated.json()["end_hour"] == 17
+    assert updated.json()["working_days"] == [0, 1, 2, 3, 4, 5]
+
+
 def test_prompt_version_create_and_activate(client, admin_user, clean_db):
     headers = _auth_headers(client, admin_user)
     v1 = client.post(
