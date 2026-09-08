@@ -104,6 +104,14 @@ class SourceRefOut(BaseModel):
     is_full_text: bool = False
 
 
+class PromptVersionOut(BaseModel):
+    """Prompt metadata exported with a draft for editorial traceability."""
+
+    id: str
+    label: str | None
+    created_at: datetime
+
+
 class DraftDetail(DraftSummary):
     body_en: str
     body_ru: str
@@ -144,6 +152,7 @@ class DraftDetail(DraftSummary):
     llm_prompt_tokens: int = 0
     llm_completion_tokens: int = 0
     llm_total_tokens: int = 0
+    prompt_version: PromptVersionOut | None
     sources: list[SourceRefOut]
 
     @classmethod
@@ -201,6 +210,15 @@ class DraftDetail(DraftSummary):
             llm_prompt_tokens=int(draft.llm_prompt_tokens or 0),
             llm_completion_tokens=int(draft.llm_completion_tokens or 0),
             llm_total_tokens=int(draft.llm_total_tokens or 0),
+            prompt_version=(
+                PromptVersionOut(
+                    id=str(draft.prompt_version.id),
+                    label=draft.prompt_version.notes,
+                    created_at=draft.prompt_version.created_at,
+                )
+                if draft.prompt_version
+                else None
+            ),
             sources=sources,
         )
 

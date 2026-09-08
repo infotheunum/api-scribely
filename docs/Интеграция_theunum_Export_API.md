@@ -562,6 +562,7 @@ default_freshness=today&default_max_age_hours=&default_limit=100
 | Блок | Поля |
 |---|---|
 | Идентификация | `id`, `status`, `version`, `consumed_at`, `created_at`, `updated_at`, **`content_generated_at`** |
+| Версия промпта | `prompt_version`: `{ id, label, created_at }` или `null` для старых черновиков без привязанной версии. `label` — редакторская метка из Scribely, например `v5 — editorial quality`. |
 | Текст EN | `title_en`, `body_en`, `body_en_html`, `title_en_variants[]` |
 | Текст RU | `title_ru`, `body_ru`, `body_ru_html`, `title_ru_variants[]` |
 | SEO EN/RU | `seo_title_*`, `seo_description_*`, `slug_*`, `keywords_*`, `og_*`, `focus_keyphrase_*` |
