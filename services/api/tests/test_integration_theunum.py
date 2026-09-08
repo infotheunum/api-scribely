@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from db.app_settings import set_setting
 from db.enums import DraftStatus, SourceTier, SourceType
-from db.models import Draft, DraftExportLog, NewsCluster, RawItem, Source
+from db.models import Draft, DraftExportLog, NewsCluster, PromptVersion, RawItem, Source
 from sqlalchemy import func, select
 
 INTEGRATION_TOKEN = "test-theunum-integration-token"
@@ -190,6 +190,28 @@ def test_list_language_all_returns_bilingual(client, clean_db):
     assert items[0]["body_en_html"].startswith("<p>")
     assert items[0]["body_en_html"].count("<p>") == 3
     assert items[0]["body_ru_html"].count("<p>") == 3
+
+
+def test_export_includes_prompt_version_metadata(client, clean_db):
+    source = _source(clean_db)
+    cluster = _cluster(clean_db, source)
+    prompt_version = PromptVersion(
+        template="system prompt v5",
+        notes="v5 — editorial quality",
+        status="active",
+    )
+    clean_db.add(prompt_version)
+    clean_db.commit()
+    draft = _draft(clean_db, cluster, prompt_version_id=prompt_version.id)
+
+    resp = client.get("/integrations/theunum/v1/drafts", headers=AUTH_HEADERS)
+
+    assert resp.status_code == 200
+    exported = resp.json()["items"][0]["prompt_version"]
+    assert exported["id"] == str(prompt_version.id)
+    assert exported["label"] == "v5 — editorial quality"
+    assert exported["created_at"]
+    assert resp.json()["items"][0]["id"] == str(draft.id)
 
 
 def test_list_orders_newest_content_generated_first(client, clean_db):
