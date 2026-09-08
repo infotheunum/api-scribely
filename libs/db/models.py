@@ -232,6 +232,9 @@ class Draft(Base):
     trace_id: Mapped[str] = mapped_column(String(64), nullable=False)
     prompt_version_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("prompt_version.id"))
     assignee_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("user.id"))
+    prompt_version: Mapped[PromptVersion | None] = relationship(
+        foreign_keys=[prompt_version_id]
+    )
 
     # SEO-пакет EN+RU (ТЗ §4.16).
     seo_title_en: Mapped[str | None] = mapped_column(String(512))

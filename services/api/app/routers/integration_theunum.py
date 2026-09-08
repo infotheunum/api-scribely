@@ -85,7 +85,11 @@ def _load_draft(db: Session, draft_id: uuid.UUID) -> Draft:
     draft = db.get(
         Draft,
         draft_id,
-        options=[load_sources, joinedload(Draft.export_log)],
+        options=[
+            load_sources,
+            joinedload(Draft.export_log),
+            joinedload(Draft.prompt_version),
+        ],
     )
     if draft is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "draft not found")
@@ -108,6 +112,7 @@ def _drafts_query(
         .options(
             joinedload(Draft.cluster).joinedload(NewsCluster.raw_items).joinedload(RawItem.source),
             joinedload(Draft.export_log),
+            joinedload(Draft.prompt_version),
         )
         .where(Draft.status.in_(statuses))
     )
