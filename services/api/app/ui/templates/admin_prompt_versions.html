@@ -30,6 +30,17 @@
     <summary class="note" style="cursor:pointer;">Показать шаблон</summary>
     <pre style="white-space:pre-wrap; font-size:12px; color:var(--text-dim); margin-top:8px;">{{ v.template }}</pre>
   </details>
+  {% if v.status == 'active' and previous_active_diff is not none %}
+  <details style="margin-top:6px;" open>
+    <summary class="note" style="cursor:pointer;">Изменения относительно предыдущей версии{% if previous_version_id %} ({{ previous_version_id }}){% endif %}</summary>
+    {% if previous_active_diff %}
+    <pre style="white-space:pre-wrap; font-size:12px; margin-top:8px;">{% for line in previous_active_diff.split('\n') %}<span style="color:{{ 'var(--green)' if line.startswith('+') and not line.startswith('+++') else ('var(--red)' if line.startswith('-') and not line.startswith('---') else 'var(--text-dim)') }}">{{ line }}</span>
+{% endfor %}</pre>
+    {% else %}
+    <p class="note">Идентична предыдущей версии.</p>
+    {% endif %}
+  </details>
+  {% endif %}
   {% if v.id in diffs %}
   <details style="margin-top:6px;">
     <summary class="note" style="cursor:pointer;">Diff с активной версией</summary>
