@@ -218,3 +218,21 @@ def test_admin_ui_prompt_versions_create_and_activate(client, admin_user, clean_
     page = client.get("/ui/admin/prompt-versions", headers=headers)
     assert page.status_code == 200
     assert "rewrite this" in page.text
+
+
+def test_admin_ui_active_prompt_version_shows_diff_from_previous(client, admin_user, clean_db):
+    headers = _auth_headers(client, admin_user)
+    from db.enums import PromptVersionStatus
+    from db.models import PromptVersion
+
+    previous = PromptVersion(template="keep\nold line", status=PromptVersionStatus.RETIRED)
+    active = PromptVersion(template="keep\nnew line", status=PromptVersionStatus.ACTIVE)
+    clean_db.add_all([previous, active])
+    clean_db.commit()
+
+    page = client.get("/ui/admin/prompt-versions", headers=headers)
+
+    assert page.status_code == 200
+    assert "Изменения относительно предыдущей версии" in page.text
+    assert "-old line" in page.text
+    assert "+new line" in page.text

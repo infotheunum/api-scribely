@@ -14,11 +14,12 @@ from common.generation_hours import (
 )
 from common.integration_export_settings import load_export_defaults, save_export_defaults
 from common.rewrite_output_locales import get_output_locales, set_output_locales
-from db.enums import SourceTier
-from db.models import User
+from db.enums import PromptVersionStatus, SourceTier
+from db.models import PromptVersion, User
 from fastapi import APIRouter, Depends, Form, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/ui/admin", tags=["ui-admin"])
@@ -411,7 +412,11 @@ def prompt_versions_page(
     if redirect:
         return redirect
     versions = admin_api.list_prompt_versions(db=db)
-    active_template = next((v.template for v in versions if v.status == "active"), None)
+    active_version = next((v for v in versions if v.status == "active"), None)
+    active_template = active_version.template if active_version is not None else None
+    active_row = db.scalar(
+        select(PromptVersion).where(PromptVersion.status == PromptVersionStatus.ACTIVE)
+    )
     diffs = {}
     if active_template is not None:
         for v in versions:
@@ -426,6 +431,25 @@ def prompt_versions_page(
                     lineterm="",
                 )
             )
+    previous_active_diff = None
+    previous_version_id = None
+    if active_row is not None:
+        previous = db.scalar(
+            select(PromptVersion)
+            .where(PromptVersion.created_at < active_row.created_at)
+            .order_by(PromptVersion.created_at.desc())
+        )
+        if previous is not None:
+            previous_version_id = str(previous.id)[:8]
+            previous_active_diff = "\n".join(
+                difflib.unified_diff(
+                    previous.template.splitlines(),
+                    active_row.template.splitlines(),
+                    fromfile=f"previous ({previous_version_id})",
+                    tofile="active",
+                    lineterm="",
+                )
+            )
     return templates.TemplateResponse(
         request,
         "admin_prompt_versions.html",
@@ -435,6 +459,8 @@ def prompt_versions_page(
             "admin_tab": "prompt-versions",
             "versions": versions,
             "diffs": diffs,
+            "previous_active_diff": previous_active_diff,
+            "previous_version_id": previous_version_id,
         },
     )
 
