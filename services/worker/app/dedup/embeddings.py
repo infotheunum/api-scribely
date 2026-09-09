@@ -14,10 +14,10 @@ MODEL_NAME = "paraphrase-multilingual-MiniLM-L12-v2"
 # numbers this was picked from).
 SIMILARITY_THRESHOLD = 0.6
 
-# How many characters of title+body feed the embedding — full articles
-# would work but add nothing past a point and slow inference for no
-# benefit; the lede carries the "what event is this" signal.
-EMBED_TEXT_CHARS = 500
+# A short RSS excerpt often contains only generic market language. Keep a
+# fuller lede and the first details so differently worded coverage of one
+# event still has enough shared semantic signal.
+EMBED_TEXT_CHARS = 2_000
 
 DEFAULT_EMBED_BATCH_SIZE = 32
 EMBED_BATCH_SIZE_SETTING_KEY = "dedup.embed_batch_size"
