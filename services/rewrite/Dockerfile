@@ -26,4 +26,4 @@ EXPOSE 50051
 
 # Only reachable over Railway's private network (ТЗ §6.6, §8) — never
 # expose this service's port publicly.
-CMD ["python", "-m", "rewrite_app.server"]
+CMD ["sh", "-c", "python -m rewrite_app.prompt.seed && python -m rewrite_app.server"]
