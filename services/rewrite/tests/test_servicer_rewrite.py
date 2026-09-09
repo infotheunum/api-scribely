@@ -105,6 +105,36 @@ def test_enrich_cluster_over_grpc(clean_db, server_address, monkeypatch):
     assert len(response.context.facts) == 1
 
 
+def test_confirm_duplicate_over_grpc(server_address, monkeypatch):
+    from types import SimpleNamespace
+
+    from common.token_usage import TokenUsage
+
+    monkeypatch.setattr(
+        "rewrite_app.servicer.new_session",
+        lambda: SimpleNamespace(close=lambda: None),
+    )
+    monkeypatch.setattr(
+        "rewrite_app.servicer.confirm_same_event",
+        lambda *args, **kwargs: (True, "key_1", "model", TokenUsage(1, 2, 3)),
+    )
+    with grpc.insecure_channel(server_address) as channel:
+        stub = rewrite_pb2_grpc.RewriteServiceStub(channel)
+        response = stub.ConfirmDuplicate(
+            rewrite_pb2.ConfirmDuplicateRequest(
+                incoming_sources=[rewrite_pb2.SourceRef(title="New", excerpt_or_full_text="body")],
+                candidate_sources=[
+                    rewrite_pb2.SourceRef(title="Earlier", excerpt_or_full_text="body")
+                ],
+                trace_id="t1",
+            ),
+            metadata=_md(),
+        )
+
+    assert response.same_event is True
+    assert response.llm_usage.total_tokens == 3
+
+
 def test_rewrite_cluster_over_grpc(clean_db, server_address, monkeypatch):
     from common.token_usage import TokenUsage
 

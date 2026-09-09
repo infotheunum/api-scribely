@@ -153,6 +153,24 @@ message EnrichClusterResponse {
 }
 
 // ---------------------------------------------------------------------
+// ConfirmDuplicate
+// ---------------------------------------------------------------------
+
+// A conservative second-stage check for semantically similar items. The
+// worker supplies the incoming item and one candidate cluster; rewrite is
+// the sole service allowed to call the LLM.
+message ConfirmDuplicateRequest {
+  repeated SourceRef incoming_sources = 1;
+  repeated SourceRef candidate_sources = 2;
+  string trace_id = 3;
+}
+
+message ConfirmDuplicateResponse {
+  bool same_event = 1;
+  LlmUsage llm_usage = 2;
+}
+
+// ---------------------------------------------------------------------
 // ResearchKeywords
 // ---------------------------------------------------------------------
 
@@ -327,6 +345,7 @@ message GetPromptVersionResponse {
 
 service RewriteService {
   rpc EnrichCluster(EnrichClusterRequest) returns (EnrichClusterResponse);
+  rpc ConfirmDuplicate(ConfirmDuplicateRequest) returns (ConfirmDuplicateResponse);
   rpc ResearchKeywords(ResearchKeywordsRequest) returns (ResearchKeywordsResponse);
   rpc RewriteCluster(RewriteClusterRequest) returns (RewriteClusterResponse);
   rpc SuggestTags(SuggestTagsRequest) returns (SuggestTagsResponse);

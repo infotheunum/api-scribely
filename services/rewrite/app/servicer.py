@@ -9,6 +9,7 @@ from common.integration_reasons import (
 )
 from common.token_usage import TokenUsage
 from rewrite_app.db import new_session
+from rewrite_app.dedup import confirm_same_event
 from rewrite_app.enrich.enrichment import enrich_cluster
 from rewrite_app.prompt.versions import get_active_prompt_version
 from rewrite_app.rewrite.orchestrator import rewrite_cluster
@@ -143,6 +144,41 @@ class RewriteServicer(rewrite_pb2_grpc.RewriteServiceServicer):
                 token_usage.total_tokens,
             )
             return response
+        finally:
+            db.close()
+
+    def ConfirmDuplicate(self, request, context):
+        settings = RewriteSettings()
+        db = new_session()
+        try:
+            try:
+                same_event, key_alias, model, usage = confirm_same_event(
+                    db,
+                    settings,
+                    incoming_sources=request.incoming_sources,
+                    candidate_sources=request.candidate_sources,
+                )
+            except AllKeysExhaustedError as exc:
+                context.abort(
+                    grpc.StatusCode.UNAVAILABLE,
+                    format_integration_error(exc.code, f"all OpenRouter keys exhausted: {exc}"),
+                )
+            except RuntimeError as exc:
+                context.abort(
+                    grpc.StatusCode.FAILED_PRECONDITION,
+                    format_integration_error(REASON_REWRITE_VALIDATION_FAILED, str(exc)),
+                )
+            logger.info(
+                "ConfirmDuplicate same_event=%s key=%s model=%s tokens=%s",
+                same_event,
+                key_alias,
+                model,
+                usage.total_tokens,
+            )
+            return rewrite_pb2.ConfirmDuplicateResponse(
+                same_event=same_event,
+                llm_usage=_llm_usage_proto(key_alias, model, usage),
+            )
         finally:
             db.close()
 
