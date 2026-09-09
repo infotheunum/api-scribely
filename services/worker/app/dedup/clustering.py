@@ -11,7 +11,7 @@ from db.app_settings import get_setting
 from db.models import NewsCluster, RawItem
 from scribely.rewrite.v1 import rewrite_pb2
 from sqlalchemy import select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, load_only, selectinload
 from worker_app.dedup.embeddings import (
     DEFAULT_EMBED_BATCH_SIZE,
     EMBED_BATCH_SIZE_SETTING_KEY,
@@ -90,18 +90,23 @@ def recent_clusters(
 
 
 def candidate_clusters(db: Session) -> list[NewsCluster]:
-    """All historical clusters with their source embeddings.
+    """All historical clusters with only the vectors needed for matching.
 
     There is deliberately no age window here: later reporting on the same
     event must enrich its original cluster instead of producing a new draft.
-    The small MVP volume keeps the in-process comparison practical, while the
-    confirmation stage below protects against broad semantic matches.
+    Do not eager-load article text here: this query runs every minute and
+    loading every historical RSS body caused the worker to exceed its memory
+    limit.  Full source records are loaded only for the single best candidate
+    that reaches LLM confirmation.
     """
     return list(
         db.scalars(
             select(NewsCluster)
             .where(NewsCluster.embedding.is_not(None))
-            .options(selectinload(NewsCluster.raw_items).selectinload(RawItem.source))
+            .options(
+                load_only(NewsCluster.id, NewsCluster.embedding),
+                selectinload(NewsCluster.raw_items).load_only(RawItem.id, RawItem.embedding),
+            )
         )
     )
 
@@ -135,10 +140,23 @@ def _source_ref(item: RawItem) -> rewrite_pb2.SourceRef:
     )
 
 
-def confirm_duplicate_with_llm(raw_item: RawItem, cluster: NewsCluster) -> bool:
+def _candidate_with_sources(db: Session, cluster_id) -> NewsCluster | None:
+    """Hydrate source text only after vector matching selected one candidate."""
+    return db.scalar(
+        select(NewsCluster)
+        .where(NewsCluster.id == cluster_id)
+        .options(selectinload(NewsCluster.raw_items).selectinload(RawItem.source))
+        .execution_options(populate_existing=True)
+    )
+
+
+def confirm_duplicate_with_llm(db: Session, raw_item: RawItem, cluster: NewsCluster) -> bool:
     """Ask rewrite to confirm a borderline semantic match conservatively."""
     from worker_app.settings import WorkerSettings
 
+    cluster = _candidate_with_sources(db, cluster.id)
+    if cluster is None:
+        return False
     channel = build_rewrite_channel(WorkerSettings())
     try:
         response = rewrite_stub(channel).ConfirmDuplicate(
@@ -205,7 +223,10 @@ def cluster_raw_item(
         and not confirmed
         and score >= confirmation_threshold
     ):
-        confirmed = (confirm_duplicate or confirm_duplicate_with_llm)(raw_item, best_cluster)
+        if confirm_duplicate is not None:
+            confirmed = confirm_duplicate(raw_item, best_cluster)
+        else:
+            confirmed = confirm_duplicate_with_llm(db, raw_item, best_cluster)
     if best_cluster is not None and score >= similarity_threshold and confirmed:
         raw_item.cluster_id = best_cluster.id
         logger.info(

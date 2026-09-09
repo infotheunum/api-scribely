@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from db.app_settings import set_setting
 from db.enums import SourceTier, SourceType
 from db.models import NewsCluster, RawItem, Source
+from sqlalchemy import inspect
 from worker_app.dedup.clustering import (
     candidate_clusters,
     cluster_raw_item,
@@ -177,6 +178,28 @@ def test_candidate_clusters_include_old_events(clean_db):
     _raw_item(clean_db, source, "old-item", embedding=TOPIC_A, cluster_id=old.id)
 
     assert old.id in {cluster.id for cluster in candidate_clusters(clean_db)}
+
+
+def test_candidate_clusters_do_not_load_historical_article_text(clean_db):
+    source = _source(clean_db)
+    cluster = NewsCluster(embedding=TOPIC_A, trace_id="t")
+    clean_db.add(cluster)
+    clean_db.commit()
+    _raw_item(
+        clean_db,
+        source,
+        "large-old-item",
+        embedding=TOPIC_A,
+        cluster_id=cluster.id,
+        body="x" * 100_000,
+    )
+    clean_db.expire_all()
+
+    candidate = candidate_clusters(clean_db)[0]
+
+    assert len(candidate.raw_items) == 1
+    unloaded = inspect(candidate.raw_items[0]).unloaded
+    assert {"body", "title", "source"}.issubset(unloaded)
 
 
 def test_match_uses_any_existing_item_embedding(clean_db):
