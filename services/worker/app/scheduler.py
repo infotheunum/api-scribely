@@ -15,6 +15,12 @@ logger = logging.getLogger(__name__)
 # run often and cheaply.
 POLL_TICK_SECONDS = 60
 
+# The default editorial window is 12 hours (06:00–18:00 Minsk). One
+# sequential Enrich+Rewrite per ten minutes caps generation at 72 drafts in
+# that window — inside the 60–80/day target — without making an expensive LLM
+# call after every RSS poll.
+DISPATCH_TICK_SECONDS = 10 * 60
+
 # Independent on/off switches per stage (ТЗ §4.21, Admin Settings) — an
 # operator can pause e.g. just dispatch (a prompt is burning free-tier
 # quota) without touching ingestion, or vice versa, without a redeploy.
@@ -60,7 +66,6 @@ def _run_cluster_tick() -> None:
 
 def _run_poll_tick() -> None:
     from worker_app.compliance.pipeline import run_compliance_cycle
-    from worker_app.dispatch.pipeline import run_dispatch_cycle
     from worker_app.filter.pipeline import run_filter_cycle
     from worker_app.ingestion.poller import poll_due_sources
     from worker_app.lifecycle.archival import run_archival_cycle
@@ -89,24 +94,8 @@ def _run_poll_tick() -> None:
     finally:
         session.close()
 
-    # Enrich+Rewrite dispatch (ТЗ §4.4-§4.13, Фаза 4) — depends on this
-    # cycle's own filter results, and it's the slowest stage by far
-    # (real OpenRouter free-tier latency).
-    session = new_session()
-    try:
-        if _stage_enabled(session, "dispatch"):
-            stats = run_dispatch_cycle(session)
-            if stats["dispatched"] or stats["failed"]:
-                logger.info("dispatch tick: %s", stats)
-    except Exception:
-        logger.exception("dispatch tick failed unexpectedly")
-    finally:
-        session.close()
-
-    # Policy/Compliance Checker (ТЗ §4.6, §4.20, Фаза 5) — gates every
-    # Draft dispatch left in DRAFTING before it can reach the review
-    # queue. Last in the tick since it depends on this cycle's own
-    # dispatch output.
+    # Compliance is cheap and runs after dispatch on its next minute tick.
+    # It gates every Draft in DRAFTING before it can reach the review queue.
     session = new_session()
     try:
         if _stage_enabled(session, "compliance"):
@@ -148,6 +137,22 @@ def _run_categories_sync_tick() -> None:
         session.close()
 
 
+def _run_dispatch_tick() -> None:
+    """Run one expensive LLM generation at the editorial cadence."""
+    from worker_app.dispatch.pipeline import run_dispatch_cycle
+
+    session = new_session()
+    try:
+        if _stage_enabled(session, "dispatch"):
+            stats = run_dispatch_cycle(session)
+            if stats["dispatched"] or stats["failed"]:
+                logger.info("dispatch tick: %s", stats)
+    except Exception:
+        logger.exception("dispatch tick failed unexpectedly")
+    finally:
+        session.close()
+
+
 def build_scheduler() -> BackgroundScheduler:
     scheduler = BackgroundScheduler()
     scheduler.add_job(_run_poll_tick, "interval", seconds=POLL_TICK_SECONDS, id="poll_pipeline")
@@ -156,6 +161,13 @@ def build_scheduler() -> BackgroundScheduler:
         "interval",
         seconds=POLL_TICK_SECONDS,
         id="cluster_dedup",
+        max_instances=1,
+    )
+    scheduler.add_job(
+        _run_dispatch_tick,
+        "interval",
+        seconds=DISPATCH_TICK_SECONDS,
+        id="dispatch_pipeline",
         max_instances=1,
     )
     scheduler.add_job(
