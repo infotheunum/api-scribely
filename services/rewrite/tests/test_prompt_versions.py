@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from db.enums import PromptVersionStatus
 from db.models import PromptVersion
+from rewrite_app.prompt.seed import seed
 from rewrite_app.prompt.style_guide import SYSTEM_PROMPT
 from rewrite_app.prompt.versions import (
     PROMPT_V6_NOTES,
@@ -23,7 +24,7 @@ def test_fresh_db_bootstraps_v6(clean_db):
     assert version.template == SYSTEM_PROMPT
 
 
-def test_factory_v5_auto_upgrades_to_v6(clean_db):
+def test_existing_active_prompt_is_not_changed_at_runtime(clean_db):
     old = PromptVersion(
         template="old v5 template without source-grounding block",
         status=PromptVersionStatus.ACTIVE,
@@ -34,9 +35,22 @@ def test_factory_v5_auto_upgrades_to_v6(clean_db):
     clean_db.commit()
 
     version = get_active_prompt_version(clean_db)
-    assert version.id != old.id
-    assert version.notes == PROMPT_V6_NOTES
-    assert "НЕЙТРАЛЬНОСТЬ" in version.template
+    assert version.id == old.id
+    assert version.status == PromptVersionStatus.ACTIVE
+
+
+def test_seed_activates_v6_and_is_idempotent(clean_db):
+    old = PromptVersion(template="old", status=PromptVersionStatus.ACTIVE, notes="v5")
+    clean_db.add(old)
+    clean_db.commit()
+
+    first = seed(clean_db)
+    second = seed(clean_db)
+
+    assert first.id == second.id
+    assert second.status == PromptVersionStatus.ACTIVE
+    assert second.notes == PROMPT_V6_NOTES
+    assert clean_db.query(PromptVersion).filter_by(notes=PROMPT_V6_NOTES).count() == 1
     clean_db.refresh(old)
     assert old.status == PromptVersionStatus.RETIRED
 
