@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
+import grpc
+from common.grpc_client import build_rewrite_channel, rewrite_stub
 from common.tracing import new_trace_id
 from db.app_settings import get_setting
 from db.models import NewsCluster, RawItem
+from scribely.rewrite.v1 import rewrite_pb2
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from worker_app.dedup.embeddings import (
     DEFAULT_EMBED_BATCH_SIZE,
     EMBED_BATCH_SIZE_SETTING_KEY,
@@ -28,6 +32,13 @@ CLUSTER_WINDOW_HOURS_SETTING_KEY = "dedup.cluster_window_hours"
 SIMILARITY_THRESHOLD_SETTING_KEY = "dedup.similarity_threshold"
 CLUSTER_PER_TICK_LIMIT_KEY = "dedup.cluster_per_tick_limit"
 DEFAULT_CLUSTER_PER_TICK_LIMIT = 20
+
+# Very close matches attach immediately. The broad lower threshold sends only
+# ambiguous candidates to the LLM, preventing both duplicate drafts and
+# accidental merges of merely related stories.
+AUTO_ATTACH_THRESHOLD = 0.85
+CONFIRMATION_THRESHOLD = 0.50
+CONFIRMATION_THRESHOLD_SETTING_KEY = "dedup.confirmation_threshold"
 
 
 def _cluster_per_tick_limit(db: Session) -> int:
@@ -78,16 +89,79 @@ def recent_clusters(
     )
 
 
+def candidate_clusters(db: Session) -> list[NewsCluster]:
+    """All historical clusters with their source embeddings.
+
+    There is deliberately no age window here: later reporting on the same
+    event must enrich its original cluster instead of producing a new draft.
+    The small MVP volume keeps the in-process comparison practical, while the
+    confirmation stage below protects against broad semantic matches.
+    """
+    return list(
+        db.scalars(
+            select(NewsCluster)
+            .where(NewsCluster.embedding.is_not(None))
+            .options(selectinload(NewsCluster.raw_items).selectinload(RawItem.source))
+        )
+    )
+
+
 def _best_match(
     embedding: list[float], clusters: list[NewsCluster]
 ) -> tuple[NewsCluster | None, float]:
     best_cluster: NewsCluster | None = None
     best_score = 0.0
     for cluster in clusters:
-        score = cosine_similarity(embedding, cluster.embedding)
+        embeddings = [cluster.embedding, *(item.embedding for item in cluster.raw_items)]
+        score = max(
+            (cosine_similarity(embedding, candidate) for candidate in embeddings if candidate),
+            default=0.0,
+        )
         if score > best_score:
             best_cluster, best_score = cluster, score
     return best_cluster, best_score
+
+
+def _source_ref(item: RawItem) -> rewrite_pb2.SourceRef:
+    return rewrite_pb2.SourceRef(
+        raw_item_id=str(item.id),
+        title=item.title,
+        url=item.url,
+        tier=item.source.tier,
+        language=item.language,
+        excerpt_or_full_text=item.body or item.title,
+        is_full_text=item.is_full_text,
+        source_name=item.source.name,
+    )
+
+
+def confirm_duplicate_with_llm(raw_item: RawItem, cluster: NewsCluster) -> bool:
+    """Ask rewrite to confirm a borderline semantic match conservatively."""
+    from worker_app.settings import WorkerSettings
+
+    channel = build_rewrite_channel(WorkerSettings())
+    try:
+        response = rewrite_stub(channel).ConfirmDuplicate(
+            rewrite_pb2.ConfirmDuplicateRequest(
+                incoming_sources=[_source_ref(raw_item)],
+                candidate_sources=[_source_ref(item) for item in cluster.raw_items],
+                trace_id=raw_item.trace_id,
+            ),
+            timeout=45,
+        )
+        return response.same_event
+    except grpc.RpcError as exc:
+        # A failed confirmation must never merge two possibly independent
+        # stories. The item will remain a separate cluster and can be reviewed.
+        logger.warning(
+            "duplicate confirmation unavailable for raw_item %s / cluster %s: %s",
+            raw_item.id,
+            cluster.id,
+            exc.details() or exc,
+        )
+        return False
+    finally:
+        channel.close()
 
 
 def _prefetch_embeddings(db: Session, raw_items: list[RawItem]) -> None:
@@ -109,21 +183,30 @@ def cluster_raw_item(
     clusters: list[NewsCluster],
     *,
     similarity_threshold: float | None = None,
+    confirmation_threshold: float | None = None,
+    confirm_duplicate: Callable[[RawItem, NewsCluster], bool] | None = None,
 ) -> NewsCluster:
-    """Assigns one RawItem to the best-matching recent cluster (cross-
-    language — the embedding model is multilingual, ТЗ §4.2), or starts a
-    new cluster if nothing scores above the similarity threshold. Mutates
-    and returns the cluster; `clusters` is extended in place so later
-    items in the same batch can match newly-created clusters too."""
+    """Assign an item to an existing event or start a new event cluster."""
     if similarity_threshold is None:
         similarity_threshold = get_setting(
             db, SIMILARITY_THRESHOLD_SETTING_KEY, SIMILARITY_THRESHOLD
         )
     if raw_item.embedding is None:
         raise ValueError(f"raw_item {raw_item.id} has no embedding — prefetch first")
+    if confirmation_threshold is None:
+        confirmation_threshold = get_setting(
+            db, CONFIRMATION_THRESHOLD_SETTING_KEY, CONFIRMATION_THRESHOLD
+        )
 
     best_cluster, score = _best_match(raw_item.embedding, clusters)
-    if best_cluster is not None and score >= similarity_threshold:
+    confirmed = score >= AUTO_ATTACH_THRESHOLD
+    if (
+        best_cluster is not None
+        and not confirmed
+        and score >= confirmation_threshold
+    ):
+        confirmed = (confirm_duplicate or confirm_duplicate_with_llm)(raw_item, best_cluster)
+    if best_cluster is not None and score >= similarity_threshold and confirmed:
         raw_item.cluster_id = best_cluster.id
         logger.info(
             "raw_item %s matched cluster %s (score=%.3f)", raw_item.id, best_cluster.id, score
@@ -148,7 +231,7 @@ def run_clustering_cycle(db: Session) -> dict[str, int]:
 
     _prefetch_embeddings(db, raw_items)
 
-    clusters = recent_clusters(db)
+    clusters = candidate_clusters(db)
     stats = {"attached": 0, "created": 0}
     initial_cluster_ids = {c.id for c in clusters}
 
