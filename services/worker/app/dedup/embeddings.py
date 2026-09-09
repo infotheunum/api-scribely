@@ -19,7 +19,10 @@ SIMILARITY_THRESHOLD = 0.6
 # event still has enough shared semantic signal.
 EMBED_TEXT_CHARS = 2_000
 
-DEFAULT_EMBED_BATCH_SIZE = 32
+# The worker shares its small Railway container with ingestion, dispatch and
+# the embedding model.  Large transformer batches create a short-lived but
+# substantial activation peak, so keep the default deliberately conservative.
+DEFAULT_EMBED_BATCH_SIZE = 8
 EMBED_BATCH_SIZE_SETTING_KEY = "dedup.embed_batch_size"
 
 
