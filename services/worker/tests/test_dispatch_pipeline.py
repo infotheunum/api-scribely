@@ -193,3 +193,19 @@ def test_dispatch_batch_size_honors_app_setting_override(clean_db):
         stats = run_dispatch_cycle(clean_db)
 
     assert stats["dispatched"] == 2
+
+
+def test_dispatch_stops_after_daily_draft_cap(clean_db):
+    source = _source(clean_db)
+    already_created = _cluster(clean_db, source, score=99)
+    _cluster(clean_db, source, score=1)
+    clean_db.add(Draft(cluster_id=already_created.id, trace_id="today"))
+    set_setting(clean_db, "queue.daily_limit", 1)
+    clean_db.commit()
+
+    patcher, stub = _patched_stub()
+    with patcher, patch("worker_app.dispatch.pipeline.build_rewrite_channel"):
+        stats = run_dispatch_cycle(clean_db)
+
+    assert stats == {"dispatched": 0, "failed": 0}
+    stub.EnrichCluster.assert_not_called()

@@ -13,15 +13,10 @@ from sqlalchemy.orm import Session
 # has already decayed to zero freshness score anyway (ТЗ §4.20 TTL/aging).
 SELECTION_WINDOW = timedelta(hours=72)
 
-# Soft ceiling of the 90-110/day target (ТЗ §1, §4.3) — "при превышении
-# верхней границы низкоприоритетные кластеры не отправляются на рерайт".
-# The actual daily-published count doesn't exist yet (Publish is Phase
-# 7); Phase 4's dispatch loop is expected to pass
-# `limit=110-already_published_today` once that count is real. Until
-# then this is the upper bound taken on its own. Overridable at runtime
-# via AppSetting (ТЗ §4.21) — these constants are just the fallback
-# default when no `queue.*` row has been seeded yet.
-DEFAULT_LIMIT = 110
+# Maximum number of drafts per editorial day. Dispatch also counts drafts
+# already created today, so this is a hard cap rather than a queue hint.
+# Overridable at runtime through AppSetting (ТЗ §4.21).
+DEFAULT_LIMIT = 10
 LIMIT_SETTING_KEY = "queue.daily_limit"
 
 # No single source should fill more than this share of the selected
@@ -36,6 +31,7 @@ def select_top_clusters(
     *,
     limit: int | None = None,
     fairness_cap_ratio: float | None = None,
+    exclude_cluster_ids: set | None = None,
     now: datetime | None = None,
 ) -> list[NewsCluster]:
     """Priority-ordered, fairness-capped selection of in-topic clusters —
@@ -55,13 +51,14 @@ def select_top_clusters(
             db, FAIRNESS_CAP_RATIO_SETTING_KEY, DEFAULT_FAIRNESS_CAP_RATIO
         )
     now = now or datetime.now(UTC)
+    conditions = [
+        NewsCluster.topic_status == TopicStatus.IN_TOPIC,
+        NewsCluster.created_at >= now - SELECTION_WINDOW,
+    ]
+    if exclude_cluster_ids:
+        conditions.append(NewsCluster.id.not_in(exclude_cluster_ids))
     candidates = db.scalars(
-        select(NewsCluster)
-        .where(
-            NewsCluster.topic_status == TopicStatus.IN_TOPIC,
-            NewsCluster.created_at >= now - SELECTION_WINDOW,
-        )
-        .order_by(NewsCluster.priority_score.desc())
+        select(NewsCluster).where(*conditions).order_by(NewsCluster.priority_score.desc())
     ).all()
 
     max_per_source = max(1, int(limit * fairness_cap_ratio))
