@@ -14,6 +14,10 @@ def test_extract_json_plain():
     assert extract_json('{"a": 1}') == {"a": 1}
 
 
+def test_extract_json_uses_complete_object_when_provider_adds_trailing_text():
+    assert extract_json('{"same_event": false}\nПояснение') == {"same_event": False}
+
+
 def test_extract_json_raises_on_empty_content():
     with pytest.raises(ValueError, match="empty LLM response content"):
         extract_json("")
