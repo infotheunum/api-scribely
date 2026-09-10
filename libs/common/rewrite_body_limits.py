@@ -7,11 +7,9 @@ target band.
 """
 
 # Hard accept/reject floor (schemas + regenerate filter).
-# A strict 1700-character floor caused short, factually constrained source
-# material to fail validation indefinitely.  The target remains editorially
-# long-form; this is only the minimum at which a concise, complete news item
-# may enter review without inventing filler.
-BODY_MIN_CHARS = 800
+# Articles shorter than this are not eligible for review. The retry path
+# must move on to another cluster rather than accept thin content.
+BODY_MIN_CHARS = 1700
 
 # Aspiration in prompts (models aim here; not a second hard gate).
 BODY_TARGET_MIN = 2000
