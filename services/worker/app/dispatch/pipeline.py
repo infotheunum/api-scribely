@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
@@ -10,7 +11,7 @@ from common.llm_token_totals import record_token_usage
 from common.pipeline_telemetry import record_dispatch_cycle_result
 from common.token_usage import TokenUsage
 from common.tracing import get_trace_id, new_trace_id, set_trace_id
-from db.app_settings import get_setting
+from db.app_settings import get_setting, set_setting
 from db.enums import DraftRevisionKind
 from db.models import ClusterContext, Draft, NewsCluster
 from scribely.rewrite.v1 import rewrite_pb2
@@ -39,10 +40,36 @@ logger = logging.getLogger(__name__)
 DISPATCH_BATCH_SIZE = 1
 BATCH_SIZE_SETTING_KEY = "dispatch.batch_size"
 EDITORIAL_TIMEZONE = ZoneInfo("Europe/Minsk")
+SHORT_REWRITE_BLOCKLIST_SETTING_KEY = "dispatch.short_rewrite_blocklist"
 
 
 def _already_drafted_cluster_ids(db: Session) -> set:
     return set(db.scalars(select(Draft.cluster_id)))
+
+
+def _short_rewrite_blocklist(db: Session) -> set[uuid.UUID]:
+    raw = get_setting(db, SHORT_REWRITE_BLOCKLIST_SETTING_KEY, [])
+    if not isinstance(raw, list):
+        return set()
+    blocked: set[uuid.UUID] = set()
+    for cluster_id in raw:
+        try:
+            blocked.add(uuid.UUID(str(cluster_id)))
+        except (AttributeError, TypeError, ValueError):
+            logger.warning("ignoring malformed short-rewrite blocklist id: %r", cluster_id)
+    return blocked
+
+
+def _block_short_rewrite(db: Session, cluster_id) -> None:
+    blocked = _short_rewrite_blocklist(db)
+    blocked.add(cluster_id)
+    set_setting(
+        db,
+        SHORT_REWRITE_BLOCKLIST_SETTING_KEY,
+        sorted(str(item) for item in blocked),
+        description="Clusters withheld after rewrite body failed the editorial minimum.",
+    )
+    db.commit()
 
 
 def _drafts_created_today(db: Session, *, now: datetime | None = None) -> int:
@@ -155,10 +182,11 @@ def run_dispatch_cycle(db: Session, *, settings: WorkerSettings | None = None) -
         record_dispatch_cycle_result(db, dispatched=0, failed=0)
         return {"dispatched": 0, "failed": 0}
     drafted_ids = _already_drafted_cluster_ids(db)
+    excluded_ids = drafted_ids | _short_rewrite_blocklist(db)
     candidates = select_top_clusters(
         db,
         limit=remaining_today,
-        exclude_cluster_ids=drafted_ids,
+        exclude_cluster_ids=excluded_ids,
     )[: min(batch_size, remaining_today)]
     if not candidates:
         record_dispatch_cycle_result(db, dispatched=0, failed=0)
@@ -209,6 +237,8 @@ def run_dispatch_cycle(db: Session, *, settings: WorkerSettings | None = None) -
                     exc.code(),
                     details,
                 )
+                if "body_en must be at least" in details or "body_ru must be at least" in details:
+                    _block_short_rewrite(db, cluster.id)
                 failed += 1
     finally:
         channel.close()

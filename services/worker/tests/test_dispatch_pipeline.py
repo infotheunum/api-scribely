@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import grpc
 from db.app_settings import set_setting
 from db.enums import DraftStatus, SourceTier, SourceType, TopicStatus
-from db.models import ClusterContext, Draft, DraftRevision, NewsCluster, RawItem, Source
+from db.models import AppSetting, ClusterContext, Draft, DraftRevision, NewsCluster, RawItem, Source
 from scribely.rewrite.v1 import rewrite_pb2
 from worker_app.dispatch.pipeline import DISPATCH_BATCH_SIZE, run_dispatch_cycle
 
@@ -209,3 +209,19 @@ def test_dispatch_stops_after_daily_draft_cap(clean_db):
 
     assert stats == {"dispatched": 0, "failed": 0}
     stub.EnrichCluster.assert_not_called()
+
+
+def test_dispatch_blocks_cluster_when_rewrite_is_too_short(clean_db):
+    cluster = _cluster(clean_db, _source(clean_db))
+    error = grpc.RpcError()
+    error.code = lambda: grpc.StatusCode.FAILED_PRECONDITION
+    error.details = lambda: "body_ru must be at least 1700 chars (got 900)"
+    patcher, _ = _patched_stub(
+        enrich_side_effect=lambda req, **kw: _fake_enrich_response(cluster.id),
+        rewrite_side_effect=error,
+    )
+    with patcher, patch("worker_app.dispatch.pipeline.build_rewrite_channel"):
+        stats = run_dispatch_cycle(clean_db)
+
+    assert stats == {"dispatched": 0, "failed": 1}
+    assert str(cluster.id) in clean_db.get(AppSetting, "dispatch.short_rewrite_blocklist").value
