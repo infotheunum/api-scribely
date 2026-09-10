@@ -10,6 +10,7 @@ from common.rewrite_output_locales import (
 )
 from common.site_categories import site_category_prompt_block
 from common.token_usage import TokenUsage
+from db.app_settings import get_setting
 from db.models import PromptVersion
 from pydantic import ValidationError
 from rewrite_app.prompt.style_guide import (
@@ -18,6 +19,7 @@ from rewrite_app.prompt.style_guide import (
     BODY_SOFT_MAX_CHARS,
 )
 from rewrite_app.rewrite.openrouter_client import extract_json
+from rewrite_app.rewrite.quality_gate import review_rewrite
 from rewrite_app.rewrite.rotation import AllKeysExhaustedError, call_with_rotation
 from rewrite_app.rewrite.schemas import RewriteResultSchema
 from rewrite_app.settings import RewriteSettings
@@ -186,6 +188,13 @@ def rewrite_cluster(
                 db=db,
                 hint_text=hint,
             )
+            if bool(get_setting(db, "quality_gate.enabled", False)):
+                approved, issues, _, _, quality_usage = review_rewrite(
+                    db, settings, sources_text=sources_text, rewritten_text=hint
+                )
+                if not approved:
+                    raise ValueError("quality gate failed: " + "; ".join(issues[:8]))
+                token_usage += quality_usage
             return result, key_alias, model, token_usage
         except AllKeysExhaustedError:
             raise
