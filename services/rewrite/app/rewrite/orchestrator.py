@@ -141,7 +141,7 @@ def rewrite_cluster(
     flags_text: str,
     style_overlay_note: str = "Оверлей стиля не назначен — используй house style.",
     prefer_key_alias: str | None = None,
-) -> tuple[RewriteResultSchema, str, str, TokenUsage]:
+) -> tuple[RewriteResultSchema, str, str, TokenUsage, dict]:
     """Returns (result, key_alias_used, model_used, token_usage). Raises RuntimeError
     after MAX_ATTEMPTS failed regenerate attempts (ТЗ §4.20 dead-letter)."""
     locales = get_output_locales(db)
@@ -188,14 +188,19 @@ def rewrite_cluster(
                 db=db,
                 hint_text=hint,
             )
+            review_report: dict = {}
             if bool(get_setting(db, "quality_gate.enabled", False)):
-                approved, issues, _, _, quality_usage = review_rewrite(
-                    db, settings, sources_text=sources_text, rewritten_text=hint
+                approved, issues, review_report, _, _, quality_usage = review_rewrite(
+                    db,
+                    settings,
+                    sources_text=sources_text,
+                    rewritten_text=hint,
+                    translate_sources=bool(get_setting(db, "review.translate_originals.enabled", False)),
                 )
                 if not approved:
                     raise ValueError("quality gate failed: " + "; ".join(issues[:8]))
                 token_usage += quality_usage
-            return result, key_alias, model, token_usage
+            return result, key_alias, model, token_usage, review_report
         except AllKeysExhaustedError:
             raise
         except ValidationError as exc:
@@ -224,4 +229,9 @@ def rewrite_cluster(
                 exc,
             )
             last_error = exc
+            retry_note = (
+                f"\n\nПРЕДЫДУЩИЙ ОТВЕТ ОТКЛОНЁН ПРОВЕРКОЙ: {str(exc)[:1200]}. "
+                "Исправь только перечисленные нарушения, сверяясь с оригиналами. "
+                "Не добавляй новых фактов, цифр, дат, имён или источников."
+            )
     raise RuntimeError(f"RewriteCluster failed after {MAX_ATTEMPTS} attempts: {last_error}")

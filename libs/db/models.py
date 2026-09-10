@@ -196,6 +196,9 @@ class Draft(Base):
     title_en_variants: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list)
     title_ru_variants: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list)
     attribution_urls: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list)
+    # Final source-grounded review: factual comparison and, when enabled in
+    # admin settings, Russian translations of the source material.
+    review_report: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
 
     sponsor_flag: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     press_release_flag: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

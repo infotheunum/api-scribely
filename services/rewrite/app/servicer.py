@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import json
 
 import grpc
 from common.integration_reasons import (
@@ -198,7 +199,7 @@ class RewriteServicer(rewrite_pb2_grpc.RewriteServiceServicer):
             )
 
             try:
-                result, key_alias, model, token_usage = rewrite_cluster(
+                result, key_alias, model, token_usage, review_report = rewrite_cluster(
                     db,
                     settings,
                     prompt_version,
@@ -242,6 +243,7 @@ class RewriteServicer(rewrite_pb2_grpc.RewriteServiceServicer):
                 seo_en=rewrite_pb2.SeoPack(**result.seo_en.model_dump()),
                 seo_ru=rewrite_pb2.SeoPack(**result.seo_ru.model_dump()),
                 image_brief=rewrite_pb2.ImageBrief(**result.image_brief.model_dump()),
+                review_report_json=json.dumps(review_report, ensure_ascii=False),
             )
             logger.info(
                 "RewriteCluster cluster=%s key=%s model=%s prompt_version=%s tokens=%s",
