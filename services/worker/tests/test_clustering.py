@@ -19,6 +19,7 @@ from worker_app.dedup.clustering import (
 # for the real model so these tests don't pay for loading it.
 TOPIC_A = [1.0, 0.0]
 TOPIC_A_VARIANT = [0.9, (1 - 0.9**2) ** 0.5]
+TOPIC_A_SECOND_VARIANT = [0.8, (1 - 0.8**2) ** 0.5]
 TOPIC_B = [0.0, 1.0]
 
 
@@ -73,6 +74,10 @@ def test_two_similar_items_join_one_cluster_then_third_starts_new(clean_db, monk
         "worker_app.dedup.clustering.embed_texts",
         _mock_embed_texts_factory(embeddings_by_title),
     )
+    monkeypatch.setattr(
+        "worker_app.dedup.clustering.confirm_duplicate_with_llm",
+        lambda *_: True,
+    )
 
     _raw_item(clean_db, source, "en-article")
     _raw_item(clean_db, source, "ru-article", external_id="ru-article-guid")
@@ -91,6 +96,10 @@ def test_similarity_threshold_honors_app_setting_override(clean_db, monkeypatch)
     monkeypatch.setattr(
         "worker_app.dedup.clustering.embed_texts",
         _mock_embed_texts_factory(embeddings_by_title),
+    )
+    monkeypatch.setattr(
+        "worker_app.dedup.clustering.confirm_duplicate_with_llm",
+        lambda *_: False,
     )
     # TOPIC_A_VARIANT scores 0.9 against TOPIC_A — passes the 0.6 default
     # but not a much stricter 0.99 threshold set via AppSetting.
@@ -251,3 +260,43 @@ def test_rejected_borderline_match_creates_new_cluster(clean_db):
 
     assert result.id != cluster.id
     assert incoming.cluster_id == result.id
+
+
+def test_confirmation_checks_next_candidate_after_rejection(clean_db):
+    source = _source(clean_db)
+    first = NewsCluster(embedding=TOPIC_A_VARIANT, trace_id="first")
+    second = NewsCluster(embedding=TOPIC_A_SECOND_VARIANT, trace_id="second")
+    clean_db.add_all([first, second])
+    clean_db.commit()
+    incoming = _raw_item(clean_db, source, "same-event", embedding=TOPIC_A)
+    calls = []
+
+    result = cluster_raw_item(
+        clean_db,
+        incoming,
+        candidate_clusters(clean_db),
+        confirm_duplicate=lambda _, candidate: calls.append(candidate.id)
+        or candidate.id == second.id,
+    )
+
+    assert result is not None
+    assert result.id == second.id
+    assert calls == [first.id, second.id]
+
+
+def test_confirmation_outage_defers_ambiguous_item(clean_db):
+    source = _source(clean_db)
+    cluster = NewsCluster(embedding=TOPIC_A_VARIANT, trace_id="t")
+    clean_db.add(cluster)
+    clean_db.commit()
+    incoming = _raw_item(clean_db, source, "possible-duplicate", embedding=TOPIC_A)
+
+    result = cluster_raw_item(
+        clean_db,
+        incoming,
+        candidate_clusters(clean_db),
+        confirm_duplicate=lambda *_: None,
+    )
+
+    assert result is None
+    assert incoming.cluster_id is None
