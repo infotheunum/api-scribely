@@ -149,7 +149,7 @@ def run_dispatch_cycle(db: Session, *, settings: WorkerSettings | None = None) -
     clusters that already have a Draft."""
     settings = settings or WorkerSettings()
     batch_size = int(get_setting(db, BATCH_SIZE_SETTING_KEY, DISPATCH_BATCH_SIZE))
-    daily_limit = int(get_setting(db, "queue.daily_limit", 10))
+    daily_limit = int(get_setting(db, "queue.daily_limit", 100))
     remaining_today = max(0, daily_limit - _drafts_created_today(db))
     if remaining_today == 0:
         record_dispatch_cycle_result(db, dispatched=0, failed=0)

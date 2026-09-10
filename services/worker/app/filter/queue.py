@@ -13,10 +13,10 @@ from sqlalchemy.orm import Session
 # has already decayed to zero freshness score anyway (ТЗ §4.20 TTL/aging).
 SELECTION_WINDOW = timedelta(hours=72)
 
-# Maximum number of drafts per editorial day. Dispatch also counts drafts
-# already created today, so this is a hard cap rather than a queue hint.
+# Editorial daily target/cap. Dispatch counts drafts already created today,
+# so no more than this number is sent to review in one editorial day.
 # Overridable at runtime through AppSetting (ТЗ §4.21).
-DEFAULT_LIMIT = 10
+DEFAULT_LIMIT = 100
 LIMIT_SETTING_KEY = "queue.daily_limit"
 
 # No single source should fill more than this share of the selected
