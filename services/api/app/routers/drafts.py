@@ -26,13 +26,13 @@ DEFAULT_QUEUE_STATUSES = [DraftStatus.READY_FOR_REVIEW, DraftStatus.NEEDS_FIX]
 
 def _clean_source_body(value: str) -> str:
     """Turn stored RSS/HTML into safe, readable paragraphs for review."""
-    value = re.sub(r"(?is)<(script|style).*?>.*?</\\1>", "", value or "")
+    value = re.sub(r"(?is)<(script|style).*?>.*?</\1>", "", value or "")
     value = re.sub(r"(?i)</?(?:p|div|section|article|li|h[1-6])[^>]*>", "\n\n", value)
-    value = re.sub(r"(?i)<br\\s*/?>", "\n", value)
+    value = re.sub(r"(?i)<br\s*/?>", "\n", value)
     value = re.sub(r"(?s)<[^>]+>", "", value)
     value = html.unescape(value)
-    value = re.sub(r"[ \\t]+", " ", value)
-    value = re.sub(r"\\n[ \\t]*\\n(?:[ \\t]*\\n)+", "\n\n", value)
+    value = re.sub(r"[ \t]+", " ", value)
+    value = re.sub(r"\n[ \t]*\n(?:[ \t]*\n)+", "\n\n", value)
     return value.strip()
 
 
