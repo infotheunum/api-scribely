@@ -91,7 +91,7 @@ def test_rewrite_cluster_parses_valid_response(clean_db, prompt_version, monkeyp
         lambda slug, **kw: slug or "world",
     )
 
-    result, key_alias, model, usage = rewrite_cluster(
+    result, key_alias, model, usage, _review_report = rewrite_cluster(
         clean_db,
         RewriteSettings(),
         prompt_version,
