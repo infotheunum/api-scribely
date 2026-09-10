@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 import grpc
 from common.grpc_client import build_rewrite_channel, rewrite_stub
@@ -13,7 +14,7 @@ from db.app_settings import get_setting
 from db.enums import DraftRevisionKind
 from db.models import ClusterContext, Draft, NewsCluster
 from scribely.rewrite.v1 import rewrite_pb2
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from worker_app.dispatch.draft_apply import apply_rewrite_content
 from worker_app.filter.queue import select_top_clusters
@@ -25,11 +26,7 @@ logger = logging.getLogger(__name__)
 # live-observed against real OpenRouter) dwarfs the 60s poll tick that
 # this pipeline shares with ingestion/clustering/filtering — a small
 # per-tick cap keeps one dispatch burst from starving the rest of the
-# tick. There's no daily-published counter yet (queue.py's
-# select_top_clusters() docstring already flags this as a follow-up), so
-# the 100±10/day KPI (ТЗ §1) is only approximated for now via this cap
-# plus the already-has-draft filter below — real throughput tuning is
-# deferred past MVP.
+# tick. The daily cap is enforced separately against Draft.created_at.
 #
 # Set to 1 (not the originally-planned 3) for the first Railway deploy of
 # this dispatcher on purpose: worker had already accumulated ~140
@@ -41,10 +38,21 @@ logger = logging.getLogger(__name__)
 # default before `dispatch.batch_size` is ever seeded.
 DISPATCH_BATCH_SIZE = 1
 BATCH_SIZE_SETTING_KEY = "dispatch.batch_size"
+EDITORIAL_TIMEZONE = ZoneInfo("Europe/Minsk")
 
 
 def _already_drafted_cluster_ids(db: Session) -> set:
     return set(db.scalars(select(Draft.cluster_id)))
+
+
+def _drafts_created_today(db: Session, *, now: datetime | None = None) -> int:
+    now = now or datetime.now(UTC)
+    local_now = now.astimezone(EDITORIAL_TIMEZONE)
+    local_day_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_start = local_day_start.astimezone(UTC)
+    return int(
+        db.scalar(select(func.count()).select_from(Draft).where(Draft.created_at >= day_start)) or 0
+    )
 
 
 def _build_source_refs(cluster: NewsCluster) -> list[rewrite_pb2.SourceRef]:
@@ -140,9 +148,18 @@ def run_dispatch_cycle(db: Session, *, settings: WorkerSettings | None = None) -
     naturally retried next tick since select_top_clusters() only excludes
     clusters that already have a Draft."""
     settings = settings or WorkerSettings()
-    batch_size = get_setting(db, BATCH_SIZE_SETTING_KEY, DISPATCH_BATCH_SIZE)
+    batch_size = int(get_setting(db, BATCH_SIZE_SETTING_KEY, DISPATCH_BATCH_SIZE))
+    daily_limit = int(get_setting(db, "queue.daily_limit", 10))
+    remaining_today = max(0, daily_limit - _drafts_created_today(db))
+    if remaining_today == 0:
+        record_dispatch_cycle_result(db, dispatched=0, failed=0)
+        return {"dispatched": 0, "failed": 0}
     drafted_ids = _already_drafted_cluster_ids(db)
-    candidates = [c for c in select_top_clusters(db) if c.id not in drafted_ids][:batch_size]
+    candidates = select_top_clusters(
+        db,
+        limit=remaining_today,
+        exclude_cluster_ids=drafted_ids,
+    )[: min(batch_size, remaining_today)]
     if not candidates:
         record_dispatch_cycle_result(db, dispatched=0, failed=0)
         return {"dispatched": 0, "failed": 0}
