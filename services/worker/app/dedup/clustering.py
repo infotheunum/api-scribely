@@ -33,12 +33,14 @@ SIMILARITY_THRESHOLD_SETTING_KEY = "dedup.similarity_threshold"
 CLUSTER_PER_TICK_LIMIT_KEY = "dedup.cluster_per_tick_limit"
 DEFAULT_CLUSTER_PER_TICK_LIMIT = 20
 
-# Very close matches attach immediately. The broad lower threshold sends only
-# ambiguous candidates to the LLM, preventing both duplicate drafts and
-# accidental merges of merely related stories.
-AUTO_ATTACH_THRESHOLD = 0.85
-CONFIRMATION_THRESHOLD = 0.50
+# Only near-identical embeddings attach without a factual check.  Every other
+# plausible match is checked by rewrite before a new cluster can be created.
+# This favors withholding an ambiguous item over publishing the same event
+# twice under different wording.
+AUTO_ATTACH_THRESHOLD = 0.98
+CONFIRMATION_THRESHOLD = 0.45
 CONFIRMATION_THRESHOLD_SETTING_KEY = "dedup.confirmation_threshold"
+MAX_CONFIRMATION_CANDIDATES = 3
 
 
 def _cluster_per_tick_limit(db: Session) -> int:
@@ -111,20 +113,20 @@ def candidate_clusters(db: Session) -> list[NewsCluster]:
     )
 
 
-def _best_match(
+def _rank_matches(
     embedding: list[float], clusters: list[NewsCluster]
-) -> tuple[NewsCluster | None, float]:
-    best_cluster: NewsCluster | None = None
-    best_score = 0.0
+) -> list[tuple[NewsCluster, float]]:
+    """Return every plausible cluster, ordered by its strongest source match."""
+    matches: list[tuple[NewsCluster, float]] = []
     for cluster in clusters:
         embeddings = [cluster.embedding, *(item.embedding for item in cluster.raw_items)]
         score = max(
             (cosine_similarity(embedding, candidate) for candidate in embeddings if candidate),
             default=0.0,
         )
-        if score > best_score:
-            best_cluster, best_score = cluster, score
-    return best_cluster, best_score
+        if score:
+            matches.append((cluster, score))
+    return sorted(matches, key=lambda match: match[1], reverse=True)
 
 
 def _source_ref(item: RawItem) -> rewrite_pb2.SourceRef:
@@ -150,13 +152,15 @@ def _candidate_with_sources(db: Session, cluster_id) -> NewsCluster | None:
     )
 
 
-def confirm_duplicate_with_llm(db: Session, raw_item: RawItem, cluster: NewsCluster) -> bool:
+def confirm_duplicate_with_llm(
+    db: Session, raw_item: RawItem, cluster: NewsCluster
+) -> bool | None:
     """Ask rewrite to confirm a borderline semantic match conservatively."""
     from worker_app.settings import WorkerSettings
 
     cluster = _candidate_with_sources(db, cluster.id)
     if cluster is None:
-        return False
+        return None
     channel = build_rewrite_channel(WorkerSettings())
     try:
         response = rewrite_stub(channel).ConfirmDuplicate(
@@ -169,15 +173,15 @@ def confirm_duplicate_with_llm(db: Session, raw_item: RawItem, cluster: NewsClus
         )
         return response.same_event
     except grpc.RpcError as exc:
-        # A failed confirmation must never merge two possibly independent
-        # stories. The item will remain a separate cluster and can be reviewed.
+        # A failed confirmation must never turn a possible duplicate into a
+        # second draft. Leave the item unclustered for a later retry.
         logger.warning(
             "duplicate confirmation unavailable for raw_item %s / cluster %s: %s",
             raw_item.id,
             cluster.id,
             exc.details() or exc,
         )
-        return False
+        return None
     finally:
         channel.close()
 
@@ -202,8 +206,8 @@ def cluster_raw_item(
     *,
     similarity_threshold: float | None = None,
     confirmation_threshold: float | None = None,
-    confirm_duplicate: Callable[[RawItem, NewsCluster], bool] | None = None,
-) -> NewsCluster:
+    confirm_duplicate: Callable[[RawItem, NewsCluster], bool | None] | None = None,
+) -> NewsCluster | None:
     """Assign an item to an existing event or start a new event cluster."""
     if similarity_threshold is None:
         similarity_threshold = get_setting(
@@ -216,23 +220,42 @@ def cluster_raw_item(
             db, CONFIRMATION_THRESHOLD_SETTING_KEY, CONFIRMATION_THRESHOLD
         )
 
-    best_cluster, score = _best_match(raw_item.embedding, clusters)
-    confirmed = score >= AUTO_ATTACH_THRESHOLD
-    if (
-        best_cluster is not None
-        and not confirmed
-        and score >= confirmation_threshold
-    ):
+    matches = _rank_matches(raw_item.embedding, clusters)
+    for candidate, score in matches:
+        if score < similarity_threshold:
+            break
+        if score >= AUTO_ATTACH_THRESHOLD:
+            raw_item.cluster_id = candidate.id
+            logger.info(
+                "raw_item %s matched cluster %s (score=%.3f)", raw_item.id, candidate.id, score
+            )
+            return candidate
+
+    plausible = [
+        (candidate, score)
+        for candidate, score in matches
+        if score >= confirmation_threshold
+    ][:MAX_CONFIRMATION_CANDIDATES]
+    for candidate, score in plausible:
         if confirm_duplicate is not None:
-            confirmed = confirm_duplicate(raw_item, best_cluster)
+            decision = confirm_duplicate(raw_item, candidate)
         else:
-            confirmed = confirm_duplicate_with_llm(db, raw_item, best_cluster)
-    if best_cluster is not None and score >= similarity_threshold and confirmed:
-        raw_item.cluster_id = best_cluster.id
-        logger.info(
-            "raw_item %s matched cluster %s (score=%.3f)", raw_item.id, best_cluster.id, score
-        )
-        return best_cluster
+            decision = confirm_duplicate_with_llm(db, raw_item, candidate)
+        if decision is True:
+            raw_item.cluster_id = candidate.id
+            logger.info(
+                "raw_item %s confirmed as duplicate of cluster %s (score=%.3f)",
+                raw_item.id,
+                candidate.id,
+                score,
+            )
+            return candidate
+        if decision is None:
+            logger.warning(
+                "deferring raw_item %s: duplicate confirmation unavailable for plausible match",
+                raw_item.id,
+            )
+            return None
 
     new_cluster = NewsCluster(embedding=raw_item.embedding, trace_id=new_trace_id())
     db.add(new_cluster)
@@ -260,6 +283,8 @@ def run_clustering_cycle(db: Session) -> dict[str, int]:
         cluster = cluster_raw_item(
             db, raw_item, clusters, similarity_threshold=similarity_threshold
         )
+        if cluster is None:
+            continue
         if cluster.id in initial_cluster_ids:
             stats["attached"] += 1
         else:
