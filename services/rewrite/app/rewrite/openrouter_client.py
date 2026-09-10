@@ -34,7 +34,17 @@ def extract_json(content: str) -> dict:
     if not content or not content.strip():
         raise ValueError("empty LLM response content")
     cleaned = _JSON_FENCE.sub("", content.strip())
-    return json.loads(cleaned)
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError as exc:
+        # Some providers return a valid object followed by a one-line
+        # explanation even when JSON mode is requested.  The structured
+        # object is still complete; recover it instead of making duplicate
+        # confirmation fail and stalling the clustering queue.
+        decoded, _ = json.JSONDecoder().raw_decode(cleaned.lstrip())
+        if not isinstance(decoded, dict):
+            raise exc
+        return decoded
 
 
 def call_openrouter(
