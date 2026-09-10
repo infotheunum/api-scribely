@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import uuid
+import html
+import re
 from datetime import datetime
 
 from api_app.auth.dependencies import require_role
@@ -20,6 +22,18 @@ router = APIRouter(prefix="/drafts", tags=["drafts"])
 # What "the queue" means by default — everything else (DRAFTING, PUBLISHED,
 # REJECTED, ARCHIVED, SNOOZED) needs an explicit ?status= filter to view.
 DEFAULT_QUEUE_STATUSES = [DraftStatus.READY_FOR_REVIEW, DraftStatus.NEEDS_FIX]
+
+
+def _clean_source_body(value: str) -> str:
+    """Turn stored RSS/HTML into safe, readable paragraphs for review."""
+    value = re.sub(r"(?is)<(script|style).*?>.*?</\\1>", "", value or "")
+    value = re.sub(r"(?i)</?(?:p|div|section|article|li|h[1-6])[^>]*>", "\n\n", value)
+    value = re.sub(r"(?i)<br\\s*/?>", "\n", value)
+    value = re.sub(r"(?s)<[^>]+>", "", value)
+    value = html.unescape(value)
+    value = re.sub(r"[ \\t]+", " ", value)
+    value = re.sub(r"\\n[ \\t]*\\n(?:[ \\t]*\\n)+", "\n\n", value)
+    return value.strip()
 
 
 def _audit(db: Session, user: User, *, action: str, draft_id: uuid.UUID, details: dict) -> None:
@@ -102,6 +116,7 @@ class SourceRefOut(BaseModel):
     source_name: str
     body: str = ""
     is_full_text: bool = False
+    translation_ru: str = ""
 
 
 class PromptVersionOut(BaseModel):
@@ -147,6 +162,7 @@ class DraftDetail(DraftSummary):
     pending_category_slug: str | None
     pending_tags: list
     handoff_note: str | None
+    review_report: dict
     rewrite_llm_key_alias: str | None
     rewrite_llm_model: str | None
     llm_prompt_tokens: int = 0
@@ -158,14 +174,20 @@ class DraftDetail(DraftSummary):
     @classmethod
     def from_model(cls, draft: Draft) -> DraftDetail:
         summary = DraftSummary.from_model(draft)
+        translations = {
+            item.get("title"): item.get("body_ru", "")
+            for item in (draft.review_report or {}).get("translations", [])
+            if isinstance(item, dict) and isinstance(item.get("title"), str)
+        }
         sources = [
             SourceRefOut(
                 title=item.title,
                 url=item.url,
                 language=item.language,
                 source_name=item.source.name if item.source else "",
-                body=item.body or "",
+                body=_clean_source_body(item.body or ""),
                 is_full_text=bool(item.is_full_text),
+                translation_ru=translations.get(item.title, ""),
             )
             for item in (draft.cluster.raw_items if draft.cluster else [])
         ]
@@ -205,6 +227,7 @@ class DraftDetail(DraftSummary):
             pending_category_slug=draft.pending_category_slug,
             pending_tags=draft.pending_tags,
             handoff_note=draft.handoff_note,
+            review_report=draft.review_report or {},
             rewrite_llm_key_alias=draft.rewrite_llm_key_alias,
             rewrite_llm_model=draft.rewrite_llm_model,
             llm_prompt_tokens=int(draft.llm_prompt_tokens or 0),

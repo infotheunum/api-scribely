@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+import json
 from datetime import UTC, datetime
 
 from common.site_categories import resolve_site_category_slug
@@ -35,6 +36,11 @@ def apply_rewrite_content(
     draft.title_en_variants = list(content.title_en_variants)
     draft.title_ru_variants = list(content.title_ru_variants)
     draft.attribution_urls = list(content.attribution_urls)
+    try:
+        review_report = json.loads(content.review_report_json or "{}")
+    except (TypeError, ValueError):
+        review_report = {}
+    draft.review_report = review_report if isinstance(review_report, dict) else {}
     draft.sponsor_flag = content.sponsor_flag
     draft.press_release_flag = content.press_release_flag
     draft.disclaimer_flag = content.disclaimer_flag

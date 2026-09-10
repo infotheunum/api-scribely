@@ -59,7 +59,7 @@ def test_real_end_to_end_enrich_and_rewrite(clean_db):
         f"market_sensitive={enrich_result.market_sensitive}"
     )
 
-    result, key_alias, model, rewrite_usage = rewrite_cluster(
+    result, key_alias, model, rewrite_usage, _review_report = rewrite_cluster(
         clean_db,
         settings,
         prompt_version,

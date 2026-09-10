@@ -123,6 +123,9 @@ message DraftContent {
   SeoPack seo_en = 16;
   SeoPack seo_ru = 17;
   ImageBrief image_brief = 18;
+  // JSON report produced by the final source-grounded review.  It is kept
+  // with the draft so the editorial UI never needs to re-run an LLM call.
+  string review_report_json = 19;
 }
 
 // Which OpenRouter/Anthropic/OpenAI key/model actually served a call —

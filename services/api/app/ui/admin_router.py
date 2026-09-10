@@ -16,6 +16,7 @@ from common.integration_export_settings import load_export_defaults, save_export
 from common.rewrite_output_locales import get_output_locales, set_output_locales
 from db.enums import PromptVersionStatus, SourceTier
 from db.models import PromptVersion, User
+from db.app_settings import get_setting, set_setting
 from fastapi import APIRouter, Depends, Form, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -273,6 +274,7 @@ def settings_page(
     export_defaults = load_export_defaults(db)
     output_locales = get_output_locales(db)
     generation_hours = generation_hours_as_dict(load_generation_hours(db))
+    translate_originals = bool(get_setting(db, "review.translate_originals.enabled", False))
     return templates.TemplateResponse(
         request,
         "admin_settings.html",
@@ -291,6 +293,7 @@ def settings_page(
             "output_locale_ru": "ru" in output_locales,
             "output_locale_en": "en" in output_locales,
             "generation_hours": generation_hours,
+            "translate_originals": translate_originals,
         },
     )
 
@@ -370,6 +373,26 @@ def upsert_output_locales_ui(
     if locale_en:
         selected.append("en")
     set_output_locales(db, selected, updated_by=user.id if user else None)
+    db.commit()
+    return RedirectResponse("/ui/admin/settings", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/settings/review-source-translation")
+def upsert_review_source_translation_ui(
+    enabled: str | None = Form(None),
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
+    redirect = _require_admin(user)
+    if redirect:
+        return redirect
+    set_setting(
+        db,
+        "review.translate_originals.enabled",
+        bool(enabled),
+        description="Generate Russian translations of source articles for editorial review.",
+        updated_by=user.id if user else None,
+    )
     db.commit()
     return RedirectResponse("/ui/admin/settings", status_code=status.HTTP_303_SEE_OTHER)
 

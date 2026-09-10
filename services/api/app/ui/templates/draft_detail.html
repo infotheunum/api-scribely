@@ -127,7 +127,7 @@
 </div>
 
 <div class="card">
-  <h2>Источники кластера</h2>
+  <h2>Оригиналы и перевод для ревью</h2>
   <ul class="source-list">
     {% for s in draft.sources %}
     <li>
@@ -135,13 +135,29 @@
       {% if s.is_full_text %}<span class="note">полный текст</span>{% else %}<span class="note">excerpt / RSS</span>{% endif %}
       — <a href="{{ s.url }}" target="_blank" rel="noopener">{{ s.title }}</a>
       {% if s.body %}
+      <div class="note" style="margin-top:8px;">Оригинал без HTML-разметки</div>
       <pre class="source-body" style="white-space:pre-wrap;max-height:240px;overflow:auto;margin:8px 0 16px;padding:8px;background:#f6f6f6;border-radius:4px;font-size:13px;">{{ s.body }}</pre>
+      {% endif %}
+      {% if s.translation_ru %}
+      <div class="note">Перевод на русский</div>
+      <pre class="source-body" style="white-space:pre-wrap;max-height:240px;overflow:auto;margin:8px 0 16px;padding:8px;background:#f6f6f6;border-radius:4px;font-size:13px;">{{ s.translation_ru }}</pre>
       {% endif %}
     </li>
     {% endfor %}
   </ul>
   <div class="note">Атрибуция: {{ draft.attribution_urls|join(', ') }}</div>
 </div>
+
+{% if draft.review_report.fact_checks %}
+<div class="card">
+  <h2>Сверка оригиналов с рерайтом</h2>
+  <table class="admin"><thead><tr><th>Факт из оригинала</th><th>В рерайте</th><th>Статус</th></tr></thead><tbody>
+  {% for check in draft.review_report.fact_checks if check is mapping %}
+    <tr><td>{{ check.fact or '—' }}</td><td>{{ check.rewrite_evidence or '—' }}</td><td>{{ check.status or '—' }}</td></tr>
+  {% endfor %}
+  </tbody></table>
+</div>
+{% endif %}
 
 <div class="actions">
   <button class="btn btn-primary" type="submit">Сохранить</button>
