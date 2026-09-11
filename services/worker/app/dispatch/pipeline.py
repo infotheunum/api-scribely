@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from threading import Lock
 from zoneinfo import ZoneInfo
 
 import grpc
@@ -41,6 +42,16 @@ DISPATCH_BATCH_SIZE = 1
 BATCH_SIZE_SETTING_KEY = "dispatch.batch_size"
 EDITORIAL_TIMEZONE = ZoneInfo("Europe/Minsk")
 SHORT_REWRITE_BLOCKLIST_SETTING_KEY = "dispatch.short_rewrite_blocklist"
+FAILED_QUEUE_SETTING_KEY = "dispatch.failed_cluster_queue"
+FAILED_QUEUE_DEFER_HOURS = 6
+TARGET_PER_HOUR_SETTING_KEY = "dispatch.target_per_hour"
+DEFAULT_TARGET_PER_HOUR = 18
+
+# The Railway worker is a single replica.  Three APScheduler dispatch jobs
+# share this process; reserve a cluster while its slow LLM call is in flight
+# so simultaneous ticks cannot generate the same draft twice.
+_IN_FLIGHT_CLUSTER_IDS: set[uuid.UUID] = set()
+_IN_FLIGHT_CLUSTER_IDS_LOCK = Lock()
 
 
 def _already_drafted_cluster_ids(db: Session) -> set:
@@ -58,6 +69,46 @@ def _short_rewrite_blocklist(db: Session) -> set[uuid.UUID]:
         except (AttributeError, TypeError, ValueError):
             logger.warning("ignoring malformed short-rewrite blocklist id: %r", cluster_id)
     return blocked
+
+
+def _deferred_cluster_ids(db: Session, *, now: datetime) -> set[uuid.UUID]:
+    raw = get_setting(db, FAILED_QUEUE_SETTING_KEY, {})
+    if not isinstance(raw, dict):
+        return set()
+    deferred: set[uuid.UUID] = set()
+    for value in raw.values():
+        if not isinstance(value, dict):
+            continue
+        try:
+            cluster_id = uuid.UUID(str(value["cluster_id"]))
+            retry_after = datetime.fromisoformat(str(value["retry_after"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if retry_after > now:
+            deferred.add(cluster_id)
+    return deferred
+
+
+def _record_failed_cluster(db: Session, cluster_id: uuid.UUID, details: str) -> None:
+    raw = get_setting(db, FAILED_QUEUE_SETTING_KEY, {})
+    queue = raw if isinstance(raw, dict) else {}
+    key = str(cluster_id)
+    previous = queue.get(key, {}) if isinstance(queue.get(key), dict) else {}
+    failures = int(previous.get("failures", 0)) + 1
+    now = datetime.now(UTC)
+    retry_after = now if failures < 2 else now + timedelta(hours=FAILED_QUEUE_DEFER_HOURS)
+    queue[key] = {
+        "cluster_id": key,
+        "failures": failures,
+        "retry_after": retry_after.isoformat(),
+        "last_error": details[:800],
+    }
+    set_setting(
+        db,
+        FAILED_QUEUE_SETTING_KEY,
+        queue,
+        description="Clusters deferred for six hours after two failed rewrite attempts.",
+    )
 
 
 def _block_short_rewrite(db: Session, cluster_id) -> None:
@@ -80,6 +131,33 @@ def _drafts_created_today(db: Session, *, now: datetime | None = None) -> int:
     return int(
         db.scalar(select(func.count()).select_from(Draft).where(Draft.created_at >= day_start)) or 0
     )
+
+
+def _drafts_created_this_hour(db: Session, *, now: datetime | None = None) -> int:
+    now = now or datetime.now(UTC)
+    hour_start = now.replace(minute=0, second=0, microsecond=0)
+    return int(
+        db.scalar(select(func.count()).select_from(Draft).where(Draft.created_at >= hour_start))
+        or 0
+    )
+
+
+def _reserve_candidates(candidates: list[NewsCluster], *, limit: int) -> list[NewsCluster]:
+    reserved: list[NewsCluster] = []
+    with _IN_FLIGHT_CLUSTER_IDS_LOCK:
+        for cluster in candidates:
+            if cluster.id in _IN_FLIGHT_CLUSTER_IDS:
+                continue
+            _IN_FLIGHT_CLUSTER_IDS.add(cluster.id)
+            reserved.append(cluster)
+            if len(reserved) == limit:
+                break
+    return reserved
+
+
+def _release_candidate(cluster_id: uuid.UUID) -> None:
+    with _IN_FLIGHT_CLUSTER_IDS_LOCK:
+        _IN_FLIGHT_CLUSTER_IDS.discard(cluster_id)
 
 
 def _build_source_refs(cluster: NewsCluster) -> list[rewrite_pb2.SourceRef]:
@@ -170,24 +248,35 @@ def run_dispatch_cycle(db: Session, *, settings: WorkerSettings | None = None) -
     §4.3) get Enriched then Rewritten via scribely-rewrite over gRPC, and
     the result becomes a real Draft + its first DraftRevision (ТЗ
     §4.4-§4.13, §4.20). A dead-lettered cluster (AllKeysExhaustedError or
-    MAX_ATTEMPTS exhausted server-side) surfaces here as a gRPC error —
-    this loop just logs it and leaves the cluster undrafted, so it's
-    naturally retried next tick since select_top_clusters() only excludes
-    clusters that already have a Draft."""
+    MAX_ATTEMPTS exhausted server-side) surfaces here as a gRPC error. A
+    second failed attempt defers that cluster for six hours so one bad item
+    cannot consume every minute of dispatch capacity."""
     settings = settings or WorkerSettings()
-    batch_size = int(get_setting(db, BATCH_SIZE_SETTING_KEY, DISPATCH_BATCH_SIZE))
+    batch_size = max(1, int(get_setting(db, BATCH_SIZE_SETTING_KEY, DISPATCH_BATCH_SIZE)))
     daily_limit = int(get_setting(db, "queue.daily_limit", 100))
     remaining_today = max(0, daily_limit - _drafts_created_today(db))
-    if remaining_today == 0:
+    target_per_hour = max(
+        1, int(get_setting(db, TARGET_PER_HOUR_SETTING_KEY, DEFAULT_TARGET_PER_HOUR))
+    )
+    remaining_this_hour = max(0, target_per_hour - _drafts_created_this_hour(db))
+    if remaining_today == 0 or remaining_this_hour == 0:
         record_dispatch_cycle_result(db, dispatched=0, failed=0)
         return {"dispatched": 0, "failed": 0}
     drafted_ids = _already_drafted_cluster_ids(db)
-    excluded_ids = drafted_ids | _short_rewrite_blocklist(db)
+    excluded_ids = drafted_ids | _short_rewrite_blocklist(db) | _deferred_cluster_ids(
+        db, now=datetime.now(UTC)
+    )
     candidates = select_top_clusters(
         db,
-        limit=remaining_today,
+        # Request enough rows to find a non-reserved candidate when the
+        # other two dispatch jobs are already working on the top priority.
+        limit=min(remaining_today, remaining_this_hour),
         exclude_cluster_ids=excluded_ids,
-    )[: min(batch_size, remaining_today)]
+    )
+    candidates = _reserve_candidates(
+        candidates,
+        limit=min(batch_size, remaining_today, remaining_this_hour),
+    )
     if not candidates:
         record_dispatch_cycle_result(db, dispatched=0, failed=0)
         return {"dispatched": 0, "failed": 0}
@@ -239,8 +328,14 @@ def run_dispatch_cycle(db: Session, *, settings: WorkerSettings | None = None) -
                 )
                 if "body_en must be at least" in details or "body_ru must be at least" in details:
                     _block_short_rewrite(db, cluster.id)
+                _record_failed_cluster(db, cluster.id, details)
                 failed += 1
+            finally:
+                _release_candidate(cluster.id)
     finally:
+        # A defensive release for exceptions outside a single RPC handler.
+        for cluster in candidates:
+            _release_candidate(cluster.id)
         channel.close()
 
     record_dispatch_cycle_result(
