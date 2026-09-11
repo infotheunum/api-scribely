@@ -315,9 +315,10 @@ def list_drafts(
         .order_by(Draft.created_at.desc())
     ).all()
     summaries = [DraftSummary.from_model(d) for d in drafts]
-    # needs_attention first, newest-first within each group — fresh AI
-    # drafts must not sit under a month-old needs_fix backlog.
-    summaries.sort(key=lambda s: (0 if s.needs_attention else 1, -s.created_at.timestamp()))
+    # The review queue is chronological: a fresh draft must never be hidden
+    # below an older flagged backlog. Attention is already visible as a row
+    # marker and can be filtered in the editor workflow.
+    summaries.sort(key=lambda s: -s.created_at.timestamp())
     return summaries
 
 
