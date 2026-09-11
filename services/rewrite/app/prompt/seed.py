@@ -1,4 +1,4 @@
-"""Seed and activate the current factory PromptVersion.
+"""Seed the factory PromptVersion without overriding editorial configuration.
 
 Run from the rewrite service before it starts serving gRPC. This is the only
 production upgrade path for a shipped house prompt: reading a prompt never
@@ -16,6 +16,14 @@ from sqlalchemy import select
 
 
 def seed(db) -> PromptVersion:
+    # The Admin-selected prompt is the source of truth. A service restart must
+    # never silently retire it and resurrect the factory v6 template.
+    active = db.scalar(
+        select(PromptVersion).where(PromptVersion.status == PromptVersionStatus.ACTIVE)
+    )
+    if active is not None:
+        return active
+
     version = db.scalar(select(PromptVersion).where(PromptVersion.notes == PROMPT_V6_NOTES))
     if version is None:
         version = PromptVersion(
@@ -26,11 +34,6 @@ def seed(db) -> PromptVersion:
         db.add(version)
         db.flush()
 
-    for active in db.scalars(
-        select(PromptVersion).where(PromptVersion.status == PromptVersionStatus.ACTIVE)
-    ):
-        if active.id != version.id:
-            active.status = PromptVersionStatus.RETIRED
     version.template = SYSTEM_PROMPT
     version.status = PromptVersionStatus.ACTIVE
     db.commit()

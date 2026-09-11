@@ -39,7 +39,7 @@ def test_existing_active_prompt_is_not_changed_at_runtime(clean_db):
     assert version.status == PromptVersionStatus.ACTIVE
 
 
-def test_seed_activates_v6_and_is_idempotent(clean_db):
+def test_seed_preserves_existing_active_prompt_and_is_idempotent(clean_db):
     old = PromptVersion(template="old", status=PromptVersionStatus.ACTIVE, notes="v5")
     clean_db.add(old)
     clean_db.commit()
@@ -49,10 +49,17 @@ def test_seed_activates_v6_and_is_idempotent(clean_db):
 
     assert first.id == second.id
     assert second.status == PromptVersionStatus.ACTIVE
-    assert second.notes == PROMPT_V6_NOTES
-    assert clean_db.query(PromptVersion).filter_by(notes=PROMPT_V6_NOTES).count() == 1
+    assert second.notes == "v5"
+    assert clean_db.query(PromptVersion).filter_by(notes=PROMPT_V6_NOTES).count() == 0
     clean_db.refresh(old)
-    assert old.status == PromptVersionStatus.RETIRED
+    assert old.status == PromptVersionStatus.ACTIVE
+
+
+def test_seed_bootstraps_v6_only_when_no_prompt_is_active(clean_db):
+    version = seed(clean_db)
+
+    assert version.status == PromptVersionStatus.ACTIVE
+    assert version.notes == PROMPT_V6_NOTES
 
 
 def test_custom_admin_prompt_not_auto_upgraded(clean_db):
