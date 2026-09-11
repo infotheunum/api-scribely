@@ -213,6 +213,7 @@ def rewrite_cluster(
                     db,
                     settings,
                     sources_text=sources_text,
+                    required_facts_text=facts_text,
                     rewritten_text=_reviewable_rewrite_text(result),
                     translate_sources=bool(get_setting(db, "review.translate_originals.enabled", False)),
                 )

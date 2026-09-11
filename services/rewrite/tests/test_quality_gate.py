@@ -7,13 +7,20 @@ from rewrite_app.rewrite.quality_gate import review_rewrite
 from rewrite_app.settings import RewriteSettings
 
 
-def _review_payload(*, approved: bool, fact_checks: list[dict], language_issues: list[str] | None = None):
+def _review_payload(
+    *,
+    approved: bool,
+    fact_checks: list[dict],
+    language_issues: list[str] | None = None,
+    required_fact_checks: list[dict] | None = None,
+):
     return json.dumps(
         {
             "approved": approved,
             "issues": [],
             "language_issues": language_issues or [],
             "fact_checks": fact_checks,
+            "required_fact_checks": required_fact_checks or [],
             "translations": [],
         }
     )
@@ -45,6 +52,7 @@ def test_quality_gate_rejects_inconsistent_approved_verdict_for_distortion(clean
         clean_db,
         RewriteSettings(),
         sources_text="original",
+        required_facts_text="(нет)",
         rewritten_text="rewrite",
         translate_sources=False,
     )
@@ -77,6 +85,7 @@ def test_quality_gate_rejects_language_errors_even_when_model_approves(clean_db,
         clean_db,
         RewriteSettings(),
         sources_text="original",
+        required_facts_text="(нет)",
         rewritten_text="rewrite",
         translate_sources=False,
     )
@@ -108,6 +117,7 @@ def test_quality_gate_ignores_no_errors_prose_in_language_issue_array(clean_db, 
         clean_db,
         RewriteSettings(),
         sources_text="original",
+        required_facts_text="(нет)",
         rewritten_text="rewrite",
         translate_sources=False,
     )
@@ -139,9 +149,41 @@ def test_quality_gate_allows_omission_even_when_model_marks_it_critical(clean_db
         clean_db,
         RewriteSettings(),
         sources_text="original",
+        required_facts_text="(нет)",
         rewritten_text="rewrite",
         translate_sources=False,
     )
 
     assert approved is True
     assert issues == []
+
+
+def test_quality_gate_rejects_missing_required_fact(clean_db, monkeypatch):
+    monkeypatch.setattr(
+        "rewrite_app.rewrite.quality_gate.call_with_rotation",
+        _fake_response(
+            _review_payload(
+                approved=True,
+                fact_checks=[],
+                required_fact_checks=[
+                    {
+                        "required_fact": "- [number] IPO привлекло заявки в 6 000 раз выше объема акций",
+                        "status": "упущен",
+                        "rewrite_evidence": "",
+                    }
+                ],
+            )
+        ),
+    )
+
+    approved, issues, *_ = review_rewrite(
+        clean_db,
+        RewriteSettings(),
+        sources_text="original",
+        required_facts_text="- [number] IPO привлекло заявки в 6 000 раз выше объема акций",
+        rewritten_text="rewrite",
+        translate_sources=False,
+    )
+
+    assert approved is False
+    assert any("обязательный факт упущен" in issue for issue in issues)
