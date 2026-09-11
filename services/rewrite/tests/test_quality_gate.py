@@ -85,6 +85,38 @@ def test_quality_gate_rejects_language_errors_even_when_model_approves(clean_db,
     assert issues == ["«индивидуальная потолок» — ошибка согласования"]
 
 
+def test_quality_gate_ignores_no_errors_prose_in_language_issue_array(clean_db, monkeypatch):
+    monkeypatch.setattr(
+        "rewrite_app.rewrite.quality_gate.call_with_rotation",
+        _fake_response(
+            _review_payload(
+                approved=False,
+                fact_checks=[
+                    {
+                        "fact": "компания запустила рынок",
+                        "status": "совпадает",
+                        "severity": "critical",
+                        "rewrite_evidence": "рынок запущен",
+                    }
+                ],
+                language_issues=["Нет ошибок перевода, грамматики или неуместных англицизмов."],
+            )
+        ),
+    )
+
+    approved, issues, report, *_ = review_rewrite(
+        clean_db,
+        RewriteSettings(),
+        sources_text="original",
+        rewritten_text="rewrite",
+        translate_sources=False,
+    )
+
+    assert approved is True
+    assert issues == []
+    assert report["language_issues"] == []
+
+
 def test_quality_gate_allows_omission_even_when_model_marks_it_critical(clean_db, monkeypatch):
     monkeypatch.setattr(
         "rewrite_app.rewrite.quality_gate.call_with_rotation",

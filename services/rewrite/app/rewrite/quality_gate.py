@@ -24,7 +24,9 @@ SYSTEM_PROMPT = """Ты — строгий фактчекер и литерат�
  "blocking_issues": ["инвестиционная рекомендация, URL, источник или политическая оценка"],
  "fact_checks": [{"fact": "ключевой факт из оригинала", "status": "совпадает|упущен|искажён|добавлено", "severity": "critical|secondary", "rewrite_evidence": "как передано в рерайте"}],
  "translations": [{"title": "точный заголовок исходника", "body_ru": "полный перевод на русский"}]}.
-Поле translations заполняй только когда в запросе явно включён перевод."""
+Если ошибок нет, language_issues и blocking_issues должны быть пустыми массивами:
+не пиши в них фразы «нет ошибок» или другие пояснения. Поле translations
+заполняй только когда в запросе явно включён перевод."""
 
 _BLOCKING_FACT_STATUSES = {"искажен", "добавлено"}
 
@@ -37,6 +39,23 @@ def _string_list(value: object, *, field: str) -> list[str]:
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise ValueError(f"quality gate returned invalid {field}")
     return [item.strip() for item in value if item.strip()]
+
+
+def _actual_findings(items: list[str]) -> list[str]:
+    """Ignore a common LLM schema violation: prose saying that no errors exist."""
+    no_finding_prefixes = (
+        "нет ошибок",
+        "ошибок нет",
+        "не выявлено",
+        "отсутствуют ошибки",
+        "нарушений нет",
+        "нет нарушений",
+    )
+    return [
+        item
+        for item in items
+        if not item.lower().lstrip("«\"' ").startswith(no_finding_prefixes)
+    ]
 
 
 def _deterministic_review_issues(
@@ -75,7 +94,9 @@ def review_rewrite(
     if not isinstance(data.get("approved"), bool):
         raise ValueError("quality gate did not return approved boolean")
     issues = _string_list(data.get("issues", []), field="issues")
-    language_issues = _string_list(data.get("language_issues", []), field="language_issues")
+    language_issues = _actual_findings(
+        _string_list(data.get("language_issues", []), field="language_issues")
+    )
     blocking_issues = _string_list(data.get("blocking_issues", []), field="blocking_issues")
     fact_checks = data.get("fact_checks", [])
     translations = data.get("translations", [])
