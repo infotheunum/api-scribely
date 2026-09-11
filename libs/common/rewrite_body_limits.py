@@ -9,10 +9,10 @@ target band.
 # Hard accept/reject floor (schemas + regenerate filter).
 # Articles shorter than this are not eligible for review. The retry path
 # must move on to another cluster rather than accept thin content.
-BODY_MIN_CHARS = 2500
+BODY_MIN_CHARS = 1700
 
 # Aspiration in prompts (models aim here; not a second hard gate).
-BODY_TARGET_MIN = 2500
+BODY_TARGET_MIN = 2000
 BODY_TARGET_MAX = 3200
 
 # Soft upper guidance in prompts only — over-length is NOT rejected.
