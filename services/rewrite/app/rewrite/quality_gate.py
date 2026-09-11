@@ -10,18 +10,18 @@ SYSTEM_PROMPT = """Ты — строгий фактчекер и литерат�
 оценочного политического контекста, ошибок перевода, грамматики и неуместных
 англицизмов в русской версии.
 
-Для каждого fact_checks укажи severity: critical, если упущение или ошибка
-меняет смысл новости, касается главного события, цифры, даты, имени, должности
-или причинно-следственной связи; secondary — только для второстепенной детали.
-Никогда не ставь approved=true, если status «искажён» или «добавлено», либо
-если status «упущен» и severity=critical. Никогда не ставь approved=true при
+Упущения фиксируй в fact_checks, но НЕ отклоняй материал только из-за них:
+текст ограничен по объему и не обязан повторять все детали длинного источника.
+Никогда не ставь approved=true, если status «искажён» или «добавлено», при
 любой реальной ошибке перевода, орфографии, грамматики или при англицизме,
 который не является официальным названием, именем, тикером или аббревиатурой.
-Не придирайся к синонимам и допустимым второстепенным упущениям.
+Также не одобряй инвестиционные рекомендации, URL/несогласованную атрибуцию и
+оценочный политический контекст. Не придирайся к синонимам.
 
 Верни строго JSON:
 {"approved": true|false, "issues": ["конкретная проблема и точная правка"],
  "language_issues": ["ошибка перевода, грамматики или неуместный англицизм"],
+ "blocking_issues": ["инвестиционная рекомендация, URL, источник или политическая оценка"],
  "fact_checks": [{"fact": "ключевой факт из оригинала", "status": "совпадает|упущен|искажён|добавлено", "severity": "critical|secondary", "rewrite_evidence": "как передано в рерайте"}],
  "translations": [{"title": "точный заголовок исходника", "body_ru": "полный перевод на русский"}]}.
 Поле translations заполняй только когда в запросе явно включён перевод."""
@@ -40,21 +40,17 @@ def _string_list(value: object, *, field: str) -> list[str]:
 
 
 def _deterministic_review_issues(
-    *, fact_checks: list[object], language_issues: list[str]
+    *, fact_checks: list[object], language_issues: list[str], blocking_issues: list[str]
 ) -> list[str]:
     """Do not let an internally inconsistent LLM verdict publish bad copy."""
-    blocked = list(language_issues)
+    blocked = [*language_issues, *blocking_issues]
     for item in fact_checks:
         if not isinstance(item, dict):
             raise ValueError("quality gate returned invalid fact_checks")
         status = _normalized_status(item.get("status"))
-        # A missing severity is not a safe declaration that an omission is minor.
-        severity = str(item.get("severity") or "critical").strip().lower()
         fact = str(item.get("fact") or "ключевой факт").strip()
         if status in _BLOCKING_FACT_STATUSES:
             blocked.append(f"{fact}: статус «{item.get('status')}»")
-        elif status == "упущен" and severity == "critical":
-            blocked.append(f"{fact}: критически упущен")
     return blocked
 
 
@@ -80,20 +76,27 @@ def review_rewrite(
         raise ValueError("quality gate did not return approved boolean")
     issues = _string_list(data.get("issues", []), field="issues")
     language_issues = _string_list(data.get("language_issues", []), field="language_issues")
+    blocking_issues = _string_list(data.get("blocking_issues", []), field="blocking_issues")
     fact_checks = data.get("fact_checks", [])
     translations = data.get("translations", [])
     if not isinstance(fact_checks, list) or not isinstance(translations, list):
         raise ValueError("quality gate returned invalid review report")
     deterministic_issues = _deterministic_review_issues(
-        fact_checks=fact_checks, language_issues=language_issues
+        fact_checks=fact_checks,
+        language_issues=language_issues,
+        blocking_issues=blocking_issues,
     )
     report = {
         "fact_checks": fact_checks,
         "language_issues": language_issues,
+        "blocking_issues": blocking_issues,
         "translations": translations if translate_sources else [],
     }
     return (
-        data["approved"] and not deterministic_issues,
+        # Model verdicts frequently mark every omitted detail from a long source
+        # as critical. Only concrete, machine-enforced blocking findings stop a
+        # draft; omissions remain visible to the editor in the review report.
+        not deterministic_issues,
         [*issues, *deterministic_issues],
         report,
         key_alias,

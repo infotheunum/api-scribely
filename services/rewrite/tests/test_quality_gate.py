@@ -85,7 +85,7 @@ def test_quality_gate_rejects_language_errors_even_when_model_approves(clean_db,
     assert issues == ["«индивидуальная потолок» — ошибка согласования"]
 
 
-def test_quality_gate_allows_secondary_omission(clean_db, monkeypatch):
+def test_quality_gate_allows_omission_even_when_model_marks_it_critical(clean_db, monkeypatch):
     monkeypatch.setattr(
         "rewrite_app.rewrite.quality_gate.call_with_rotation",
         _fake_response(
@@ -95,7 +95,7 @@ def test_quality_gate_allows_secondary_omission(clean_db, monkeypatch):
                     {
                         "fact": "второстепенная деталь",
                         "status": "упущен",
-                        "severity": "secondary",
+                        "severity": "critical",
                         "rewrite_evidence": "",
                     }
                 ],
