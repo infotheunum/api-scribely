@@ -87,16 +87,25 @@ def test_list_drafts_defaults_to_ready_and_needs_fix(client, test_user, clean_db
     assert ids == {str(ready.id), str(needs_fix.id)}
 
 
-def test_list_drafts_sorts_flagged_first(client, test_user, clean_db):
+def test_list_drafts_sorts_newest_first_even_when_older_draft_is_flagged(
+    client, test_user, clean_db
+):
+    from datetime import UTC, datetime, timedelta
+
     source = _source(clean_db)
     cluster1 = _cluster(clean_db, source)
     cluster2 = _cluster(clean_db, source)
-    clean = _draft(clean_db, cluster1, status=DraftStatus.READY_FOR_REVIEW)
-    flagged = _draft(clean_db, cluster2, status=DraftStatus.READY_FOR_REVIEW, sensitive_hold=True)
+    newer = _draft(clean_db, cluster1, status=DraftStatus.READY_FOR_REVIEW)
+    older_flagged = _draft(
+        clean_db, cluster2, status=DraftStatus.READY_FOR_REVIEW, sensitive_hold=True
+    )
+    newer.created_at = datetime.now(UTC)
+    older_flagged.created_at = datetime.now(UTC) - timedelta(days=7)
+    clean_db.commit()
 
     resp = client.get("/drafts", headers=_auth_headers(client, test_user))
     ids_in_order = [d["id"] for d in resp.json()]
-    assert ids_in_order.index(str(flagged.id)) < ids_in_order.index(str(clean.id))
+    assert ids_in_order.index(str(newer.id)) < ids_in_order.index(str(older_flagged.id))
 
 
 def test_list_drafts_sorts_newest_first_within_group(client, test_user, clean_db):
