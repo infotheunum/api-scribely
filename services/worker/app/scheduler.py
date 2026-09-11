@@ -60,7 +60,6 @@ def _run_cluster_tick() -> None:
 
 def _run_poll_tick() -> None:
     from worker_app.compliance.pipeline import run_compliance_cycle
-    from worker_app.dispatch.pipeline import run_dispatch_cycle
     from worker_app.filter.pipeline import run_filter_cycle
     from worker_app.ingestion.poller import poll_due_sources
     from worker_app.lifecycle.archival import run_archival_cycle
@@ -86,19 +85,6 @@ def _run_poll_tick() -> None:
                 logger.info("filter tick: %s", stats)
     except Exception:
         logger.exception("filter tick failed unexpectedly")
-    finally:
-        session.close()
-
-    # Enrich+Rewrite dispatch runs once per poll tick. The dispatcher itself
-    # limits each run to its configured batch size.
-    session = new_session()
-    try:
-        if _stage_enabled(session, "dispatch"):
-            stats = run_dispatch_cycle(session)
-            if stats["dispatched"] or stats["failed"]:
-                logger.info("dispatch tick: %s", stats)
-    except Exception:
-        logger.exception("dispatch tick failed unexpectedly")
     finally:
         session.close()
 
@@ -131,6 +117,22 @@ def _run_poll_tick() -> None:
         session.close()
 
 
+def _run_dispatch_tick() -> None:
+    """Keep slow LLM calls independent from RSS polling and classification."""
+    from worker_app.dispatch.pipeline import run_dispatch_cycle
+
+    session = new_session()
+    try:
+        if _stage_enabled(session, "dispatch"):
+            stats = run_dispatch_cycle(session)
+            if stats["dispatched"] or stats["failed"]:
+                logger.info("dispatch tick: %s", stats)
+    except Exception:
+        logger.exception("dispatch tick failed unexpectedly")
+    finally:
+        session.close()
+
+
 def _run_categories_sync_tick() -> None:
     from worker_app.sync.theunum_categories import run_theunum_categories_sync_if_due
 
@@ -154,6 +156,14 @@ def build_scheduler() -> BackgroundScheduler:
         seconds=POLL_TICK_SECONDS,
         id="cluster_dedup",
         max_instances=1,
+    )
+    scheduler.add_job(
+        _run_dispatch_tick,
+        "interval",
+        seconds=POLL_TICK_SECONDS,
+        id="rewrite_dispatch",
+        max_instances=3,
+        coalesce=True,
     )
     scheduler.add_job(
         _run_categories_sync_tick,

@@ -7,7 +7,12 @@ from db.app_settings import set_setting
 from db.enums import DraftStatus, SourceTier, SourceType, TopicStatus
 from db.models import AppSetting, ClusterContext, Draft, DraftRevision, NewsCluster, RawItem, Source
 from scribely.rewrite.v1 import rewrite_pb2
-from worker_app.dispatch.pipeline import DISPATCH_BATCH_SIZE, run_dispatch_cycle
+from worker_app.dispatch.pipeline import (
+    DISPATCH_BATCH_SIZE,
+    FAILED_QUEUE_SETTING_KEY,
+    TARGET_PER_HOUR_SETTING_KEY,
+    run_dispatch_cycle,
+)
 
 
 def _source(db, name="s") -> Source:
@@ -163,6 +168,23 @@ def test_dispatch_leaves_cluster_undrafted_on_rpc_failure(clean_db):
     assert clean_db.query(Draft).count() == 0
 
 
+def test_dispatch_defers_cluster_after_second_rpc_failure(clean_db):
+    cluster = _cluster(clean_db, _source(clean_db))
+    error = grpc.RpcError()
+    error.code = lambda: grpc.StatusCode.UNAVAILABLE
+    error.details = lambda: "rewrite provider unavailable"
+    patcher, stub = _patched_stub(enrich_side_effect=error)
+
+    with patcher, patch("worker_app.dispatch.pipeline.build_rewrite_channel"):
+        assert run_dispatch_cycle(clean_db) == {"dispatched": 0, "failed": 1}
+        assert run_dispatch_cycle(clean_db) == {"dispatched": 0, "failed": 1}
+        assert run_dispatch_cycle(clean_db) == {"dispatched": 0, "failed": 0}
+
+    queue = clean_db.get(AppSetting, FAILED_QUEUE_SETTING_KEY).value
+    assert queue[str(cluster.id)]["failures"] == 2
+    assert stub.EnrichCluster.call_count == 2
+
+
 def test_dispatch_respects_batch_size_cap(clean_db):
     source = _source(clean_db)
     for i in range(DISPATCH_BATCH_SIZE + 2):
@@ -201,6 +223,22 @@ def test_dispatch_stops_after_daily_draft_cap(clean_db):
     _cluster(clean_db, source, score=1)
     clean_db.add(Draft(cluster_id=already_created.id, trace_id="today"))
     set_setting(clean_db, "queue.daily_limit", 1)
+    clean_db.commit()
+
+    patcher, stub = _patched_stub()
+    with patcher, patch("worker_app.dispatch.pipeline.build_rewrite_channel"):
+        stats = run_dispatch_cycle(clean_db)
+
+    assert stats == {"dispatched": 0, "failed": 0}
+    stub.EnrichCluster.assert_not_called()
+
+
+def test_dispatch_stops_after_hourly_target(clean_db):
+    source = _source(clean_db)
+    already_created = _cluster(clean_db, source, score=99)
+    _cluster(clean_db, source, score=1)
+    clean_db.add(Draft(cluster_id=already_created.id, trace_id="this-hour"))
+    set_setting(clean_db, TARGET_PER_HOUR_SETTING_KEY, 1)
     clean_db.commit()
 
     patcher, stub = _patched_stub()
