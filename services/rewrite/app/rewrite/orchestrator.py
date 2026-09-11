@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 
 from common.rewrite_body_limits import BODY_TARGET_MAX, BODY_TARGET_MIN
@@ -131,6 +132,24 @@ def _build_user_prompt(
     )
 
 
+def _reviewable_rewrite_text(result: RewriteResultSchema) -> str:
+    """Send every public text field to the editor, not just the article body."""
+    return json.dumps(
+        {
+            "title_en": result.title_en,
+            "body_en": result.body_en,
+            "title_en_variants": result.title_en_variants,
+            "seo_en": result.seo_en.model_dump(),
+            "title_ru": result.title_ru,
+            "body_ru": result.body_ru,
+            "title_ru_variants": result.title_ru_variants,
+            "seo_ru": result.seo_ru.model_dump(),
+            "tags": [tag.model_dump() for tag in result.tags],
+        },
+        ensure_ascii=False,
+    )
+
+
 def rewrite_cluster(
     db: Session,
     settings: RewriteSettings,
@@ -194,7 +213,7 @@ def rewrite_cluster(
                     db,
                     settings,
                     sources_text=sources_text,
-                    rewritten_text=hint,
+                    rewritten_text=_reviewable_rewrite_text(result),
                     translate_sources=bool(get_setting(db, "review.translate_originals.enabled", False)),
                 )
                 if not approved:
