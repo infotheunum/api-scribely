@@ -41,7 +41,6 @@ logger = logging.getLogger(__name__)
 DISPATCH_BATCH_SIZE = 1
 BATCH_SIZE_SETTING_KEY = "dispatch.batch_size"
 EDITORIAL_TIMEZONE = ZoneInfo("Europe/Minsk")
-SHORT_REWRITE_BLOCKLIST_SETTING_KEY = "dispatch.short_rewrite_blocklist"
 FAILED_QUEUE_SETTING_KEY = "dispatch.failed_cluster_queue"
 FAILED_QUEUE_DEFER_HOURS = 6
 TARGET_PER_HOUR_SETTING_KEY = "dispatch.target_per_hour"
@@ -56,19 +55,6 @@ _IN_FLIGHT_CLUSTER_IDS_LOCK = Lock()
 
 def _already_drafted_cluster_ids(db: Session) -> set:
     return set(db.scalars(select(Draft.cluster_id)))
-
-
-def _short_rewrite_blocklist(db: Session) -> set[uuid.UUID]:
-    raw = get_setting(db, SHORT_REWRITE_BLOCKLIST_SETTING_KEY, [])
-    if not isinstance(raw, list):
-        return set()
-    blocked: set[uuid.UUID] = set()
-    for cluster_id in raw:
-        try:
-            blocked.add(uuid.UUID(str(cluster_id)))
-        except (AttributeError, TypeError, ValueError):
-            logger.warning("ignoring malformed short-rewrite blocklist id: %r", cluster_id)
-    return blocked
 
 
 def _deferred_cluster_ids(db: Session, *, now: datetime) -> set[uuid.UUID]:
@@ -109,18 +95,6 @@ def _record_failed_cluster(db: Session, cluster_id: uuid.UUID, details: str) -> 
         queue,
         description="Clusters deferred for six hours after two failed rewrite attempts.",
     )
-
-
-def _block_short_rewrite(db: Session, cluster_id) -> None:
-    blocked = _short_rewrite_blocklist(db)
-    blocked.add(cluster_id)
-    set_setting(
-        db,
-        SHORT_REWRITE_BLOCKLIST_SETTING_KEY,
-        sorted(str(item) for item in blocked),
-        description="Clusters withheld after rewrite body failed the editorial minimum.",
-    )
-    db.commit()
 
 
 def _drafts_created_today(db: Session, *, now: datetime | None = None) -> int:
@@ -263,9 +237,7 @@ def run_dispatch_cycle(db: Session, *, settings: WorkerSettings | None = None) -
         record_dispatch_cycle_result(db, dispatched=0, failed=0)
         return {"dispatched": 0, "failed": 0}
     drafted_ids = _already_drafted_cluster_ids(db)
-    excluded_ids = drafted_ids | _short_rewrite_blocklist(db) | _deferred_cluster_ids(
-        db, now=datetime.now(UTC)
-    )
+    excluded_ids = drafted_ids | _deferred_cluster_ids(db, now=datetime.now(UTC))
     candidates = select_top_clusters(
         db,
         # Request enough rows to find a non-reserved candidate when the
@@ -326,8 +298,6 @@ def run_dispatch_cycle(db: Session, *, settings: WorkerSettings | None = None) -
                     exc.code(),
                     details,
                 )
-                if "body_en must be at least" in details or "body_ru must be at least" in details:
-                    _block_short_rewrite(db, cluster.id)
                 _record_failed_cluster(db, cluster.id, details)
                 failed += 1
             finally:
