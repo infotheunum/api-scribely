@@ -4,8 +4,17 @@ from unittest.mock import MagicMock, patch
 
 import grpc
 from db.app_settings import set_setting
-from db.enums import DraftStatus, SourceTier, SourceType, TopicStatus
-from db.models import AppSetting, ClusterContext, Draft, DraftRevision, NewsCluster, RawItem, Source
+from db.enums import DraftStatus, QuarantineReason, SourceTier, SourceType, TopicStatus
+from db.models import (
+    AppSetting,
+    ClusterContext,
+    ClusterQuarantine,
+    Draft,
+    DraftRevision,
+    NewsCluster,
+    RawItem,
+    Source,
+)
 from scribely.rewrite.v1 import rewrite_pb2
 from worker_app.dispatch.pipeline import (
     DISPATCH_BATCH_SIZE,
@@ -266,3 +275,25 @@ def test_dispatch_defers_short_rewrite_instead_of_permanently_blocking(clean_db)
     assert clean_db.get(AppSetting, "dispatch.short_rewrite_blocklist") is None
     assert clean_db.get(AppSetting, FAILED_QUEUE_SETTING_KEY).value[str(cluster.id)]["failures"] == 2
     assert stub.RewriteCluster.call_count == 2
+
+
+def test_dispatch_quarantines_core_political_cluster_before_rewrite(clean_db):
+    cluster = _cluster(clean_db, _source(clean_db))
+
+    def _political_response(_request, **_kwargs):
+        response = _fake_enrich_response(cluster.id)
+        response.context.political_core = True
+        response.context.exclusion_evidence = "Главная тема — выборы"
+        return response
+
+    patcher, stub = _patched_stub(
+        enrich_side_effect=_political_response,
+        rewrite_side_effect=lambda _request, **_kwargs: _fake_rewrite_response(),
+    )
+    with patcher, patch("worker_app.dispatch.pipeline.build_rewrite_channel"):
+        assert run_dispatch_cycle(clean_db) == {"dispatched": 0, "failed": 0}
+
+    quarantine = clean_db.query(ClusterQuarantine).one()
+    assert quarantine.cluster_id == cluster.id
+    assert quarantine.reason == QuarantineReason.POLITICAL_CORE
+    stub.RewriteCluster.assert_not_called()

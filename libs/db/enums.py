@@ -98,3 +98,11 @@ class RejectReason(enum.StrEnum):
     NEEDS_MORE_SOURCES = "needs_more_sources"
     TRANSLATION_ISSUE = "translation_issue"
     OTHER = "other"
+
+
+class QuarantineReason(enum.StrEnum):
+    """Why a cluster was stopped before it could enter the review queue."""
+
+    POLITICAL_CORE = "political_core"
+    PROMOTIONAL_OR_PARTNER = "promotional_or_partner"
+    FACTUAL_VERIFICATION_FAILED = "factual_verification_failed"

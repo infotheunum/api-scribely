@@ -26,6 +26,7 @@ from db.enums import (
     DraftStatus,
     EditSignalCategory,
     PromptVersionStatus,
+    QuarantineReason,
     SourceTier,
     SourceType,
     TagCategoryKind,
@@ -141,6 +142,9 @@ class NewsCluster(Base):
     raw_items: Mapped[list[RawItem]] = relationship(back_populates="cluster")
     context: Mapped[ClusterContext | None] = relationship(back_populates="cluster", uselist=False)
     drafts: Mapped[list[Draft]] = relationship(back_populates="cluster")
+    quarantine: Mapped[ClusterQuarantine | None] = relationship(
+        back_populates="cluster", uselist=False
+    )
 
 
 class ClusterContext(Base):
@@ -157,11 +161,32 @@ class ClusterContext(Base):
     market_sensitive: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     fact_conflict: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     fact_conflict_note: Mapped[str | None] = mapped_column(Text)
+    political_core: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    promotional_or_partner: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    exclusion_evidence: Mapped[str | None] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
     cluster: Mapped[NewsCluster] = relationship(back_populates="context")
+
+
+class ClusterQuarantine(Base):
+    """Persistent editorial stop which prevents an excluded cluster looping forever."""
+
+    __tablename__ = "cluster_quarantine"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    cluster_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("news_cluster.id"), nullable=False, unique=True
+    )
+    reason: Mapped[QuarantineReason] = mapped_column(String(40), nullable=False)
+    evidence: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    released_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("user.id"))
+    created_at: Mapped[datetime] = _created_at()
+
+    cluster: Mapped[NewsCluster] = relationship(back_populates="quarantine")
 
 
 class PromptVersion(Base):

@@ -6,8 +6,19 @@ from typing import Any
 from api_app.auth.dependencies import require_role
 from api_app.db import get_db
 from common.tracing import get_trace_id
-from db.enums import PromptVersionStatus, SourceTier, SourceType, TagCategoryKind
-from db.models import AppSetting, AuditLog, LlmRotationModel, PromptVersion, Source, TagCategoryCache, Topic, User
+from db.enums import DraftStatus, PromptVersionStatus, SourceTier, SourceType, TagCategoryKind
+from db.models import (
+    AppSetting,
+    AuditLog,
+    ClusterQuarantine,
+    Draft,
+    LlmRotationModel,
+    PromptVersion,
+    Source,
+    TagCategoryCache,
+    Topic,
+    User,
+)
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -35,6 +46,64 @@ def _audit(
             trace_id=get_trace_id(),
         )
     )
+
+
+class QuarantineOut(BaseModel):
+    cluster_id: str
+    reason: str
+    evidence: str
+    created_at: str
+
+    @classmethod
+    def from_model(cls, row: ClusterQuarantine) -> "QuarantineOut":
+        return cls(
+            cluster_id=str(row.cluster_id),
+            reason=str(row.reason),
+            evidence=row.evidence,
+            created_at=row.created_at.isoformat(),
+        )
+
+
+@router.get("/quarantines", response_model=list[QuarantineOut])
+def list_quarantines(db: Session = Depends(get_db)) -> list[QuarantineOut]:
+    rows = db.scalars(
+        select(ClusterQuarantine)
+        .where(ClusterQuarantine.released_at.is_(None))
+        .order_by(ClusterQuarantine.created_at.desc())
+    )
+    return [QuarantineOut.from_model(row) for row in rows]
+
+
+@router.post("/quarantines/{cluster_id}/release", response_model=QuarantineOut)
+def release_quarantine(
+    cluster_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("admin")),
+) -> QuarantineOut:
+    row = db.scalar(
+        select(ClusterQuarantine).where(
+            ClusterQuarantine.cluster_id == cluster_id,
+            ClusterQuarantine.released_at.is_(None),
+        )
+    )
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "active quarantine not found")
+    from datetime import UTC, datetime
+
+    row.released_at = datetime.now(UTC)
+    row.released_by = user.id
+    draft = db.scalar(select(Draft).where(Draft.cluster_id == cluster_id))
+    if draft is not None and draft.status == DraftStatus.REJECTED:
+        draft.status = DraftStatus.NEEDS_FIX
+    _audit(
+        db,
+        user,
+        action="admin_release",
+        entity_type="ClusterQuarantine",
+        entity_id=str(row.id),
+        details={"cluster_id": str(cluster_id), "reason": str(row.reason)},
+    )
+    return QuarantineOut.from_model(row)
 
 
 # ---------------------------------------------------------------------

@@ -13,8 +13,8 @@ from common.pipeline_telemetry import record_dispatch_cycle_result
 from common.token_usage import TokenUsage
 from common.tracing import get_trace_id, new_trace_id, set_trace_id
 from db.app_settings import get_setting, set_setting
-from db.enums import DraftRevisionKind
-from db.models import ClusterContext, Draft, NewsCluster
+from db.enums import DraftRevisionKind, QuarantineReason
+from db.models import ClusterContext, ClusterQuarantine, Draft, NewsCluster
 from scribely.rewrite.v1 import rewrite_pb2
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -55,6 +55,29 @@ _IN_FLIGHT_CLUSTER_IDS_LOCK = Lock()
 
 def _already_drafted_cluster_ids(db: Session) -> set:
     return set(db.scalars(select(Draft.cluster_id)))
+
+
+def _active_quarantined_cluster_ids(db: Session) -> set:
+    return set(
+        db.scalars(
+            select(ClusterQuarantine.cluster_id).where(ClusterQuarantine.released_at.is_(None))
+        )
+    )
+
+
+def _quarantine_cluster(
+    db: Session, cluster_id: uuid.UUID, reason: QuarantineReason, evidence: str
+) -> None:
+    """Record an editorial stop once; active quarantines are intentionally idempotent."""
+    row = db.scalar(select(ClusterQuarantine).where(ClusterQuarantine.cluster_id == cluster_id))
+    if row is None:
+        db.add(ClusterQuarantine(cluster_id=cluster_id, reason=reason, evidence=evidence[:4000]))
+        return
+    if row.released_at is not None:
+        row.released_at = None
+        row.released_by = None
+    row.reason = reason
+    row.evidence = evidence[:4000]
 
 
 def _deferred_cluster_ids(db: Session, *, now: datetime) -> set[uuid.UUID]:
@@ -161,6 +184,9 @@ def _persist_cluster_context(db: Session, cluster_id, response_ctx) -> None:
     ctx.market_sensitive = response_ctx.market_sensitive
     ctx.fact_conflict = response_ctx.fact_conflict
     ctx.fact_conflict_note = response_ctx.fact_conflict_note or None
+    ctx.political_core = response_ctx.political_core
+    ctx.promotional_or_partner = response_ctx.promotional_or_partner
+    ctx.exclusion_evidence = response_ctx.exclusion_evidence or None
 
 
 def _usage_from_proto(usage) -> TokenUsage:
@@ -237,7 +263,11 @@ def run_dispatch_cycle(db: Session, *, settings: WorkerSettings | None = None) -
         record_dispatch_cycle_result(db, dispatched=0, failed=0)
         return {"dispatched": 0, "failed": 0}
     drafted_ids = _already_drafted_cluster_ids(db)
-    excluded_ids = drafted_ids | _deferred_cluster_ids(db, now=datetime.now(UTC))
+    excluded_ids = (
+        drafted_ids
+        | _active_quarantined_cluster_ids(db)
+        | _deferred_cluster_ids(db, now=datetime.now(UTC))
+    )
     candidates = select_top_clusters(
         db,
         # Request enough rows to find a non-reserved candidate when the
@@ -269,6 +299,22 @@ def run_dispatch_cycle(db: Session, *, settings: WorkerSettings | None = None) -
                     )
                 )
                 _persist_cluster_context(db, cluster.id, enrich_resp.context)
+                if enrich_resp.context.political_core or enrich_resp.context.promotional_or_partner:
+                    reason = (
+                        QuarantineReason.POLITICAL_CORE
+                        if enrich_resp.context.political_core
+                        else QuarantineReason.PROMOTIONAL_OR_PARTNER
+                    )
+                    _quarantine_cluster(
+                        db,
+                        cluster.id,
+                        reason,
+                        enrich_resp.context.exclusion_evidence
+                        or "Автоматическая классификация источника",
+                    )
+                    db.commit()
+                    logger.info("cluster %s quarantined: %s", cluster.id, reason)
+                    continue
                 db.commit()
 
                 rewrite_resp = stub.RewriteCluster(
@@ -298,6 +344,14 @@ def run_dispatch_cycle(db: Session, *, settings: WorkerSettings | None = None) -
                     exc.code(),
                     details,
                 )
+                if "quality gate failed:" in details:
+                    _quarantine_cluster(
+                        db,
+                        cluster.id,
+                        QuarantineReason.FACTUAL_VERIFICATION_FAILED,
+                        details,
+                    )
+                    db.commit()
                 _record_failed_cluster(db, cluster.id, details)
                 failed += 1
             finally:
