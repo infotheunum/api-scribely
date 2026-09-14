@@ -8,7 +8,11 @@ from common.token_usage import TokenUsage
 from db.enums import PromptVersionStatus
 from db.models import PromptVersion
 from rewrite_app.prompt.style_guide import BODY_MIN_CHARS, BODY_SOFT_MAX_CHARS
-from rewrite_app.rewrite.orchestrator import _body_length_profile, rewrite_cluster
+from rewrite_app.rewrite.orchestrator import (
+    _body_length_profile,
+    _quality_required_facts,
+    rewrite_cluster,
+)
 from rewrite_app.settings import RewriteSettings
 
 _USAGE = TokenUsage(9, 8, 17)
@@ -73,6 +77,28 @@ def test_body_length_profile_scales_with_source_volume(source_chars, expected):
 
     assert (profile.target_min, profile.target_max) == expected
     assert profile.source_chars == source_chars
+
+
+def test_quality_required_facts_keeps_critical_kinds_within_review_budget():
+    facts = "\n".join(
+        [
+            "- [number] 100 долларов",
+            "- [what] Компания открыла рынок",
+            "- [quote] Цитата руководителя",
+            "- [number] 200 долларов",
+            "- [essence] Компания открыла новый рынок для клиентов",
+            "- [when] 14 сентября",
+            "- [who] Руководитель компании",
+            "- [number] 300 долларов",
+        ]
+    )
+
+    selected = _quality_required_facts(facts).splitlines()
+
+    assert len(selected) == 4
+    assert selected[0] == "- [essence] Компания открыла новый рынок для клиентов"
+    assert "- [number] 100 долларов" in selected
+    assert "- [when] 14 сентября" in selected
 
 
 def test_rewrite_cluster_includes_source_proportional_target(
