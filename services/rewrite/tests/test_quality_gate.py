@@ -187,3 +187,53 @@ def test_quality_gate_rejects_missing_required_fact(clean_db, monkeypatch):
 
     assert approved is False
     assert any("обязательный факт упущен" in issue for issue in issues)
+
+
+def test_quality_gate_runs_source_translation_separately_after_approval(clean_db, monkeypatch):
+    calls: list[dict] = []
+
+    def _fake(*_args, **kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            return (
+                _review_payload(
+                    approved=True,
+                    fact_checks=[],
+                    required_fact_checks=[],
+                ),
+                "openai",
+                "editor-model",
+                TokenUsage(1, 2, 3),
+            )
+        return (
+            json.dumps(
+                {
+                    "translations": [
+                        {"title": "Original", "body_ru": "Полный перевод оригинала"}
+                    ]
+                }
+            ),
+            "anthropic",
+            "translator-model",
+            TokenUsage(4, 5, 9),
+        )
+
+    monkeypatch.setattr("rewrite_app.rewrite.quality_gate.call_with_rotation", _fake)
+
+    approved, _issues, report, _key, _model, usage = review_rewrite(
+        clean_db,
+        RewriteSettings(),
+        sources_text="Original source",
+        required_facts_text="(нет)",
+        rewritten_text="rewrite",
+        translate_sources=True,
+    )
+
+    assert approved is True
+    assert len(calls) == 2
+    assert '"body_ru"' not in calls[0]["system_prompt"]
+    assert "ПОЛНОГО ПЕРЕВОДА" in calls[1]["user_prompt"]
+    assert report["translations"] == [
+        {"title": "Original", "body_ru": "Полный перевод оригинала"}
+    ]
+    assert usage.total_tokens == 12
