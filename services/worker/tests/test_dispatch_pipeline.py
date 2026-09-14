@@ -249,17 +249,20 @@ def test_dispatch_stops_after_hourly_target(clean_db):
     stub.EnrichCluster.assert_not_called()
 
 
-def test_dispatch_blocks_cluster_when_rewrite_is_too_short(clean_db):
+def test_dispatch_defers_short_rewrite_instead_of_permanently_blocking(clean_db):
     cluster = _cluster(clean_db, _source(clean_db))
     error = grpc.RpcError()
     error.code = lambda: grpc.StatusCode.FAILED_PRECONDITION
     error.details = lambda: "body_ru must be at least 1700 chars (got 900)"
-    patcher, _ = _patched_stub(
+    patcher, stub = _patched_stub(
         enrich_side_effect=lambda req, **kw: _fake_enrich_response(cluster.id),
         rewrite_side_effect=error,
     )
     with patcher, patch("worker_app.dispatch.pipeline.build_rewrite_channel"):
-        stats = run_dispatch_cycle(clean_db)
+        assert run_dispatch_cycle(clean_db) == {"dispatched": 0, "failed": 1}
+        assert run_dispatch_cycle(clean_db) == {"dispatched": 0, "failed": 1}
+        assert run_dispatch_cycle(clean_db) == {"dispatched": 0, "failed": 0}
 
-    assert stats == {"dispatched": 0, "failed": 1}
-    assert str(cluster.id) in clean_db.get(AppSetting, "dispatch.short_rewrite_blocklist").value
+    assert clean_db.get(AppSetting, "dispatch.short_rewrite_blocklist") is None
+    assert clean_db.get(AppSetting, FAILED_QUEUE_SETTING_KEY).value[str(cluster.id)]["failures"] == 2
+    assert stub.RewriteCluster.call_count == 2
