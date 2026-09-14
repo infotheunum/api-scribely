@@ -31,6 +31,36 @@ logger = logging.getLogger(__name__)
 
 # One retry is enough once hard-min matches typical first-pass length.
 MAX_ATTEMPTS = 2
+QUALITY_REQUIRED_FACT_LIMIT = 4
+
+
+def _quality_required_facts(facts_text: str) -> str:
+    """Choose a reviewable critical-fact set without hiding the full registry.
+
+    Enrichment intentionally extracts every number and date. Requiring a critic
+    to emit a JSON verdict for 15–25 items made the response truncate and
+    stopped the whole dispatch queue. The rewrite still receives every fact;
+    this bounded subset is only the strict publish gate.
+    """
+    lines = [line for line in facts_text.splitlines() if line.lstrip().startswith("- [")]
+    if len(lines) <= QUALITY_REQUIRED_FACT_LIMIT:
+        return facts_text
+
+    selected: list[str] = []
+    # A four-item response is reliable for the configured reviewer and covers
+    # the event, its principal actor, timing and its most material figure.
+    for kind in ("essence", "who", "when", "number", "what"):
+        marker = f"- [{kind}]"
+        match = next((line for line in lines if line.lstrip().startswith(marker)), None)
+        if match and match not in selected:
+            selected.append(match)
+
+    for line in lines:
+        if len(selected) >= QUALITY_REQUIRED_FACT_LIMIT:
+            break
+        if line not in selected:
+            selected.append(line)
+    return "\n".join(selected[:QUALITY_REQUIRED_FACT_LIMIT])
 
 
 @dataclass(frozen=True)
@@ -200,6 +230,7 @@ def rewrite_cluster(
     """Returns (result, key_alias_used, model_used, token_usage). Raises RuntimeError
     after MAX_ATTEMPTS failed regenerate attempts (ТЗ §4.20 dead-letter)."""
     locales = get_output_locales(db)
+    quality_required_facts = _quality_required_facts(facts_text)
     profile = _body_length_profile(sources_text)
     user_prompt = _build_user_prompt(
         sources_text=sources_text,
@@ -260,10 +291,12 @@ def rewrite_cluster(
                     db,
                     settings,
                     sources_text=sources_text,
-                    required_facts_text=facts_text,
+                    required_facts_text=quality_required_facts,
                     rewritten_text=_reviewable_rewrite_text(result),
                     translate_sources=bool(get_setting(db, "review.translate_originals.enabled", False)),
                 )
+                review_report["all_extracted_facts"] = facts_text
+                review_report["quality_gate_required_facts"] = quality_required_facts
                 if not approved:
                     raise ValueError("quality gate failed: " + "; ".join(issues[:8]))
                 token_usage += quality_usage
