@@ -19,6 +19,7 @@ from rewrite_app.prompt.style_guide import (
     BODY_LENGTH_RULE,
     BODY_MIN_CHARS,
     BODY_SOFT_MAX_CHARS,
+    REWRITE_FIDELITY_CONTRACT,
 )
 from rewrite_app.rewrite.openrouter_client import extract_json
 from rewrite_app.rewrite.quality_gate import review_rewrite
@@ -243,6 +244,7 @@ def rewrite_cluster(
 
     system_prompt = (
         f"{prompt_version.template.rstrip()}\n\n{_body_length_rule(locales, profile)}\n\n"
+        f"{REWRITE_FIDELITY_CONTRACT}\n\n"
         f"{site_category_prompt_block(db)}"
     )
     last_error: Exception | None = None
