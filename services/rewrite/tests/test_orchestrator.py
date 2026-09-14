@@ -8,7 +8,7 @@ from common.token_usage import TokenUsage
 from db.enums import PromptVersionStatus
 from db.models import PromptVersion
 from rewrite_app.prompt.style_guide import BODY_MIN_CHARS, BODY_SOFT_MAX_CHARS
-from rewrite_app.rewrite.orchestrator import rewrite_cluster
+from rewrite_app.rewrite.orchestrator import _body_length_profile, rewrite_cluster
 from rewrite_app.settings import RewriteSettings
 
 _USAGE = TokenUsage(9, 8, 17)
@@ -57,6 +57,54 @@ VALID_RESULT = {
         "image_source_suggestion": "s",
     },
 }
+
+
+@pytest.mark.parametrize(
+    ("source_chars", "expected"),
+    [
+        (2200, (2000, 3200)),
+        (3000, (2400, 3600)),
+        (5000, (2400, 3600)),
+        (5001, (3000, 4500)),
+    ],
+)
+def test_body_length_profile_scales_with_source_volume(source_chars, expected):
+    profile = _body_length_profile("x" * source_chars)
+
+    assert (profile.target_min, profile.target_max) == expected
+    assert profile.source_chars == source_chars
+
+
+def test_rewrite_cluster_includes_source_proportional_target(
+    clean_db, prompt_version, monkeypatch
+):
+    seen: dict = {}
+
+    def _fake(*_args, **kwargs):
+        seen.update(kwargs)
+        return json.dumps(VALID_RESULT), "openai", "gpt-4o-mini", _USAGE
+
+    monkeypatch.setattr("rewrite_app.rewrite.orchestrator.call_with_rotation", _fake)
+    monkeypatch.setattr(
+        "rewrite_app.rewrite.orchestrator.site_category_prompt_block", lambda db: ""
+    )
+    monkeypatch.setattr(
+        "common.site_categories.resolve_site_category_slug",
+        lambda slug, **kw: slug or "world",
+    )
+
+    rewrite_cluster(
+        clean_db,
+        RewriteSettings(),
+        prompt_version,
+        sources_text="x" * 3000,
+        facts_text="facts",
+        flags_text="flags",
+    )
+
+    assert "цель 2400–3600" in seen["system_prompt"]
+    assert "около 3000 символов" in seen["system_prompt"]
+    assert "цель 2400-3600" in seen["user_prompt"]
 
 
 @pytest.fixture
