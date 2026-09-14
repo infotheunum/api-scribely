@@ -134,6 +134,7 @@ def test_rewrite_cluster_includes_source_proportional_target(
     assert "ПУНКТУАЦИЯ" in seen["system_prompt"]
     assert "Никогда не приписывай дате отсутствующий в оригинале год" in seen["system_prompt"]
     assert "биткоин» и «эфир" in seen["system_prompt"]
+    assert "«2 000»,\n  «10 000»" in seen["system_prompt"]
     assert "цель 2400-3600" in seen["user_prompt"]
 
 
