@@ -32,6 +32,15 @@ logger = logging.getLogger(__name__)
 MAX_ATTEMPTS = 2
 
 
+def _is_body_length_error(exc: ValidationError) -> bool:
+    """Whether the previous structured answer can be safely length-edited."""
+    return any(
+        "must be at least" in (message := str(error.get("msg", "")))
+        and ("body_en" in message or "body_ru" in message)
+        for error in exc.errors()
+    )
+
+
 def _output_schema_hint(locales: list[str]) -> str:
     """JSON shape for the model — only active locales need full text."""
     lines = [
@@ -178,6 +187,7 @@ def rewrite_cluster(
     )
     last_error: Exception | None = None
     retry_note = ""
+    previous_draft_json = ""
     active_bodies = " и ".join(
         name
         for name, code in (("body_en", "en"), ("body_ru", "ru"))
@@ -198,6 +208,7 @@ def rewrite_cluster(
                 advance=False,
             )
             data = fill_inactive_locale_fields(extract_json(content), locales)
+            previous_draft_json = json.dumps(data, ensure_ascii=False)
             result = RewriteResultSchema.model_validate(data, context={"locales": locales})
             hint = f"{result.title_en} {result.body_en} {result.title_ru} {result.body_ru}"
             from common.site_categories import resolve_site_category_slug
@@ -231,16 +242,27 @@ def rewrite_cluster(
                 exc,
             )
             last_error = exc
-            retry_note = (
-                f"\n\nПРЕДЫДУЩИЙ ОТВЕТ ОТКЛОНЁН: {str(exc)[:400]}. "
-                f"{active_bodies}: hard-min {BODY_MIN_CHARS} "
-                f"(цель {BODY_TARGET_MIN}–{BODY_TARGET_MAX}; "
-                f"свыше {BODY_SOFT_MAX_CHARS} допустимо), ровно 3 абзаца "
-                f"через \\n\\n. Активные языки: {', '.join(locales)}. "
-                f"Если коротко — РАСШИРЬ тот же смысл только материалом "
-                f"из источников (контекст, атрибуция, пояснения). "
-                f"НЕ выдумывай цифры/%/суммы/даты и НЕ меняй сюжет."
-            )
+            if _is_body_length_error(exc) and previous_draft_json:
+                retry_note = (
+                    "\n\nРЕДАКТОРСКИЙ ПРОХОД ПО ДЛИНЕ. Ниже предыдущий JSON-черновик, "
+                    "который нельзя заменять новым сюжетом. Верни полный JSON в той же схеме. "
+                    f"Расширь {active_bodies} до не менее {BODY_MIN_CHARS + 100} символов, "
+                    "сохранив все подтвержденные факты, даты, цифры, имена и три абзаца. "
+                    "Дополняй только сведениями из исходных материалов; не добавляй новых фактов "
+                    "и не меняй смысл.\n\n"
+                    f"ПРЕДЫДУЩИЙ_JSON:\n{previous_draft_json}"
+                )
+            else:
+                retry_note = (
+                    f"\n\nПРЕДЫДУЩИЙ ОТВЕТ ОТКЛОНЁН: {str(exc)[:400]}. "
+                    f"{active_bodies}: hard-min {BODY_MIN_CHARS} "
+                    f"(цель {BODY_TARGET_MIN}–{BODY_TARGET_MAX}; "
+                    f"свыше {BODY_SOFT_MAX_CHARS} допустимо), ровно 3 абзаца "
+                    f"через \\n\\n. Активные языки: {', '.join(locales)}. "
+                    f"Если коротко — РАСШИРЬ тот же смысл только материалом "
+                    f"из источников (контекст, атрибуция, пояснения). "
+                    f"НЕ выдумывай цифры/%/суммы/даты и НЕ меняй сюжет."
+                )
         except (ValueError, KeyError) as exc:
             logger.warning(
                 "rewrite attempt %d/%d failed: %s",
