@@ -191,3 +191,42 @@ def test_rewrite_cluster_rejects_too_short_body(clean_db, prompt_version, monkey
             facts_text="f",
             flags_text="fl",
         )
+
+
+def test_rewrite_cluster_edits_short_draft_with_previous_json(
+    clean_db, prompt_version, monkeypatch
+):
+    _enable_both_locales(clean_db)
+    short = dict(
+        VALID_RESULT,
+        body_ru="Короткий подтвержденный текст.\n\nВторой абзац.\n\nТретий абзац.",
+    )
+    calls: list[dict] = []
+
+    def _fake(*_args, **kwargs):
+        calls.append(kwargs)
+        payload = short if len(calls) == 1 else VALID_RESULT
+        return json.dumps(payload), "openai", "gpt-4o-mini", _USAGE
+
+    monkeypatch.setattr("rewrite_app.rewrite.orchestrator.call_with_rotation", _fake)
+    monkeypatch.setattr(
+        "rewrite_app.rewrite.orchestrator.site_category_prompt_block", lambda db: ""
+    )
+    monkeypatch.setattr(
+        "common.site_categories.resolve_site_category_slug", lambda slug, **kw: slug or "world"
+    )
+
+    result, *_ = rewrite_cluster(
+        clean_db,
+        RewriteSettings(),
+        prompt_version,
+        sources_text="source facts",
+        facts_text="facts",
+        flags_text="flags",
+    )
+
+    assert result.body_ru == VALID_BODY_RU
+    assert len(calls) == 2
+    assert "РЕДАКТОРСКИЙ ПРОХОД ПО ДЛИНЕ" in calls[1]["user_prompt"]
+    assert short["body_ru"] in calls[1]["user_prompt"]
+    assert "ПРЕДЫДУЩИЙ_JSON" in calls[1]["user_prompt"]
