@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import logging
+
 from common.token_usage import TokenUsage
 from rewrite_app.rewrite.openrouter_client import extract_json
 from rewrite_app.rewrite.rotation import call_with_rotation
+
+logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """Ты — строгий фактчекер и литературный редактор. Сверь ОРИГИНАЛЫ и
 РЕРАЙТ. Одобри только если ключевые факты, имена, цифры и даты переданы верно;
@@ -26,13 +30,19 @@ SYSTEM_PROMPT = """Ты — строгий фактчекер и литерат�
  "language_issues": ["ошибка перевода, грамматики или неуместный англицизм"],
  "blocking_issues": ["инвестиционная рекомендация, URL, источник или политическая оценка"],
  "required_fact_checks": [{"required_fact": "дословный пункт из ОБЯЗАТЕЛЬНЫХ ФАКТОВ", "status": "сохранен|упущен|искажен", "rewrite_evidence": "фрагмент рерайта"}],
- "fact_checks": [{"fact": "ключевой факт из оригинала", "status": "совпадает|упущен|искажён|добавлено", "severity": "critical|secondary", "rewrite_evidence": "как передано в рерайте"}],
- "translations": [{"title": "точный заголовок исходника", "body_ru": "полный перевод на русский"}]}.
+ "fact_checks": [{"fact": "ключевой факт из оригинала", "status": "совпадает|упущен|искажён|добавлено", "severity": "critical|secondary", "rewrite_evidence": "как передано в рерайте"}]}.
 Если ошибок нет, language_issues и blocking_issues должны быть пустыми массивами:
 не пиши в них фразы «нет ошибок» или другие пояснения. Поле translations
-заполняй только когда в запросе явно включён перевод. required_fact_checks
-должен содержать РОВНО один элемент для каждого пункта из ОБЯЗАТЕЛЬНЫХ ФАКТОВ;
+в этом ответе не возвращай: перевод выполняется отдельным проходом после фактчека.
+required_fact_checks должен содержать РОВНО один элемент для каждого пункта из ОБЯЗАТЕЛЬНЫХ ФАКТОВ;
 при отсутствии такого списка верни пустой массив."""
+
+TRANSLATION_SYSTEM_PROMPT = """Ты — переводчик для внутренней редакционной панели.
+Переведи каждый переданный исходник на русский полностью и буквально, сохранив
+факты, числа, даты, имена, структуру абзацев и прямые цитаты. Не сокращай,
+не пересказывай и не добавляй оценки. Верни строго JSON без markdown:
+{"translations": [{"title": "точный заголовок исходника", "body_ru": "полный перевод на русский"}]}.
+"""
 
 _BLOCKING_FACT_STATUSES = {"искажен", "добавлено"}
 
@@ -94,6 +104,31 @@ def _deterministic_review_issues(
     return blocked
 
 
+def _translate_sources_best_effort(
+    db, settings, *, sources_text: str
+) -> tuple[list[object], TokenUsage]:
+    """Keep admin translations without making their long output block draft creation."""
+    try:
+        content, _, _, usage = call_with_rotation(
+            db,
+            api_keys=settings.llm_provider_keys(),
+            system_prompt=TRANSLATION_SYSTEM_PROMPT,
+            user_prompt=f"ИСХОДНИКИ ДЛЯ ПОЛНОГО ПЕРЕВОДА:\n{sources_text}",
+            anthropic_model=settings.anthropic_model,
+            openai_model=settings.openai_model,
+            qwen_model=settings.qwen_model,
+            qwen_base_url=settings.qwen_base_url,
+            advance=True,
+        )
+        translations = extract_json(content).get("translations", [])
+        if not isinstance(translations, list):
+            raise ValueError("translation pass returned invalid translations")
+        return translations, usage
+    except Exception as exc:  # Translation is editorial metadata, not a publish gate.
+        logger.warning("source translation pass failed without blocking draft: %s", exc)
+        return [], TokenUsage(0, 0, 0)
+
+
 def review_rewrite(
     db,
     settings,
@@ -109,8 +144,7 @@ def review_rewrite(
         system_prompt=SYSTEM_PROMPT,
         user_prompt=(
             f"ОРИГИНАЛЫ:\n{sources_text}\n\nОБЯЗАТЕЛЬНЫЕ ФАКТЫ:\n{required_facts_text}\n\n"
-            f"РЕРАЙТ:\n{rewritten_text}\n\n"
-            f"ПЕРЕВОД ОРИГИНАЛОВ: {'включён — верни полный перевод каждого исходника в translations' if translate_sources else 'выключен — верни translations как []'}"
+            f"РЕРАЙТ:\n{rewritten_text}"
         ),
         anthropic_model=settings.anthropic_model,
         openai_model=settings.openai_model,
@@ -128,12 +162,7 @@ def review_rewrite(
     blocking_issues = _string_list(data.get("blocking_issues", []), field="blocking_issues")
     fact_checks = data.get("fact_checks", [])
     required_fact_checks = data.get("required_fact_checks", [])
-    translations = data.get("translations", [])
-    if (
-        not isinstance(fact_checks, list)
-        or not isinstance(required_fact_checks, list)
-        or not isinstance(translations, list)
-    ):
+    if not isinstance(fact_checks, list) or not isinstance(required_fact_checks, list):
         raise ValueError("quality gate returned invalid review report")
     expected_required_facts = _required_fact_count(required_facts_text)
     if len(required_fact_checks) != expected_required_facts:
@@ -147,6 +176,12 @@ def review_rewrite(
         language_issues=language_issues,
         blocking_issues=blocking_issues,
     )
+    translations: list[object] = []
+    if translate_sources and not deterministic_issues:
+        translations, translation_usage = _translate_sources_best_effort(
+            db, settings, sources_text=sources_text
+        )
+        usage += translation_usage
     report = {
         "fact_checks": fact_checks,
         "required_fact_checks": required_fact_checks,
