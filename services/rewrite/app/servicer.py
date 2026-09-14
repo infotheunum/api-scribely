@@ -75,7 +75,8 @@ def _facts_text(facts) -> str:
 def _flags_text(ctx) -> str:
     return (
         f"press_release={ctx.press_release}, regulated={ctx.regulated}, "
-        f"market_sensitive={ctx.market_sensitive}, fact_conflict={ctx.fact_conflict}"
+        f"market_sensitive={ctx.market_sensitive}, fact_conflict={ctx.fact_conflict}, "
+        f"political_core={ctx.political_core}, promotional_or_partner={ctx.promotional_or_partner}"
         + (f" ({ctx.fact_conflict_note})" if ctx.fact_conflict_note else "")
     )
 
@@ -131,6 +132,9 @@ class RewriteServicer(rewrite_pb2_grpc.RewriteServiceServicer):
                     market_sensitive=result.market_sensitive,
                     fact_conflict=result.fact_conflict,
                     fact_conflict_note=result.fact_conflict_note,
+                    political_core=result.political_core,
+                    promotional_or_partner=result.promotional_or_partner,
+                    exclusion_evidence=result.exclusion_evidence,
                     trace_id=request.trace_id,
                     llm_key_alias=key_alias,
                 ),

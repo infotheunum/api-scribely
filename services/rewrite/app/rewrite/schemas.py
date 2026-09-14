@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from common.rewrite_body_format import (
     EXPECTED_PARAGRAPH_COUNT,
     normalize_body_paragraphs,
@@ -27,6 +29,9 @@ class EnrichResultSchema(BaseModel):
     market_sensitive: bool = False
     fact_conflict: bool = False
     fact_conflict_note: str = ""
+    political_core: bool = False
+    promotional_or_partner: bool = False
+    exclusion_evidence: str = ""
 
 
 class SeoPackSchema(BaseModel):
@@ -56,10 +61,21 @@ class TagCandidateSchema(BaseModel):
 
 
 _YO_MAP = str.maketrans({"ё": "е", "Ё": "Е"})
+_NON_GUILLEMET_QUOTES = re.compile(r'(["“”„‟])([^"“”„‟\n]+)(["“”„‟])')
+_UNSUPPORTED_RU_CHARS = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 
 
 def _no_yo(text: str) -> str:
     return text.translate(_YO_MAP)
+
+
+def _normalize_ru_quotes(text: str) -> str:
+    """Use one editorial quotation style while preserving unpaired punctuation for retry."""
+    previous = None
+    while previous != text:
+        previous = text
+        text = _NON_GUILLEMET_QUOTES.sub(r"«\2»", text)
+    return text
 
 
 def _active_locales(info: ValidationInfo) -> tuple[str, ...]:
@@ -170,4 +186,38 @@ class RewriteResultSchema(BaseModel):
         self.seo_ru.og_description = _no_yo(self.seo_ru.og_description)
         self.seo_ru.focus_keyphrase = _no_yo(self.seo_ru.focus_keyphrase)
         self.seo_ru.keywords = [_no_yo(k) for k in self.seo_ru.keywords]
+        return self
+
+    @model_validator(mode="after")
+    def _enforce_ru_typography_and_charset(self, info: ValidationInfo) -> RewriteResultSchema:
+        locales = _active_locales(info)
+        if not locale_enabled(locales, "ru"):
+            return self
+        fields = (
+            "title_ru",
+            "body_ru",
+        )
+        for field in fields:
+            setattr(self, field, _normalize_ru_quotes(getattr(self, field)))
+        self.title_ru_variants = [_normalize_ru_quotes(value) for value in self.title_ru_variants]
+        for field in ("seo_title", "seo_description", "og_title", "og_description", "focus_keyphrase"):
+            setattr(self.seo_ru, field, _normalize_ru_quotes(getattr(self.seo_ru, field)))
+        self.seo_ru.keywords = [_normalize_ru_quotes(value) for value in self.seo_ru.keywords]
+
+        public_text = " ".join(
+            [getattr(self, field) for field in fields]
+            + self.title_ru_variants
+            + [
+                self.seo_ru.seo_title,
+                self.seo_ru.seo_description,
+                self.seo_ru.og_title,
+                self.seo_ru.og_description,
+                self.seo_ru.focus_keyphrase,
+                *self.seo_ru.keywords,
+            ]
+        )
+        if _UNSUPPORTED_RU_CHARS.search(public_text):
+            raise ValueError("Russian public fields must not contain CJK characters")
+        if any(char in public_text for char in '"“”„‟'):
+            raise ValueError("Russian public fields must use only « » quotation marks")
         return self

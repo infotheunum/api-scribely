@@ -36,6 +36,24 @@ def test_enrich_cluster_parses_valid_response(clean_db, monkeypatch):
     assert seen.get("advance") is True
 
 
+def test_enrich_cluster_keeps_editorial_exclusion_flags(clean_db, monkeypatch):
+    monkeypatch.setattr(
+        "rewrite_app.enrich.enrichment.call_with_rotation",
+        lambda *a, **kw: (
+            '{"facts": [], "press_release": false, "regulated": false, '
+            '"market_sensitive": false, "fact_conflict": false, "fact_conflict_note": "", '
+            '"political_core": true, "promotional_or_partner": false, '
+            '"exclusion_evidence": "Материал посвящен выборам"}',
+            "qwen",
+            "qwen-plus",
+            _USAGE,
+        ),
+    )
+    result, *_ = enrich_cluster(clean_db, RewriteSettings(), sources_text="text")
+    assert result.political_core is True
+    assert result.exclusion_evidence == "Материал посвящен выборам"
+
+
 def test_enrich_cluster_regenerates_on_invalid_json_then_succeeds(clean_db, monkeypatch):
     responses = iter(
         [
