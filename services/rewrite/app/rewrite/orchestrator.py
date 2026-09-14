@@ -188,6 +188,8 @@ def rewrite_cluster(
     last_error: Exception | None = None
     retry_note = ""
     previous_draft_json = ""
+    provider_keys = settings.llm_provider_keys()
+    length_editor_active = False
     active_bodies = " и ".join(
         name
         for name, code in (("body_en", "en"), ("body_ru", "ru"))
@@ -195,16 +197,21 @@ def rewrite_cluster(
     )
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
+            editor_preferred_alias = (
+                "anthropic"
+                if length_editor_active and provider_keys.get("anthropic")
+                else prefer_key_alias
+            )
             content, key_alias, model, token_usage = call_with_rotation(
                 db,
-                api_keys=settings.llm_provider_keys(),
+                api_keys=provider_keys,
                 system_prompt=system_prompt,
                 user_prompt=user_prompt + retry_note,
                 anthropic_model=settings.anthropic_model,
                 openai_model=settings.openai_model,
                 qwen_model=settings.qwen_model,
                 qwen_base_url=settings.qwen_base_url,
-                prefer_key_alias=prefer_key_alias,
+                prefer_key_alias=editor_preferred_alias,
                 advance=False,
             )
             data = fill_inactive_locale_fields(extract_json(content), locales)
@@ -243,6 +250,7 @@ def rewrite_cluster(
             )
             last_error = exc
             if _is_body_length_error(exc) and previous_draft_json:
+                length_editor_active = True
                 retry_note = (
                     "\n\nРЕДАКТОРСКИЙ ПРОХОД ПО ДЛИНЕ. Ниже предыдущий JSON-черновик, "
                     "который нельзя заменять новым сюжетом. Верни полный JSON в той же схеме. "
@@ -253,6 +261,7 @@ def rewrite_cluster(
                     f"ПРЕДЫДУЩИЙ_JSON:\n{previous_draft_json}"
                 )
             else:
+                length_editor_active = False
                 retry_note = (
                     f"\n\nПРЕДЫДУЩИЙ ОТВЕТ ОТКЛОНЁН: {str(exc)[:400]}. "
                     f"{active_bodies}: hard-min {BODY_MIN_CHARS} "

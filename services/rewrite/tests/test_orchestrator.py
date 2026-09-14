@@ -158,7 +158,7 @@ def test_rewrite_cluster_accepts_body_over_soft_max(clean_db, prompt_version, mo
     )
     result, *_ = rewrite_cluster(
         clean_db,
-        RewriteSettings(),
+        RewriteSettings(anthropic_api_key="editor-key"),
         prompt_version,
         sources_text="s",
         facts_text="f",
@@ -218,7 +218,7 @@ def test_rewrite_cluster_edits_short_draft_with_previous_json(
 
     result, *_ = rewrite_cluster(
         clean_db,
-        RewriteSettings(),
+        RewriteSettings(anthropic_api_key="editor-key"),
         prompt_version,
         sources_text="source facts",
         facts_text="facts",
@@ -230,3 +230,4 @@ def test_rewrite_cluster_edits_short_draft_with_previous_json(
     assert "РЕДАКТОРСКИЙ ПРОХОД ПО ДЛИНЕ" in calls[1]["user_prompt"]
     assert short["body_ru"] in calls[1]["user_prompt"]
     assert "ПРЕДЫДУЩИЙ_JSON" in calls[1]["user_prompt"]
+    assert calls[1]["prefer_key_alias"] == "anthropic"
