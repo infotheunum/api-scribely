@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
 
 from common.rewrite_body_limits import BODY_TARGET_MAX, BODY_TARGET_MIN
 from common.rewrite_output_locales import (
@@ -32,6 +33,30 @@ logger = logging.getLogger(__name__)
 MAX_ATTEMPTS = 2
 
 
+@dataclass(frozen=True)
+class BodyLengthProfile:
+    """Prompt-only target derived from the supplied source, not its summary."""
+
+    source_chars: int
+    target_min: int
+    target_max: int
+
+
+def _body_length_profile(sources_text: str) -> BodyLengthProfile:
+    """Keep substantive rewrites proportional to the supplied source corpus.
+
+    ``sources_text`` can contain two sources.  We deliberately use its total size:
+    the model may use facts from both texts, while the upper band keeps a cluster
+    with repeated wire copy from producing an excessively long article.
+    """
+    source_chars = len(sources_text.strip())
+    if source_chars <= 2200:
+        return BodyLengthProfile(source_chars, BODY_TARGET_MIN, BODY_TARGET_MAX)
+    if source_chars <= 5000:
+        return BodyLengthProfile(source_chars, 2400, 3600)
+    return BodyLengthProfile(source_chars, 3000, 4500)
+
+
 def _is_body_length_error(exc: ValidationError) -> bool:
     """Whether the previous structured answer can be safely length-edited."""
     return any(
@@ -41,7 +66,7 @@ def _is_body_length_error(exc: ValidationError) -> bool:
     )
 
 
-def _output_schema_hint(locales: list[str]) -> str:
+def _output_schema_hint(locales: list[str], profile: BodyLengthProfile) -> str:
     """JSON shape for the model — only active locales need full text."""
     lines = [
         "Верни строго один JSON-объект (без markdown, без текста до/после) по этой схеме:",
@@ -49,7 +74,7 @@ def _output_schema_hint(locales: list[str]) -> str:
     ]
     if locale_enabled(locales, "en"):
         lines.append(
-            f'  "title_en": "...", "body_en": "... (цель {BODY_TARGET_MIN}-{BODY_TARGET_MAX}, '
+            f'  "title_en": "...", "body_en": "... (цель {profile.target_min}-{profile.target_max}, '
             f'min {BODY_MIN_CHARS}, 3 абзаца)",'
         )
         lines.append('  "title_en_variants": ["...", "..."],')
@@ -66,7 +91,7 @@ def _output_schema_hint(locales: list[str]) -> str:
         )
     if locale_enabled(locales, "ru"):
         lines.append(
-            f'  "title_ru": "...", "body_ru": "... (цель {BODY_TARGET_MIN}-{BODY_TARGET_MAX}, '
+            f'  "title_ru": "...", "body_ru": "... (цель {profile.target_min}-{profile.target_max}, '
             f'min {BODY_MIN_CHARS}, 3 абзаца)",'
         )
         lines.append('  "title_ru_variants": ["...", "..."],')
@@ -99,27 +124,28 @@ def _output_schema_hint(locales: list[str]) -> str:
     return "\n".join(lines)
 
 
-def _body_length_rule(locales: list[str]) -> str:
+def _body_length_rule(locales: list[str], profile: BodyLengthProfile) -> str:
     parts: list[str] = []
     if locale_enabled(locales, "en"):
         parts.append(
-            f"- body_en: цель {BODY_TARGET_MIN}–{BODY_TARGET_MAX}, "
+            f"- body_en: цель {profile.target_min}–{profile.target_max}, "
             f"hard-min {BODY_MIN_CHARS} (свыше {BODY_SOFT_MAX_CHARS} ок), "
             "ровно 3 абзаца через \\n\\n"
         )
     if locale_enabled(locales, "ru"):
         parts.append(
-            f"- body_ru: цель {BODY_TARGET_MIN}–{BODY_TARGET_MAX}, "
+            f"- body_ru: цель {profile.target_min}–{profile.target_max}, "
             f"hard-min {BODY_MIN_CHARS} (свыше {BODY_SOFT_MAX_CHARS} ок), "
             "ровно 3 абзаца через \\n\\n"
         )
     if not parts:
         return BODY_LENGTH_RULE
     return (
-        "ОБЪЁМ ТЕЛА (цель vs hard-min; ниже hard-min = regenerate; "
+        "ОБЪЁМ ТЕЛА (цель зависит от объема исходников; ниже hard-min = regenerate; "
         "верхнего reject нет):\n" + "\n".join(parts) + f"\n- Активные языки: {', '.join(locales)}. "
         "Не генерируй текст на выключенных языках."
-        f"\n- Стремись к {BODY_TARGET_MIN}–{BODY_TARGET_MAX}; "
+        f"\n- В исходниках передано около {profile.source_chars} символов. "
+        f"Стремись к {profile.target_min}–{profile.target_max}; "
         f"минимум {BODY_MIN_CHARS}."
     )
 
@@ -131,13 +157,14 @@ def _build_user_prompt(
     flags_text: str,
     style_overlay_note: str,
     locales: list[str],
+    profile: BodyLengthProfile,
 ) -> str:
     return (
         f"Источники кластера:\n{sources_text}\n\n"
         f"Извлечённые факты:\n{facts_text}\n\n"
         f"Флаги контекста:\n{flags_text}\n\n"
         f"{style_overlay_note}\n\n"
-        f"{_output_schema_hint(locales)}"
+        f"{_output_schema_hint(locales, profile)}"
     )
 
 
@@ -173,16 +200,18 @@ def rewrite_cluster(
     """Returns (result, key_alias_used, model_used, token_usage). Raises RuntimeError
     after MAX_ATTEMPTS failed regenerate attempts (ТЗ §4.20 dead-letter)."""
     locales = get_output_locales(db)
+    profile = _body_length_profile(sources_text)
     user_prompt = _build_user_prompt(
         sources_text=sources_text,
         facts_text=facts_text,
         flags_text=flags_text,
         style_overlay_note=style_overlay_note,
         locales=locales,
+        profile=profile,
     )
 
     system_prompt = (
-        f"{prompt_version.template.rstrip()}\n\n{_body_length_rule(locales)}\n\n"
+        f"{prompt_version.template.rstrip()}\n\n{_body_length_rule(locales, profile)}\n\n"
         f"{site_category_prompt_block(db)}"
     )
     last_error: Exception | None = None
@@ -254,7 +283,8 @@ def rewrite_cluster(
                 retry_note = (
                     "\n\nРЕДАКТОРСКИЙ ПРОХОД ПО ДЛИНЕ. Ниже предыдущий JSON-черновик, "
                     "который нельзя заменять новым сюжетом. Верни полный JSON в той же схеме. "
-                    f"Расширь {active_bodies} до не менее {BODY_MIN_CHARS + 100} символов, "
+                    f"Расширь {active_bodies} до {profile.target_min}–{profile.target_max} символов "
+                    f"(но не менее {BODY_MIN_CHARS + 100}), "
                     "сохранив все подтвержденные факты, даты, цифры, имена и три абзаца. "
                     "Дополняй только сведениями из исходных материалов; не добавляй новых фактов "
                     "и не меняй смысл.\n\n"
@@ -265,7 +295,7 @@ def rewrite_cluster(
                 retry_note = (
                     f"\n\nПРЕДЫДУЩИЙ ОТВЕТ ОТКЛОНЁН: {str(exc)[:400]}. "
                     f"{active_bodies}: hard-min {BODY_MIN_CHARS} "
-                    f"(цель {BODY_TARGET_MIN}–{BODY_TARGET_MAX}; "
+                    f"(цель {profile.target_min}–{profile.target_max}; "
                     f"свыше {BODY_SOFT_MAX_CHARS} допустимо), ровно 3 абзаца "
                     f"через \\n\\n. Активные языки: {', '.join(locales)}. "
                     f"Если коротко — РАСШИРЬ тот же смысл только материалом "
