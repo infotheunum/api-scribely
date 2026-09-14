@@ -130,6 +130,7 @@ def test_rewrite_cluster_includes_source_proportional_target(
 
     assert "цель 2400–3600" in seen["system_prompt"]
     assert "около 3000 символов" in seen["system_prompt"]
+    assert "НЕОТМЕНИМАЯ ПРОВЕРКА ВЕРНОСТИ" in seen["system_prompt"]
     assert "цель 2400-3600" in seen["user_prompt"]
 
 
