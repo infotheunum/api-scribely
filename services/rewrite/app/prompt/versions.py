@@ -6,9 +6,9 @@ from rewrite_app.prompt.style_guide import SYSTEM_PROMPT
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-PROMPT_V6_NOTES = (
-    "v6 — source-grounded neutral rewrite, no unsolicited attribution, "
-    "RU dash and anglicism rules; seeded 2026-09-09"
+PROMPT_V7_NOTES = (
+    "v7 — atomic number/date bindings, no invented facts or investment advice, "
+    "political exclusion and RU terminology safeguards; seeded 2026-09-15"
 )
 def _create_active(db: Session, *, notes: str) -> PromptVersion:
     version = PromptVersion(
@@ -25,7 +25,7 @@ def _create_active(db: Session, *, notes: str) -> PromptVersion:
 def get_active_prompt_version(db: Session) -> PromptVersion:
     """Returns the active PromptVersion.
 
-    Fresh DB: bootstrap v6 from style_guide. Existing environments are
+    Fresh DB: bootstrap v7 from style_guide. Existing environments are
     upgraded explicitly by scripts/seed_prompt_version.py; reading a prompt
     must never mutate editorial configuration at runtime.
     """
@@ -33,6 +33,6 @@ def get_active_prompt_version(db: Session) -> PromptVersion:
         select(PromptVersion).where(PromptVersion.status == PromptVersionStatus.ACTIVE)
     )
     if active is None:
-        return _create_active(db, notes=PROMPT_V6_NOTES)
+        return _create_active(db, notes=PROMPT_V7_NOTES)
 
     return active

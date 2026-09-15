@@ -109,3 +109,21 @@ def test_schema_rejects_body_below_hard_min():
             _base_payload(body_en=short, body_ru=short),
             context={"locales": ["en", "ru"]},
         )
+
+
+def test_schema_normalizes_paired_russian_quotes_to_guillemets():
+    result = RewriteResultSchema.model_validate(
+        _base_payload(title_ru='"Гравити Фолз" вернется на платформу'),
+        context={"locales": ["ru"]},
+    )
+    assert result.title_ru == "«Гравити Фолз» вернется на платформу"
+
+
+def test_schema_rejects_cjk_characters_in_russian_public_copy():
+    import pytest
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="CJK"):
+        RewriteResultSchema.model_validate(
+            _base_payload(title_ru="Биткоин多个 вырос на рынке"), context={"locales": ["ru"]}
+        )
