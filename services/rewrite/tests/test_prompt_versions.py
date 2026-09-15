@@ -5,15 +5,15 @@ from db.models import PromptVersion
 from rewrite_app.prompt.seed import seed
 from rewrite_app.prompt.style_guide import SYSTEM_PROMPT
 from rewrite_app.prompt.versions import (
-    PROMPT_V6_NOTES,
+    PROMPT_V14_NOTES,
     get_active_prompt_version,
 )
 
 
-def test_fresh_db_bootstraps_v6(clean_db):
+def test_fresh_db_bootstraps_v14(clean_db):
     version = get_active_prompt_version(clean_db)
     assert version.status == PromptVersionStatus.ACTIVE
-    assert version.notes == PROMPT_V6_NOTES
+    assert version.notes == PROMPT_V14_NOTES
     assert "ВЕРНОСТЬ ФАКТАМ" in version.template
     assert "НЕЙТРАЛЬНОСТЬ" in version.template
     assert "АТРИБУЦИЯ И ССЫЛКИ" in version.template
@@ -21,6 +21,10 @@ def test_fresh_db_bootstraps_v6(clean_db):
     assert "англицизмы русскими эквивалентами" in version.template
     assert "максимум на ДВА" in version.template
     assert "транзакция" in version.template
+    assert "КАРТА ПРИВЯЗОК" in version.template
+    assert "не равно «10 месяцев»" in version.template
+    assert "инвестиционные рекомендации" in version.template
+    assert "ТЕХНИЧЕСКАЯ ЧИСТОТА" in version.template
     assert version.template == SYSTEM_PROMPT
 
 
@@ -50,16 +54,16 @@ def test_seed_preserves_existing_active_prompt_and_is_idempotent(clean_db):
     assert first.id == second.id
     assert second.status == PromptVersionStatus.ACTIVE
     assert second.notes == "v5"
-    assert clean_db.query(PromptVersion).filter_by(notes=PROMPT_V6_NOTES).count() == 0
+    assert clean_db.query(PromptVersion).filter_by(notes=PROMPT_V14_NOTES).count() == 0
     clean_db.refresh(old)
     assert old.status == PromptVersionStatus.ACTIVE
 
 
-def test_seed_bootstraps_v6_only_when_no_prompt_is_active(clean_db):
+def test_seed_bootstraps_v14_only_when_no_prompt_is_active(clean_db):
     version = seed(clean_db)
 
     assert version.status == PromptVersionStatus.ACTIVE
-    assert version.notes == PROMPT_V6_NOTES
+    assert version.notes == PROMPT_V14_NOTES
 
 
 def test_custom_admin_prompt_not_auto_upgraded(clean_db):

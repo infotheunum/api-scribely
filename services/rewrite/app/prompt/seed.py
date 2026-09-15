@@ -11,25 +11,25 @@ from db.enums import PromptVersionStatus
 from db.models import PromptVersion
 from rewrite_app.db import new_session
 from rewrite_app.prompt.style_guide import SYSTEM_PROMPT
-from rewrite_app.prompt.versions import PROMPT_V6_NOTES
+from rewrite_app.prompt.versions import PROMPT_V14_NOTES
 from sqlalchemy import select
 
 
 def seed(db) -> PromptVersion:
     # The Admin-selected prompt is the source of truth. A service restart must
-    # never silently retire it and resurrect the factory v6 template.
+    # never silently retire it and resurrect the factory v14 template.
     active = db.scalar(
         select(PromptVersion).where(PromptVersion.status == PromptVersionStatus.ACTIVE)
     )
     if active is not None:
         return active
 
-    version = db.scalar(select(PromptVersion).where(PromptVersion.notes == PROMPT_V6_NOTES))
+    version = db.scalar(select(PromptVersion).where(PromptVersion.notes == PROMPT_V14_NOTES))
     if version is None:
         version = PromptVersion(
             template=SYSTEM_PROMPT,
             status=PromptVersionStatus.DRAFT,
-            notes=PROMPT_V6_NOTES,
+            notes=PROMPT_V14_NOTES,
         )
         db.add(version)
         db.flush()
@@ -45,7 +45,7 @@ def main() -> None:
     db = new_session()
     try:
         version = seed(db)
-        print(f"active: {version.id} ({PROMPT_V6_NOTES})")
+        print(f"active: {version.id} ({PROMPT_V14_NOTES})")
     finally:
         db.close()
 
