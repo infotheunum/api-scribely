@@ -3,9 +3,11 @@ from __future__ import annotations
 from db.enums import PromptVersionStatus
 from db.models import PromptVersion
 from rewrite_app.prompt.seed import seed
-from rewrite_app.prompt.style_guide import SYSTEM_PROMPT
+from rewrite_app.prompt.style_guide import SYSTEM_PROMPT, V15_FIDELITY_APPENDIX
 from rewrite_app.prompt.versions import (
     PROMPT_V14_NOTES,
+    PROMPT_V15_NOTES,
+    create_v15_from_active,
     get_active_prompt_version,
 )
 
@@ -78,3 +80,20 @@ def test_custom_admin_prompt_not_auto_upgraded(clean_db):
     version = get_active_prompt_version(clean_db)
     assert version.id == custom.id
     assert version.template == "custom editorial prompt"
+
+
+def test_v15_candidate_extends_active_prompt_without_replacing_it(clean_db):
+    active = PromptVersion(
+        template="working v13 rules",
+        status=PromptVersionStatus.ACTIVE,
+        notes="v13 — proven rules",
+    )
+    clean_db.add(active)
+    clean_db.commit()
+
+    candidate = create_v15_from_active(clean_db)
+
+    assert candidate.status == PromptVersionStatus.DRAFT
+    assert candidate.notes == PROMPT_V15_NOTES
+    assert candidate.template == f"working v13 rules\n\n{V15_FIDELITY_APPENDIX}"
+    assert clean_db.get(PromptVersion, active.id).status == PromptVersionStatus.ACTIVE
