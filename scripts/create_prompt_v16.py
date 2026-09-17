@@ -1,13 +1,18 @@
-"""Create the v16 prompt candidate from the currently active editorial prompt."""
+"""Create a v16 candidate without replacing the currently active prompt."""
 
-from db.session import SessionLocal
+from __future__ import annotations
+
+from rewrite_app.db import new_session
 from rewrite_app.prompt.versions import create_v16_from_active
 
 
 def main() -> None:
-    with SessionLocal() as db:
+    db = new_session()
+    try:
         version = create_v16_from_active(db)
-        print(f"Created/reused draft PromptVersion {version.id}: {version.notes}")
+        print(f"candidate: {version.id} ({version.notes})")
+    finally:
+        db.close()
 
 
 if __name__ == "__main__":
