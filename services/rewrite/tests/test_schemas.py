@@ -111,8 +111,8 @@ def test_schema_rejects_body_below_hard_min():
         )
 
 
-def test_schema_uses_source_proportional_floor_from_context():
-    body = "x" * 950
+def test_schema_never_accepts_context_floor_below_editorial_minimum():
+    body = "x" * 1500
     body = f"{body[:300]}\n\n{body[300:600]}\n\n{body[600:]}"
 
     result = RewriteResultSchema.model_validate(
@@ -120,7 +120,7 @@ def test_schema_uses_source_proportional_floor_from_context():
         context={"locales": ["en", "ru"], "body_min_chars": 900},
     )
 
-    assert len(result.body_ru) >= 900
+    assert len(result.body_ru) >= 1500
 
 
 def test_schema_normalizes_paired_russian_quotes_to_guillemets():
