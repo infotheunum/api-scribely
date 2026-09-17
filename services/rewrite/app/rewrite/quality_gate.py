@@ -33,10 +33,11 @@ SYSTEM_PROMPT = """Ты — строгий фактчекер и литерат�
 Верни строго JSON:
 {"approved": true|false, "issues": ["конкретная проблема и точная правка"],
  "language_issues": ["ошибка перевода, грамматики или неуместный англицизм"],
+ "editorial_review_flags": ["неясный термин, который нельзя переводить без ручной проверки"],
  "blocking_issues": ["инвестиционная рекомендация, URL, источник или политическая оценка"],
  "required_fact_checks": [{"required_fact": "дословный пункт из ОБЯЗАТЕЛЬНЫХ ФАКТОВ", "status": "сохранен|упущен|искажен", "rewrite_evidence": "фрагмент рерайта"}],
  "fact_checks": [{"fact": "ключевой факт из оригинала", "status": "совпадает|упущен|искажён|добавлено", "severity": "critical|secondary", "rewrite_evidence": "как передано в рерайте"}]}.
-Если ошибок нет, language_issues и blocking_issues должны быть пустыми массивами:
+Если ошибок нет, language_issues, editorial_review_flags и blocking_issues должны быть пустыми массивами:
 не пиши в них фразы «нет ошибок» или другие пояснения. Поле translations
 в этом ответе не возвращай: перевод выполняется отдельным проходом после фактчека.
 required_fact_checks должен содержать РОВНО один элемент для каждого пункта из ОБЯЗАТЕЛЬНЫХ ФАКТОВ;
@@ -164,6 +165,9 @@ def review_rewrite(
     language_issues = _actual_findings(
         _string_list(data.get("language_issues", []), field="language_issues")
     )
+    editorial_review_flags = _actual_findings(
+        _string_list(data.get("editorial_review_flags", []), field="editorial_review_flags")
+    )
     blocking_issues = _string_list(data.get("blocking_issues", []), field="blocking_issues")
     fact_checks = data.get("fact_checks", [])
     required_fact_checks = data.get("required_fact_checks", [])
@@ -191,6 +195,7 @@ def review_rewrite(
         "fact_checks": fact_checks,
         "required_fact_checks": required_fact_checks,
         "language_issues": language_issues,
+        "editorial_review_flags": editorial_review_flags,
         "blocking_issues": blocking_issues,
         "translations": translations if translate_sources else [],
     }

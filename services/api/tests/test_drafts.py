@@ -196,6 +196,24 @@ def test_publish_succeeds_once_license_confirmed(client, test_user, clean_db):
     assert resp.json()["status"] == "published"
 
 
+def test_publish_requires_blocking_seo_issues_to_be_corrected(client, test_user, clean_db):
+    source = _source(clean_db)
+    cluster = _cluster(clean_db, source)
+    draft = _draft(
+        clean_db,
+        cluster,
+        image_license_confirmed=True,
+        seo_review_report={
+            "ru": {"issues": [{"field": "seo_title", "severity": "blocking"}]},
+            "en": {"issues": []},
+        },
+    )
+
+    resp = client.post(f"/drafts/{draft.id}/publish", headers=_auth_headers(client, test_user))
+    assert resp.status_code == 400
+    assert "SEO requires correction" in resp.json()["detail"]
+
+
 def test_publish_resolves_pending_tags_and_records_publish_record(client, test_user, clean_db):
     from db.models import PublishRecord
 

@@ -10,6 +10,7 @@ from common.rewrite_output_locales import (
     get_output_locales,
     locale_enabled,
 )
+from common.seo_review import review_draft_seo
 from common.site_categories import site_category_prompt_block
 from common.token_usage import TokenUsage
 from db.app_settings import get_setting
@@ -287,6 +288,18 @@ def rewrite_cluster(
                 db=db,
                 hint_text=hint,
             )
+            seo_review_report = review_draft_seo(
+                title_en=result.title_en,
+                body_en=result.body_en,
+                seo_title_en=result.seo_en.seo_title,
+                seo_description_en=result.seo_en.seo_description,
+                focus_keyphrase_en=result.seo_en.focus_keyphrase,
+                title_ru=result.title_ru,
+                body_ru=result.body_ru,
+                seo_title_ru=result.seo_ru.seo_title,
+                seo_description_ru=result.seo_ru.seo_description,
+                focus_keyphrase_ru=result.seo_ru.focus_keyphrase,
+            )
             review_report: dict = {}
             if bool(get_setting(db, "quality_gate.enabled", False)):
                 approved, issues, review_report, _, _, quality_usage = review_rewrite(
@@ -302,6 +315,7 @@ def rewrite_cluster(
                 if not approved:
                     raise ValueError("quality gate failed: " + "; ".join(issues[:8]))
                 token_usage += quality_usage
+            review_report["seo_review_report"] = seo_review_report
             return result, key_alias, model, token_usage, review_report
         except AllKeysExhaustedError:
             raise

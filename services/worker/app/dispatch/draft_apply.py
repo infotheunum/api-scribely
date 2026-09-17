@@ -41,6 +41,11 @@ def apply_rewrite_content(
     except (TypeError, ValueError):
         review_report = {}
     draft.review_report = review_report if isinstance(review_report, dict) else {}
+    draft.seo_review_report = (
+        draft.review_report.pop("seo_review_report", {})
+        if isinstance(draft.review_report.get("seo_review_report", {}), dict)
+        else {}
+    )
     draft.sponsor_flag = content.sponsor_flag
     draft.press_release_flag = content.press_release_flag
     draft.disclaimer_flag = content.disclaimer_flag

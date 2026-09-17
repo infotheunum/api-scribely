@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from db.enums import PromptVersionStatus
 from db.models import PromptVersion
-from rewrite_app.prompt.style_guide import SYSTEM_PROMPT, V15_FIDELITY_APPENDIX
+from rewrite_app.prompt.style_guide import (
+    SYSTEM_PROMPT,
+    V15_FIDELITY_APPENDIX,
+    V16_EDITORIAL_STYLE_APPENDIX,
+)
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -13,6 +17,10 @@ PROMPT_V14_NOTES = (
 PROMPT_V15_NOTES = (
     "v15 — preserves the active editorial prompt and adds a no-invented-year, "
     "quote-attribution and name-verification appendix; seeded 2026-09-16"
+)
+PROMPT_V16_NOTES = (
+    "v16 — preserves the active editorial prompt and adds natural Russian style, "
+    "terminology and SEO-quality safeguards; seeded 2026-09-17"
 )
 def _create_active(db: Session, *, notes: str) -> PromptVersion:
     version = PromptVersion(
@@ -52,6 +60,23 @@ def create_v15_from_active(db: Session) -> PromptVersion:
         template=f"{active.template.rstrip()}\n\n{V15_FIDELITY_APPENDIX}",
         status=PromptVersionStatus.DRAFT,
         notes=PROMPT_V15_NOTES,
+    )
+    db.add(version)
+    db.commit()
+    db.refresh(version)
+    return version
+
+
+def create_v16_from_active(db: Session) -> PromptVersion:
+    """Create a reviewable v16 candidate without replacing the active template."""
+    existing = db.scalar(select(PromptVersion).where(PromptVersion.notes == PROMPT_V16_NOTES))
+    if existing is not None:
+        return existing
+    active = get_active_prompt_version(db)
+    version = PromptVersion(
+        template=f"{active.template.rstrip()}\n\n{V16_EDITORIAL_STYLE_APPENDIX}",
+        status=PromptVersionStatus.DRAFT,
+        notes=PROMPT_V16_NOTES,
     )
     db.add(version)
     db.commit()
