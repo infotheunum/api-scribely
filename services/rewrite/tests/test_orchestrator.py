@@ -68,10 +68,10 @@ VALID_RESULT = {
 @pytest.mark.parametrize(
     ("source_chars", "expected", "hard_min"),
     [
-        (2200, (2000, 3200), 900),
-        (3000, (2400, 3600), 1200),
-        (5000, (2400, 3600), 1200),
-        (5001, (3000, 4500), 1700),
+        (2200, (2000, 3200), 1500),
+        (3000, (2400, 3600), 1500),
+        (5000, (2400, 3600), 1500),
+        (5001, (3000, 4500), 1500),
     ],
 )
 def test_body_length_profile_scales_with_source_volume(source_chars, expected, hard_min):
@@ -132,7 +132,7 @@ def test_rewrite_cluster_includes_source_proportional_target(
     )
 
     assert "цель 2400–3600" in seen["system_prompt"]
-    assert "hard-min 1200" in seen["system_prompt"]
+    assert "hard-min 1500" in seen["system_prompt"]
     assert "около 3000 символов" in seen["system_prompt"]
     assert "НЕОТМЕНИМАЯ ПРОВЕРКА ВЕРНОСТИ" in seen["system_prompt"]
     assert "ПУНКТУАЦИЯ" in seen["system_prompt"]
