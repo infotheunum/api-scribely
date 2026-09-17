@@ -36,6 +36,15 @@
 </div>
 {% endif %}
 
+{% if draft.review_report.editorial_review_flags %}
+<div class="card">
+  <h2>Нужна редакторская проверка</h2>
+  <ul style="margin:0;padding-left:18px;">
+    {% for flag in draft.review_report.editorial_review_flags %}<li class="note">{{ flag }}</li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+
 {% if error %}<div class="error">{{ error }}</div>{% endif %}
 {% if saved %}<div class="flash-success">Сохранено.</div>{% endif %}
 
@@ -84,6 +93,8 @@
       <div class="lang-label">EN</div>
       <label>SEO title</label><input type="text" name="seo_title_en" value="{{ draft.seo_title_en or '' }}">
       <label>Description</label><textarea name="seo_description_en" rows="2">{{ draft.seo_description_en or '' }}</textarea>
+      <label>OG title</label><input type="text" name="og_title_en" value="{{ draft.og_title_en or '' }}">
+      <label>OG description</label><textarea name="og_description_en" rows="2">{{ draft.og_description_en or '' }}</textarea>
       <label>Slug</label><input type="text" name="slug_en" value="{{ draft.slug_en or '' }}">
       <label>Focus keyphrase</label><input type="text" name="focus_keyphrase_en" value="{{ draft.focus_keyphrase_en or '' }}">
       <label>Keywords (через запятую)</label><input type="text" name="keywords_en" value="{{ draft.keywords_en|join(', ') }}">
@@ -92,12 +103,29 @@
       <div class="lang-label">RU</div>
       <label>SEO title</label><input type="text" name="seo_title_ru" value="{{ draft.seo_title_ru or '' }}">
       <label>Description</label><textarea name="seo_description_ru" rows="2">{{ draft.seo_description_ru or '' }}</textarea>
+      <label>OG title</label><input type="text" name="og_title_ru" value="{{ draft.og_title_ru or '' }}">
+      <label>OG description</label><textarea name="og_description_ru" rows="2">{{ draft.og_description_ru or '' }}</textarea>
       <label>Slug</label><input type="text" name="slug_ru" value="{{ draft.slug_ru or '' }}">
       <label>Focus keyphrase</label><input type="text" name="focus_keyphrase_ru" value="{{ draft.focus_keyphrase_ru or '' }}">
       <label>Keywords (через запятую)</label><input type="text" name="keywords_ru" value="{{ draft.keywords_ru|join(', ') }}">
     </div>
   </div>
-  <div class="note" style="margin-top:8px;">SERP-превью: <strong>{{ draft.seo_title_en or draft.title_en }}</strong><br>{{ draft.seo_description_en or '' }}</div>
+  <div class="grid2" style="margin-top:12px;">
+    {% for locale, title, description, fallback in [('EN', draft.seo_title_en, draft.seo_description_en, draft.title_en), ('RU', draft.seo_title_ru, draft.seo_description_ru, draft.title_ru)] %}
+    <div class="note" style="padding:10px;border:1px solid var(--border);border-radius:6px;">
+      <strong>SERP-превью {{ locale }}</strong><br>
+      <strong>{{ title or fallback }}</strong><br>{{ description or '' }}
+      {% set review = draft.seo_review_report.get(locale|lower, {}) %}
+      {% set lengths = review.get('lengths', {}) %}
+      <div style="margin-top:6px;">Длина: title {{ lengths.get('seo_title', 0) }}, description {{ lengths.get('seo_description', 0) }}</div>
+      {% for issue in review.get('issues', []) %}
+      <div class="{{ 'error' if issue.get('severity') == 'blocking' else 'note' }}" style="margin-top:4px;">
+        {{ issue.get('field') }}: {{ issue.get('evidence') }}
+      </div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
 </div>
 
 <div class="card">

@@ -9,6 +9,7 @@ from api_app.auth.dependencies import require_role
 from api_app.db import get_db
 from api_app.publish.service import approve_and_publish, submit_edit_feedback
 from common.rewrite_body_format import normalize_body_paragraphs
+from common.seo_review import review_draft_seo, seo_blocking_issues
 from common.tracing import get_trace_id
 from db.enums import DraftStatus, RejectReason
 from db.models import AuditLog, Draft, NewsCluster, RawItem, User
@@ -163,6 +164,7 @@ class DraftDetail(DraftSummary):
     pending_tags: list
     handoff_note: str | None
     review_report: dict
+    seo_review_report: dict
     rewrite_llm_key_alias: str | None
     rewrite_llm_model: str | None
     llm_prompt_tokens: int = 0
@@ -228,6 +230,7 @@ class DraftDetail(DraftSummary):
             pending_tags=draft.pending_tags,
             handoff_note=draft.handoff_note,
             review_report=draft.review_report or {},
+            seo_review_report=draft.seo_review_report or {},
             rewrite_llm_key_alias=draft.rewrite_llm_key_alias,
             rewrite_llm_model=draft.rewrite_llm_model,
             llm_prompt_tokens=int(draft.llm_prompt_tokens or 0),
@@ -347,6 +350,19 @@ def patch_draft(
     changes = body.model_dump(exclude={"version"}, exclude_unset=True)
     for field, value in changes.items():
         setattr(draft, field, value)
+    if any(field.startswith(("seo_", "og_", "focus_keyphrase_", "title_", "body_")) for field in changes):
+        draft.seo_review_report = review_draft_seo(
+            title_en=draft.title_en,
+            body_en=draft.body_en,
+            seo_title_en=draft.seo_title_en,
+            seo_description_en=draft.seo_description_en,
+            focus_keyphrase_en=draft.focus_keyphrase_en,
+            title_ru=draft.title_ru,
+            body_ru=draft.body_ru,
+            seo_title_ru=draft.seo_title_ru,
+            seo_description_ru=draft.seo_description_ru,
+            focus_keyphrase_ru=draft.focus_keyphrase_ru,
+        )
     draft.version += 1
     _audit(db, user, action="edit", draft_id=draft.id, details={"fields": list(changes)})
     db.flush()
@@ -371,6 +387,10 @@ def publish_draft(
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, "cover image license must be confirmed before Publish"
         )
+    seo_issues = seo_blocking_issues(draft.seo_review_report)
+    if seo_issues:
+        fields = ", ".join(sorted({str(issue.get("field", "SEO")) for issue in seo_issues}))
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"SEO requires correction: {fields}")
     category_id, tag_ids = approve_and_publish(db, draft, user)
     draft.status = DraftStatus.PUBLISHED
     _audit(
