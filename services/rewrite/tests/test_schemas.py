@@ -111,6 +111,18 @@ def test_schema_rejects_body_below_hard_min():
         )
 
 
+def test_schema_uses_source_proportional_floor_from_context():
+    body = "x" * 950
+    body = f"{body[:300]}\n\n{body[300:600]}\n\n{body[600:]}"
+
+    result = RewriteResultSchema.model_validate(
+        _base_payload(body_en=body, body_ru=body),
+        context={"locales": ["en", "ru"], "body_min_chars": 900},
+    )
+
+    assert len(result.body_ru) >= 900
+
+
 def test_schema_normalizes_paired_russian_quotes_to_guillemets():
     result = RewriteResultSchema.model_validate(
         _base_payload(title_ru='"Гравити Фолз" вернется на платформу'),

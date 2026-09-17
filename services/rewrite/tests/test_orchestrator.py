@@ -7,7 +7,7 @@ from common.rewrite_output_locales import set_output_locales
 from common.token_usage import TokenUsage
 from db.enums import PromptVersionStatus
 from db.models import PromptVersion
-from rewrite_app.prompt.style_guide import BODY_MIN_CHARS, BODY_SOFT_MAX_CHARS
+from rewrite_app.prompt.style_guide import BODY_SOFT_MAX_CHARS
 from rewrite_app.rewrite.orchestrator import (
     _body_length_profile,
     _quality_required_facts,
@@ -17,8 +17,10 @@ from rewrite_app.settings import RewriteSettings
 
 _USAGE = TokenUsage(9, 8, 17)
 
-VALID_BODY_EN = "x" * BODY_MIN_CHARS
-VALID_BODY_RU = "y" * BODY_MIN_CHARS
+# Covers the strictest source-proportional floor and the three-paragraph
+# contract; individual tests still provide intentionally short bodies.
+VALID_BODY_EN = "\n\n".join(["x" * 600] * 3)
+VALID_BODY_RU = "\n\n".join(["y" * 600] * 3)
 
 VALID_RESULT = {
     "title_en": "Bitcoin Surges Past $120,000 as ETF Inflows Accelerate",
@@ -64,18 +66,19 @@ VALID_RESULT = {
 
 
 @pytest.mark.parametrize(
-    ("source_chars", "expected"),
+    ("source_chars", "expected", "hard_min"),
     [
-        (2200, (2000, 3200)),
-        (3000, (2400, 3600)),
-        (5000, (2400, 3600)),
-        (5001, (3000, 4500)),
+        (2200, (2000, 3200), 900),
+        (3000, (2400, 3600), 1200),
+        (5000, (2400, 3600), 1200),
+        (5001, (3000, 4500), 1700),
     ],
 )
-def test_body_length_profile_scales_with_source_volume(source_chars, expected):
+def test_body_length_profile_scales_with_source_volume(source_chars, expected, hard_min):
     profile = _body_length_profile("x" * source_chars)
 
     assert (profile.target_min, profile.target_max) == expected
+    assert profile.hard_min == hard_min
     assert profile.source_chars == source_chars
 
 
@@ -129,6 +132,7 @@ def test_rewrite_cluster_includes_source_proportional_target(
     )
 
     assert "цель 2400–3600" in seen["system_prompt"]
+    assert "hard-min 1200" in seen["system_prompt"]
     assert "около 3000 символов" in seen["system_prompt"]
     assert "НЕОТМЕНИМАЯ ПРОВЕРКА ВЕРНОСТИ" in seen["system_prompt"]
     assert "ПУНКТУАЦИЯ" in seen["system_prompt"]
@@ -307,6 +311,6 @@ def test_rewrite_cluster_edits_short_draft_with_previous_json(
     assert result.body_ru == VALID_BODY_RU
     assert len(calls) == 2
     assert "РЕДАКТОРСКИЙ ПРОХОД ПО ДЛИНЕ" in calls[1]["user_prompt"]
-    assert short["body_ru"] in calls[1]["user_prompt"]
+    assert json.dumps(short["body_ru"], ensure_ascii=False)[1:-1] in calls[1]["user_prompt"]
     assert "ПРЕДЫДУЩИЙ_JSON" in calls[1]["user_prompt"]
     assert calls[1]["prefer_key_alias"] == "anthropic"
