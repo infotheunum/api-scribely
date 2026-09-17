@@ -86,6 +86,16 @@ def _active_locales(info: ValidationInfo) -> tuple[str, ...]:
     return DEFAULT_OUTPUT_LOCALES
 
 
+def _body_min_chars(info: ValidationInfo) -> int:
+    """Read the source-proportional floor passed by the orchestrator safely."""
+    ctx = info.context or {}
+    raw = ctx.get("body_min_chars") if isinstance(ctx, dict) else None
+    try:
+        return max(BODY_MIN_CHARS, int(raw))
+    except (TypeError, ValueError):
+        return BODY_MIN_CHARS
+
+
 class RewriteResultSchema(BaseModel):
     title_en: str = ""
     body_en: str = ""
@@ -131,6 +141,7 @@ class RewriteResultSchema(BaseModel):
     @model_validator(mode="after")
     def _normalize_and_validate_active_locales(self, info: ValidationInfo) -> RewriteResultSchema:
         locales = _active_locales(info)
+        body_min_chars = _body_min_chars(info)
         bodies: list[tuple[str, str]] = []
         if locale_enabled(locales, "en"):
             self.body_en = normalize_body_paragraphs(self.body_en)
@@ -161,9 +172,9 @@ class RewriteResultSchema(BaseModel):
                     f"(got {count})"
                 )
             length = len(body)
-            if length < BODY_MIN_CHARS:
+            if length < body_min_chars:
                 raise ValueError(
-                    f"{field_name} must be at least {BODY_MIN_CHARS} chars (got {length})"
+                    f"{field_name} must be at least {body_min_chars} chars (got {length})"
                 )
         return self
 
@@ -200,7 +211,13 @@ class RewriteResultSchema(BaseModel):
         for field in fields:
             setattr(self, field, _normalize_ru_quotes(getattr(self, field)))
         self.title_ru_variants = [_normalize_ru_quotes(value) for value in self.title_ru_variants]
-        for field in ("seo_title", "seo_description", "og_title", "og_description", "focus_keyphrase"):
+        for field in (
+            "seo_title",
+            "seo_description",
+            "og_title",
+            "og_description",
+            "focus_keyphrase",
+        ):
             setattr(self.seo_ru, field, _normalize_ru_quotes(getattr(self.seo_ru, field)))
         self.seo_ru.keywords = [_normalize_ru_quotes(value) for value in self.seo_ru.keywords]
 

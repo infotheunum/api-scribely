@@ -4,7 +4,11 @@ import json
 import logging
 from dataclasses import dataclass
 
-from common.rewrite_body_limits import BODY_TARGET_MAX, BODY_TARGET_MIN
+from common.rewrite_body_limits import (
+    BODY_TARGET_MAX,
+    BODY_TARGET_MIN,
+    body_min_chars_for_source,
+)
 from common.rewrite_output_locales import (
     fill_inactive_locale_fields,
     get_output_locales,
@@ -18,7 +22,6 @@ from db.models import PromptVersion
 from pydantic import ValidationError
 from rewrite_app.prompt.style_guide import (
     BODY_LENGTH_RULE,
-    BODY_MIN_CHARS,
     BODY_SOFT_MAX_CHARS,
     REWRITE_FIDELITY_CONTRACT,
 )
@@ -72,6 +75,7 @@ class BodyLengthProfile:
     source_chars: int
     target_min: int
     target_max: int
+    hard_min: int
 
 
 def _body_length_profile(sources_text: str) -> BodyLengthProfile:
@@ -82,11 +86,12 @@ def _body_length_profile(sources_text: str) -> BodyLengthProfile:
     with repeated wire copy from producing an excessively long article.
     """
     source_chars = len(sources_text.strip())
+    hard_min = body_min_chars_for_source(source_chars)
     if source_chars <= 2200:
-        return BodyLengthProfile(source_chars, BODY_TARGET_MIN, BODY_TARGET_MAX)
+        return BodyLengthProfile(source_chars, BODY_TARGET_MIN, BODY_TARGET_MAX, hard_min)
     if source_chars <= 5000:
-        return BodyLengthProfile(source_chars, 2400, 3600)
-    return BodyLengthProfile(source_chars, 3000, 4500)
+        return BodyLengthProfile(source_chars, 2400, 3600, hard_min)
+    return BodyLengthProfile(source_chars, 3000, 4500, hard_min)
 
 
 def _is_body_length_error(exc: ValidationError) -> bool:
@@ -106,8 +111,9 @@ def _output_schema_hint(locales: list[str], profile: BodyLengthProfile) -> str:
     ]
     if locale_enabled(locales, "en"):
         lines.append(
-            f'  "title_en": "...", "body_en": "... (цель {profile.target_min}-{profile.target_max}, '
-            f'min {BODY_MIN_CHARS}, 3 абзаца)",'
+            f'  "title_en": "...", "body_en": "... (цель {profile.target_min}-'
+            f'{profile.target_max}, '
+            f'min {profile.hard_min}, 3 абзаца)",'
         )
         lines.append('  "title_en_variants": ["...", "..."],')
         lines.append(
@@ -123,8 +129,9 @@ def _output_schema_hint(locales: list[str], profile: BodyLengthProfile) -> str:
         )
     if locale_enabled(locales, "ru"):
         lines.append(
-            f'  "title_ru": "...", "body_ru": "... (цель {profile.target_min}-{profile.target_max}, '
-            f'min {BODY_MIN_CHARS}, 3 абзаца)",'
+            f'  "title_ru": "...", "body_ru": "... (цель {profile.target_min}-'
+            f'{profile.target_max}, '
+            f'min {profile.hard_min}, 3 абзаца)",'
         )
         lines.append('  "title_ru_variants": ["...", "..."],')
         lines.append(
@@ -161,13 +168,13 @@ def _body_length_rule(locales: list[str], profile: BodyLengthProfile) -> str:
     if locale_enabled(locales, "en"):
         parts.append(
             f"- body_en: цель {profile.target_min}–{profile.target_max}, "
-            f"hard-min {BODY_MIN_CHARS} (свыше {BODY_SOFT_MAX_CHARS} ок), "
+            f"hard-min {profile.hard_min} (свыше {BODY_SOFT_MAX_CHARS} ок), "
             "ровно 3 абзаца через \\n\\n"
         )
     if locale_enabled(locales, "ru"):
         parts.append(
             f"- body_ru: цель {profile.target_min}–{profile.target_max}, "
-            f"hard-min {BODY_MIN_CHARS} (свыше {BODY_SOFT_MAX_CHARS} ок), "
+            f"hard-min {profile.hard_min} (свыше {BODY_SOFT_MAX_CHARS} ок), "
             "ровно 3 абзаца через \\n\\n"
         )
     if not parts:
@@ -178,7 +185,7 @@ def _body_length_rule(locales: list[str], profile: BodyLengthProfile) -> str:
         "Не генерируй текст на выключенных языках."
         f"\n- В исходниках передано около {profile.source_chars} символов. "
         f"Стремись к {profile.target_min}–{profile.target_max}; "
-        f"минимум {BODY_MIN_CHARS}."
+        f"минимум {profile.hard_min}."
     )
 
 
@@ -279,7 +286,10 @@ def rewrite_cluster(
             )
             data = fill_inactive_locale_fields(extract_json(content), locales)
             previous_draft_json = json.dumps(data, ensure_ascii=False)
-            result = RewriteResultSchema.model_validate(data, context={"locales": locales})
+            result = RewriteResultSchema.model_validate(
+                data,
+                context={"locales": locales, "body_min_chars": profile.hard_min},
+            )
             hint = f"{result.title_en} {result.body_en} {result.title_ru} {result.body_ru}"
             from common.site_categories import resolve_site_category_slug
 
@@ -308,7 +318,9 @@ def rewrite_cluster(
                     sources_text=sources_text,
                     required_facts_text=quality_required_facts,
                     rewritten_text=_reviewable_rewrite_text(result),
-                    translate_sources=bool(get_setting(db, "review.translate_originals.enabled", False)),
+                    translate_sources=bool(
+                        get_setting(db, "review.translate_originals.enabled", False)
+                    ),
                 )
                 review_report["all_extracted_facts"] = facts_text
                 review_report["quality_gate_required_facts"] = quality_required_facts
@@ -332,8 +344,9 @@ def rewrite_cluster(
                 retry_note = (
                     "\n\nРЕДАКТОРСКИЙ ПРОХОД ПО ДЛИНЕ. Ниже предыдущий JSON-черновик, "
                     "который нельзя заменять новым сюжетом. Верни полный JSON в той же схеме. "
-                    f"Расширь {active_bodies} до {profile.target_min}–{profile.target_max} символов "
-                    f"(но не менее {BODY_MIN_CHARS + 100}), "
+                    f"Расширь {active_bodies} до {profile.target_min}–"
+                    f"{profile.target_max} символов "
+                    f"(но не менее {profile.hard_min}), "
                     "сохранив все подтвержденные факты, даты, цифры, имена и три абзаца. "
                     "Дополняй только сведениями из исходных материалов; не добавляй новых фактов "
                     "и не меняй смысл.\n\n"
@@ -343,7 +356,7 @@ def rewrite_cluster(
                 length_editor_active = False
                 retry_note = (
                     f"\n\nПРЕДЫДУЩИЙ ОТВЕТ ОТКЛОНЁН: {str(exc)[:400]}. "
-                    f"{active_bodies}: hard-min {BODY_MIN_CHARS} "
+                    f"{active_bodies}: hard-min {profile.hard_min} "
                     f"(цель {profile.target_min}–{profile.target_max}; "
                     f"свыше {BODY_SOFT_MAX_CHARS} допустимо), ровно 3 абзаца "
                     f"через \\n\\n. Активные языки: {', '.join(locales)}. "
