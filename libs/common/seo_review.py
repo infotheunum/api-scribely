@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 from typing import Any
 
-
 _NUMBER = re.compile(r"(?<![\w])(?:[$€₽£])?\d+(?:[.,]\d+)?(?:\s?(?:%|млрд|млн|тыс\.?)?)")
 _WORD = re.compile(r"[A-Za-zА-Яа-яЁё]{4,}")
 _STOP_WORDS = {
@@ -61,29 +60,78 @@ def review_seo_pack(
     if not title:
         issues.append(_issue("seo_title", "blocking", "required", "SEO title не заполнен."))
     elif not 50 <= len(title) <= 70:
-        issues.append(_issue("seo_title", "warning", "length", "Рекомендуемая длина: 50–70 символов."))
+        issues.append(
+            _issue("seo_title", "warning", "length", "Рекомендуемая длина: 50–70 символов.")
+        )
     if not description:
-        issues.append(_issue("seo_description", "blocking", "required", "SEO description не заполнен."))
+        issues.append(
+            _issue("seo_description", "blocking", "required", "SEO description не заполнен.")
+        )
     elif not 140 <= len(description) <= 160:
-        issues.append(_issue("seo_description", "warning", "length", "Рекомендуемая длина: 140–160 символов."))
+        issues.append(
+            _issue(
+                "seo_description", "warning", "length", "Рекомендуемая длина: 140–160 символов."
+            )
+        )
 
     metadata = " ".join((title, description, keyphrase))
     for token in _unsupported_numbers(metadata, body):
-        issues.append(_issue("seo", "blocking", "source-grounding", f"Число «{token}» отсутствует в тексте статьи."))
+        issues.append(
+            _issue(
+                "seo",
+                "blocking",
+                "source-grounding",
+                f"Число «{token}» отсутствует в тексте статьи.",
+            )
+        )
     if locale == "ru":
         lowered = metadata.lower()
         for typo, correction in _RU_KNOWN_TYPOS.items():
             if typo in lowered:
-                issues.append(_issue("seo", "blocking", "spelling", f"«{typo}» следует исправить на «{correction}»."))
+                issues.append(
+                    _issue(
+                        "seo",
+                        "blocking",
+                        "spelling",
+                        f"«{typo}» следует исправить на «{correction}».",
+                    )
+                )
         if re.search(r"\bтем не менее,", lowered):
-            issues.append(_issue("seo_description", "blocking", "punctuation", "После «тем не менее» запятая не ставится без отдельного грамматического основания."))
+            issues.append(
+                _issue(
+                    "seo_description",
+                    "blocking",
+                    "punctuation",
+                    (
+                        "После «Тем не менее» запятая не ставится без отдельного "
+                        "грамматического основания."
+                    ),
+                )
+            )
 
     article_terms = _terms(f"{h1} {body}")
     title_terms = _terms(title)
     if title and title_terms and not article_terms.intersection(title_terms):
-        issues.append(_issue("seo_title", "warning", "h1-alignment", "SEO title не содержит общих значимых слов с H1 или текстом; проверьте сущность и событие."))
+        issues.append(
+            _issue(
+                "seo_title",
+                "warning",
+                "h1-alignment",
+                (
+                    "SEO title не содержит общих значимых слов с H1 или текстом; "
+                    "проверьте сущность и событие."
+                ),
+            )
+        )
     if keyphrase and not _terms(keyphrase).intersection(article_terms):
-        issues.append(_issue("focus_keyphrase", "warning", "source-grounding", "Фокусная фраза не найдена в H1 или тексте статьи."))
+        issues.append(
+            _issue(
+                "focus_keyphrase",
+                "warning",
+                "source-grounding",
+                "Фокусная фраза не найдена в H1 или тексте статьи.",
+            )
+        )
     return {"locale": locale, "lengths": lengths, "issues": issues}
 
 
@@ -104,6 +152,9 @@ def review_draft_seo(**fields: str | None) -> dict[str, Any]:
 
 def seo_blocking_issues(report: dict[str, Any] | None) -> list[dict[str, str]]:
     return [
-        issue for language in (report or {}).values() if isinstance(language, dict)
-        for issue in language.get("issues", []) if isinstance(issue, dict) and issue.get("severity") == "blocking"
+        issue
+        for language in (report or {}).values()
+        if isinstance(language, dict)
+        for issue in language.get("issues", [])
+        if isinstance(issue, dict) and issue.get("severity") == "blocking"
     ]

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import uuid
 import html
 import re
+import uuid
 from datetime import datetime
 
 from api_app.auth.dependencies import require_role
@@ -350,7 +350,8 @@ def patch_draft(
     changes = body.model_dump(exclude={"version"}, exclude_unset=True)
     for field, value in changes.items():
         setattr(draft, field, value)
-    if any(field.startswith(("seo_", "og_", "focus_keyphrase_", "title_", "body_")) for field in changes):
+    seo_related_prefixes = ("seo_", "og_", "focus_keyphrase_", "title_", "body_")
+    if any(field.startswith(seo_related_prefixes) for field in changes):
         draft.seo_review_report = review_draft_seo(
             title_en=draft.title_en,
             body_en=draft.body_en,

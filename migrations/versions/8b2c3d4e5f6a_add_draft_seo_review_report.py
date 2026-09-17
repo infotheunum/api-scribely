@@ -1,7 +1,7 @@
 """add draft seo review report
 
 Revision ID: 8b2c3d4e5f6a
-Revises: 7a1b2c3d4e5f6
+Revises: 7a1b2c3d4e5f
 Create Date: 2026-09-17
 """
 
@@ -11,7 +11,7 @@ from sqlalchemy.dialects import postgresql
 
 
 revision = "8b2c3d4e5f6a"
-down_revision = "7a1b2c3d4e5f6"
+down_revision = "7a1b2c3d4e5f"
 branch_labels = None
 depends_on = None
 
