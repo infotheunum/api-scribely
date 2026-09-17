@@ -7,13 +7,16 @@ from rewrite_app.prompt.style_guide import (
     SYSTEM_PROMPT,
     V15_FIDELITY_APPENDIX,
     V16_EDITORIAL_STYLE_APPENDIX,
+    V17_READABILITY_APPENDIX,
 )
 from rewrite_app.prompt.versions import (
     PROMPT_V14_NOTES,
     PROMPT_V15_NOTES,
     PROMPT_V16_NOTES,
+    PROMPT_V17_NOTES,
     create_v15_from_active,
     create_v16_from_active,
+    create_v17_from_active,
     get_active_prompt_version,
 )
 
@@ -119,4 +122,21 @@ def test_v16_candidate_extends_active_prompt_without_replacing_it(clean_db):
     assert candidate.status == PromptVersionStatus.DRAFT
     assert candidate.notes == PROMPT_V16_NOTES
     assert candidate.template == f"working v15 rules\n\n{V16_EDITORIAL_STYLE_APPENDIX}"
+    assert clean_db.get(PromptVersion, active.id).status == PromptVersionStatus.ACTIVE
+
+
+def test_v17_candidate_extends_active_prompt_without_replacing_it(clean_db):
+    active = PromptVersion(
+        template="working v16 rules",
+        status=PromptVersionStatus.ACTIVE,
+        notes="v16 — proven rules",
+    )
+    clean_db.add(active)
+    clean_db.commit()
+
+    candidate = create_v17_from_active(clean_db)
+
+    assert candidate.status == PromptVersionStatus.DRAFT
+    assert candidate.notes == PROMPT_V17_NOTES
+    assert candidate.template == f"working v16 rules\n\n{V17_READABILITY_APPENDIX}"
     assert clean_db.get(PromptVersion, active.id).status == PromptVersionStatus.ACTIVE
