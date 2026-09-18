@@ -91,20 +91,32 @@ def recent_clusters(
     )
 
 
-def candidate_clusters(db: Session) -> list[NewsCluster]:
-    """All historical clusters with only the vectors needed for matching.
+def candidate_clusters(
+    db: Session, *, now: datetime | None = None, window: timedelta | None = None
+) -> list[NewsCluster]:
+    """Recent clusters with only the vectors needed for matching.
 
-    There is deliberately no age window here: later reporting on the same
-    event must enrich its original cluster instead of producing a new draft.
-    Do not eager-load article text here: this query runs every minute and
-    loading every historical RSS body caused the worker to exceed its memory
-    limit.  Full source records are loaded only for the single best candidate
-    that reaches LLM confirmation.
+    The old all-history query loaded every cluster and every attached item
+    embedding on each minute tick. In production that meant tens of thousands
+    of Python float lists plus the embedding model and caused worker OOM
+    restarts. News deduplication only needs the active event window; a later
+    follow-up beyond it is intentionally treated as a new editorial item.
+    Full source records remain deferred until a single candidate needs LLM
+    confirmation.
     """
+    now = now or datetime.now(UTC)
+    if window is None:
+        hours = get_setting(
+            db, CLUSTER_WINDOW_HOURS_SETTING_KEY, CLUSTER_WINDOW.total_seconds() / 3600
+        )
+        window = timedelta(hours=float(hours))
     return list(
         db.scalars(
             select(NewsCluster)
-            .where(NewsCluster.embedding.is_not(None))
+            .where(
+                NewsCluster.embedding.is_not(None),
+                NewsCluster.created_at >= now - window,
+            )
             .options(
                 load_only(NewsCluster.id, NewsCluster.embedding),
                 selectinload(NewsCluster.raw_items).load_only(RawItem.id, RawItem.embedding),
