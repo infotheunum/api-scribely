@@ -101,11 +101,13 @@ def _coalesce_to_count(paragraphs: list[str], count: int) -> list[str]:
     return paras[:count]
 
 
-def normalize_body_paragraphs(text: str, *, expected: int = EXPECTED_PARAGRAPH_COUNT) -> str:
+def normalize_body_paragraphs(text: str, *, expected: int | None = EXPECTED_PARAGRAPH_COUNT) -> str:
     """Ensure body uses blank-line paragraph breaks (\\n\\n)."""
     paragraphs = split_paragraphs(text)
     if not paragraphs:
         return ""
+    if expected is None:
+        return "\n\n".join(paragraphs)
     if len(paragraphs) != expected:
         parts = paragraphs
         if len(parts) == 1:
@@ -122,7 +124,7 @@ def normalize_body_paragraphs(text: str, *, expected: int = EXPECTED_PARAGRAPH_C
 
 def body_to_html(text: str) -> str:
     """Render normalized paragraphs as simple HTML for CMS import."""
-    paragraphs = split_paragraphs(normalize_body_paragraphs(text))
+    paragraphs = split_paragraphs(normalize_body_paragraphs(text, expected=None))
     return "".join(f"<p>{html.escape(paragraph)}</p>" for paragraph in paragraphs)
 
 
