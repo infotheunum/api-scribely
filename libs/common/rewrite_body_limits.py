@@ -7,7 +7,7 @@ target band.
 """
 
 # Expanded news must be rebuilt rather than accepted as a short summary.
-BODY_MIN_CHARS = 2500
+BODY_MIN_CHARS = 1500
 
 # Aspiration in prompts (models aim here; not a second hard gate).
 BODY_TARGET_MIN = 2500
