@@ -172,7 +172,7 @@ def test_recent_clusters_excludes_old_ones(clean_db):
     assert stale.id not in ids
 
 
-def test_candidate_clusters_include_old_events(clean_db):
+def test_candidate_clusters_exclude_old_events_to_bound_memory(clean_db):
     source = _source(clean_db)
     old = NewsCluster(embedding=TOPIC_A, trace_id="t")
     clean_db.add(old)
@@ -186,7 +186,7 @@ def test_candidate_clusters_include_old_events(clean_db):
 
     _raw_item(clean_db, source, "old-item", embedding=TOPIC_A, cluster_id=old.id)
 
-    assert old.id in {cluster.id for cluster in candidate_clusters(clean_db)}
+    assert old.id not in {cluster.id for cluster in candidate_clusters(clean_db)}
 
 
 def test_candidate_clusters_do_not_load_historical_article_text(clean_db):
