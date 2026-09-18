@@ -9,6 +9,7 @@ from rewrite_app.prompt.style_guide import (
     V17_READABILITY_APPENDIX,
     V18_RU_EDITORIAL_PRECISION_APPENDIX,
     V19_FACTUAL_COVERAGE_APPENDIX,
+    V20_FACT_PROPORTIONAL_VOLUME_APPENDIX,
 )
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -37,6 +38,9 @@ PROMPT_V18_NOTES = (
 PROMPT_V19_NOTES = (
     "v19 — preserves the active editorial prompt and enforces source-block "
     "coverage over generic rewrite prose; seeded 2026-09-18"
+)
+PROMPT_V20_NOTES = (
+    "v20 — fact-proportional length and flexible paragraph structure; seeded 2026-09-18"
 )
 def _create_active(db: Session, *, notes: str) -> PromptVersion:
     version = PromptVersion(
@@ -144,6 +148,22 @@ def create_v19_from_active(db: Session) -> PromptVersion:
         template=f"{active.template.rstrip()}\n\n{V19_FACTUAL_COVERAGE_APPENDIX}",
         status=PromptVersionStatus.DRAFT,
         notes=PROMPT_V19_NOTES,
+    )
+    db.add(version)
+    db.commit()
+    db.refresh(version)
+    return version
+
+
+def create_v20_from_active(db: Session) -> PromptVersion:
+    existing = db.scalar(select(PromptVersion).where(PromptVersion.notes == PROMPT_V20_NOTES))
+    if existing is not None:
+        return existing
+    active = get_active_prompt_version(db)
+    version = PromptVersion(
+        template=f"{active.template.rstrip()}\n\n{V20_FACT_PROPORTIONAL_VOLUME_APPENDIX}",
+        status=PromptVersionStatus.DRAFT,
+        notes=PROMPT_V20_NOTES,
     )
     db.add(version)
     db.commit()

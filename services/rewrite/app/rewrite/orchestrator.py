@@ -5,7 +5,6 @@ import logging
 from dataclasses import dataclass
 
 from common.rewrite_body_limits import (
-    BODY_TARGET_MAX,
     BODY_TARGET_MIN,
     body_min_chars_for_source,
 )
@@ -88,11 +87,13 @@ def _body_length_profile(sources_text: str) -> BodyLengthProfile:
     """
     source_chars = len(sources_text.strip())
     hard_min = body_min_chars_for_source(source_chars)
+    if source_chars <= 900:
+        return BodyLengthProfile(source_chars, 300, 800, hard_min)
     if source_chars <= 2200:
-        return BodyLengthProfile(source_chars, BODY_TARGET_MIN, BODY_TARGET_MAX, hard_min)
+        return BodyLengthProfile(source_chars, BODY_TARGET_MIN, 1500, hard_min)
     if source_chars <= 5000:
-        return BodyLengthProfile(source_chars, 2400, 3600, hard_min)
-    return BodyLengthProfile(source_chars, 3000, 4500, hard_min)
+        return BodyLengthProfile(source_chars, 1500, 2500, hard_min)
+    return BodyLengthProfile(source_chars, 2500, BODY_SOFT_MAX_CHARS, hard_min)
 
 
 def _is_body_length_error(exc: ValidationError) -> bool:
@@ -114,7 +115,7 @@ def _output_schema_hint(locales: list[str], profile: BodyLengthProfile) -> str:
         lines.append(
             f'  "title_en": "...", "body_en": "... (цель {profile.target_min}-'
             f'{profile.target_max}, '
-            f'min {profile.hard_min}, 3 абзаца)",'
+            f'min {profile.hard_min}, 1–6 абзацев по фактам)",'
         )
         lines.append('  "title_en_variants": ["...", "..."],')
         lines.append(
@@ -132,7 +133,7 @@ def _output_schema_hint(locales: list[str], profile: BodyLengthProfile) -> str:
         lines.append(
             f'  "title_ru": "...", "body_ru": "... (цель {profile.target_min}-'
             f'{profile.target_max}, '
-            f'min {profile.hard_min}, 3 абзаца)",'
+            f'min {profile.hard_min}, 1–6 абзацев по фактам)",'
         )
         lines.append('  "title_ru_variants": ["...", "..."],')
         lines.append(
@@ -170,19 +171,21 @@ def _body_length_rule(locales: list[str], profile: BodyLengthProfile) -> str:
         parts.append(
             f"- body_en: цель {profile.target_min}–{profile.target_max}, "
             f"hard-min {profile.hard_min} (свыше {BODY_SOFT_MAX_CHARS} ок), "
-            "ровно 3 абзаца через \\n\\n"
+            "1–6 абзацев по количеству смысловых блоков через \\n\\n"
         )
     if locale_enabled(locales, "ru"):
         parts.append(
             f"- body_ru: цель {profile.target_min}–{profile.target_max}, "
             f"hard-min {profile.hard_min} (свыше {BODY_SOFT_MAX_CHARS} ок), "
-            "ровно 3 абзаца через \\n\\n"
+            "1–6 абзацев по количеству смысловых блоков через \\n\\n"
         )
     if not parts:
         return BODY_LENGTH_RULE
     return (
         "ОБЪЁМ ТЕЛА (цель зависит от объема исходников; ниже hard-min = regenerate; "
-        "верхнего reject нет):\n" + "\n".join(parts) + f"\n- Активные языки: {', '.join(locales)}. "
+        "верхняя редакционная граница — 4 000 символов):\n"
+        + "\n".join(parts)
+        + f"\n- Активные языки: {', '.join(locales)}. "
         "Не генерируй текст на выключенных языках."
         f"\n- В исходниках передано около {profile.source_chars} символов. "
         f"Стремись к {profile.target_min}–{profile.target_max}; "
