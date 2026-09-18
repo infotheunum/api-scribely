@@ -2,11 +2,7 @@ from __future__ import annotations
 
 import re
 
-from common.rewrite_body_format import (
-    EXPECTED_PARAGRAPH_COUNT,
-    normalize_body_paragraphs,
-    paragraph_count,
-)
+from common.rewrite_body_format import normalize_body_paragraphs, paragraph_count
 from common.rewrite_output_locales import DEFAULT_OUTPUT_LOCALES, locale_enabled
 from common.text_spaces import normalize_plain_spaces
 from pydantic import BaseModel, Field, ValidationInfo, model_validator
@@ -144,7 +140,7 @@ class RewriteResultSchema(BaseModel):
         body_min_chars = _body_min_chars(info)
         bodies: list[tuple[str, str]] = []
         if locale_enabled(locales, "en"):
-            self.body_en = normalize_body_paragraphs(self.body_en)
+            self.body_en = normalize_body_paragraphs(self.body_en, expected=None)
             bodies.append(("body_en", self.body_en))
             if len(self.title_en.strip()) < 10:
                 raise ValueError("title_en must be at least 10 characters")
@@ -154,7 +150,7 @@ class RewriteResultSchema(BaseModel):
             self.title_en_variants = []
             self.seo_en = SeoPackSchema()
         if locale_enabled(locales, "ru"):
-            self.body_ru = normalize_body_paragraphs(self.body_ru)
+            self.body_ru = normalize_body_paragraphs(self.body_ru, expected=None)
             bodies.append(("body_ru", self.body_ru))
             if len(self.title_ru.strip()) < 10:
                 raise ValueError("title_ru must be at least 10 characters")
@@ -166,9 +162,9 @@ class RewriteResultSchema(BaseModel):
 
         for field_name, body in bodies:
             count = paragraph_count(body)
-            if count != EXPECTED_PARAGRAPH_COUNT:
+            if not 1 <= count <= 6:
                 raise ValueError(
-                    f"{field_name} must have exactly {EXPECTED_PARAGRAPH_COUNT} paragraphs "
+                    f"{field_name} must have 1 to 6 paragraphs "
                     f"(got {count})"
                 )
             length = len(body)
