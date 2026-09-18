@@ -93,15 +93,22 @@ def test_quality_required_facts_keeps_critical_kinds_within_review_budget():
             "- [when] 14 сентября",
             "- [who] Руководитель компании",
             "- [number] 300 долларов",
+            "- [number] 400 долларов",
+            "- [number] 500 долларов",
+            "- [number] 600 долларов",
+            "- [number] 700 долларов",
+            "- [number] 800 долларов",
         ]
     )
 
     selected = _quality_required_facts(facts).splitlines()
 
-    assert len(selected) == 4
+    assert len(selected) == 12
     assert selected[0] == "- [essence] Компания открыла новый рынок для клиентов"
     assert "- [number] 100 долларов" in selected
     assert "- [when] 14 сентября" in selected
+    assert "- [what] Компания открыла рынок" in selected
+    assert "- [quote] Цитата руководителя" in selected
 
 
 def test_rewrite_cluster_includes_source_proportional_target(
