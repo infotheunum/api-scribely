@@ -36,16 +36,17 @@ logger = logging.getLogger(__name__)
 
 # One retry is enough once hard-min matches typical first-pass length.
 MAX_ATTEMPTS = 2
-QUALITY_REQUIRED_FACT_LIMIT = 4
+QUALITY_REQUIRED_FACT_LIMIT = 12
 
 
 def _quality_required_facts(facts_text: str) -> str:
     """Choose a reviewable critical-fact set without hiding the full registry.
 
     Enrichment intentionally extracts every number and date. Requiring a critic
-    to emit a JSON verdict for 15–25 items made the response truncate and
-    stopped the whole dispatch queue. The rewrite still receives every fact;
-    this bounded subset is only the strict publish gate.
+    to emit a JSON verdict for every item made the response truncate and
+    stopped the whole dispatch queue. Twelve facts still fit the reviewer
+    response budget while covering distinct source blocks beyond just the
+    headline, actor, date and first number.
     """
     lines = [line for line in facts_text.splitlines() if line.lstrip().startswith("- [")]
     if len(lines) <= QUALITY_REQUIRED_FACT_LIMIT:

@@ -13,7 +13,7 @@ WORKDIR /app
 COPY pyproject.toml uv.lock .python-version /app/
 COPY libs /app/libs
 COPY proto /app/proto
-COPY scripts/gen_proto.sh scripts/create_prompt_v16.py scripts/create_prompt_v17.py scripts/create_prompt_v18.py /app/scripts/
+COPY scripts/gen_proto.sh scripts/create_prompt_v16.py scripts/create_prompt_v17.py scripts/create_prompt_v18.py scripts/create_prompt_v19.py /app/scripts/
 COPY services/rewrite /app/services/rewrite
 
 RUN uv sync --frozen --package unum-rewrite

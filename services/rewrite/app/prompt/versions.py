@@ -8,6 +8,7 @@ from rewrite_app.prompt.style_guide import (
     V16_EDITORIAL_STYLE_APPENDIX,
     V17_READABILITY_APPENDIX,
     V18_RU_EDITORIAL_PRECISION_APPENDIX,
+    V19_FACTUAL_COVERAGE_APPENDIX,
 )
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -32,6 +33,10 @@ PROMPT_V17_NOTES = (
 PROMPT_V18_NOTES = (
     "v18 — preserves the active editorial prompt and adds Russian word-order, "
     "punctuation and final fidelity safeguards; seeded 2026-09-18"
+)
+PROMPT_V19_NOTES = (
+    "v19 — preserves the active editorial prompt and enforces source-block "
+    "coverage over generic rewrite prose; seeded 2026-09-18"
 )
 def _create_active(db: Session, *, notes: str) -> PromptVersion:
     version = PromptVersion(
@@ -122,6 +127,23 @@ def create_v18_from_active(db: Session) -> PromptVersion:
         template=f"{active.template.rstrip()}\n\n{V18_RU_EDITORIAL_PRECISION_APPENDIX}",
         status=PromptVersionStatus.DRAFT,
         notes=PROMPT_V18_NOTES,
+    )
+    db.add(version)
+    db.commit()
+    db.refresh(version)
+    return version
+
+
+def create_v19_from_active(db: Session) -> PromptVersion:
+    """Create a reviewable v19 candidate without replacing the active template."""
+    existing = db.scalar(select(PromptVersion).where(PromptVersion.notes == PROMPT_V19_NOTES))
+    if existing is not None:
+        return existing
+    active = get_active_prompt_version(db)
+    version = PromptVersion(
+        template=f"{active.template.rstrip()}\n\n{V19_FACTUAL_COVERAGE_APPENDIX}",
+        status=PromptVersionStatus.DRAFT,
+        notes=PROMPT_V19_NOTES,
     )
     db.add(version)
     db.commit()
