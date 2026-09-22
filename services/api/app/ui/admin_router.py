@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import difflib
+import math
 import uuid
 from pathlib import Path
 
@@ -14,18 +15,21 @@ from common.generation_hours import (
 )
 from common.integration_export_settings import load_export_defaults, save_export_defaults
 from common.rewrite_output_locales import get_output_locales, set_output_locales
-from db.enums import PromptVersionStatus, SourceTier
-from db.models import PromptVersion, User
 from db.app_settings import get_setting, set_setting
-from fastapi import APIRouter, Depends, Form, Request, status
+from db.enums import PromptVersionStatus, SourceTier
+from db.models import PromptVersion, Source, User
+from fastapi import APIRouter, Depends, Form, Query, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/ui/admin", tags=["ui-admin"])
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+
+SOURCES_PER_PAGE_DEFAULT = 25
+SOURCES_PER_PAGE_MAX = 100
 
 
 def _require_admin(user: User | None) -> RedirectResponse | None:
@@ -36,6 +40,12 @@ def _require_admin(user: User | None) -> RedirectResponse | None:
     return None
 
 
+def _sources_list_url(page: int = 1) -> str:
+    if page <= 1:
+        return "/ui/admin/sources"
+    return f"/ui/admin/sources?page={page}"
+
+
 # ---------------------------------------------------------------------
 # Sources
 # ---------------------------------------------------------------------
@@ -44,13 +54,29 @@ def _require_admin(user: User | None) -> RedirectResponse | None:
 @router.get("/sources", response_class=HTMLResponse)
 def sources_page(
     request: Request,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(SOURCES_PER_PAGE_DEFAULT, ge=5, le=SOURCES_PER_PAGE_MAX),
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
     redirect = _require_admin(user)
     if redirect:
         return redirect
-    sources = admin_api.list_sources(db=db)
+
+    active_filter = Source.deleted_at.is_(None)
+    total = db.scalar(select(func.count()).select_from(Source).where(active_filter)) or 0
+    pages = max(1, math.ceil(total / per_page)) if total else 1
+    page = min(page, pages)
+    offset = (page - 1) * per_page
+    rows = db.scalars(
+        select(Source)
+        .where(active_filter)
+        .order_by(Source.name.asc())
+        .offset(offset)
+        .limit(per_page)
+    ).all()
+    sources = [admin_api.SourceOut.from_model(s) for s in rows]
+
     return templates.TemplateResponse(
         request,
         "admin_sources.html",
@@ -60,6 +86,13 @@ def sources_page(
             "admin_tab": "sources",
             "sources": sources,
             "tiers": range(1, 7),
+            "page": page,
+            "per_page": per_page,
+            "default_per_page": SOURCES_PER_PAGE_DEFAULT,
+            "total": total,
+            "pages": pages,
+            "from_idx": offset + 1 if total else 0,
+            "to_idx": offset + len(sources),
         },
     )
 
@@ -95,6 +128,7 @@ def create_source_ui(
 def toggle_source_ui(
     source_id: uuid.UUID,
     is_active: str = Form(...),
+    page: int = Form(1),
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
@@ -104,7 +138,21 @@ def toggle_source_ui(
     admin_api.update_source(
         source_id, admin_api.SourcePatch(is_active=is_active == "true"), db=db, user=user
     )
-    return RedirectResponse("/ui/admin/sources", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(_sources_list_url(max(1, page)), status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/sources/{source_id}/delete")
+def delete_source_ui(
+    source_id: uuid.UUID,
+    page: int = Form(1),
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
+    redirect = _require_admin(user)
+    if redirect:
+        return redirect
+    admin_api.delete_source(source_id, db=db, user=user)
+    return RedirectResponse(_sources_list_url(max(1, page)), status_code=status.HTTP_303_SEE_OTHER)
 
 
 # ---------------------------------------------------------------------
