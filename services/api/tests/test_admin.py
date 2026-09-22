@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+
 from db.models import AuditLog
 from sqlalchemy import select
 
@@ -55,6 +57,40 @@ def test_patch_source_disables_it(client, admin_user, clean_db):
     )
     assert resp.status_code == 200
     assert resp.json()["is_active"] is False
+
+
+def test_delete_source_hides_it_from_list(client, admin_user, clean_db):
+    headers = _auth_headers(client, admin_user)
+    created = client.post(
+        "/admin/sources",
+        json={"name": "Delete Me", "url": "https://example.com/f-delete", "tier": 1},
+        headers=headers,
+    ).json()
+
+    resp = client.delete(f"/admin/sources/{created['id']}", headers=headers)
+    assert resp.status_code == 204
+
+    listed = client.get("/admin/sources", headers=headers).json()
+    assert all(s["id"] != created["id"] for s in listed)
+
+    again = client.delete(f"/admin/sources/{created['id']}", headers=headers)
+    assert again.status_code == 404
+
+    from db.models import Source
+
+    source = clean_db.get(Source, uuid.UUID(created["id"]))
+    assert source is not None
+    assert source.deleted_at is not None
+    assert source.is_active is False
+
+    audit = clean_db.scalars(
+        select(AuditLog).where(
+            AuditLog.entity_type == "Source",
+            AuditLog.entity_id == created["id"],
+            AuditLog.action == "admin_delete",
+        )
+    ).first()
+    assert audit is not None
 
 
 def test_create_topic_rejects_duplicate_name(client, admin_user, clean_db):
