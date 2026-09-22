@@ -90,6 +90,53 @@ def test_admin_ui_sources_delete(client, admin_user, clean_db):
     assert source.is_active is False
 
 
+def test_admin_ui_sources_pagination(client, admin_user, clean_db):
+    headers = _auth_headers(client, admin_user)
+    for i in range(1, 8):
+        resp = client.post(
+            "/ui/admin/sources",
+            data={
+                "name": f"Page Source {i:02d}",
+                "url": f"https://example.com/page-{i}",
+                "tier": "1",
+                "language": "en",
+                "poll_interval_seconds": "900",
+            },
+            headers=headers,
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+
+    page1 = client.get("/ui/admin/sources?per_page=5", headers=headers)
+    assert page1.status_code == 200
+    assert "Page Source 01" in page1.text
+    assert "Page Source 05" in page1.text
+    assert "Page Source 06" not in page1.text
+    assert "1–5 из 7" in page1.text
+    assert "стр. 1 / 2" in page1.text
+    assert 'href="/ui/admin/sources?page=2&amp;per_page=5"' in page1.text
+
+    page2 = client.get("/ui/admin/sources?page=2&per_page=5", headers=headers)
+    assert page2.status_code == 200
+    assert "Page Source 06" in page2.text
+    assert "Page Source 07" in page2.text
+    assert "Page Source 01" not in page2.text
+    assert "6–7 из 7" in page2.text
+    assert "стр. 2 / 2" in page2.text
+
+    from db.models import Source
+
+    last = clean_db.query(Source).filter_by(name="Page Source 07").one()
+    toggle = client.post(
+        f"/ui/admin/sources/{last.id}/toggle",
+        data={"is_active": "false", "page": "2"},
+        headers=headers,
+        follow_redirects=False,
+    )
+    assert toggle.status_code == 303
+    assert toggle.headers["location"] == "/ui/admin/sources?page=2"
+
+
 def test_admin_ui_topics_create_and_edit_keywords(client, admin_user, clean_db):
     headers = _auth_headers(client, admin_user)
     client.post(
