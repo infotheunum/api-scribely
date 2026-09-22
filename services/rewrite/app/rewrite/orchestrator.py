@@ -5,6 +5,7 @@ import logging
 from dataclasses import dataclass
 
 from common.rewrite_body_limits import (
+    BODY_TARGET_MAX,
     BODY_TARGET_MIN,
     body_min_chars_for_source,
 )
@@ -79,21 +80,21 @@ class BodyLengthProfile:
 
 
 def _body_length_profile(sources_text: str) -> BodyLengthProfile:
-    """Keep substantive rewrites proportional to the supplied source corpus.
+    """Aim the editorial band so free models clear the hard floor.
 
-    ``sources_text`` can contain two sources.  We deliberately use its total size:
-    the model may use facts from both texts, while the upper band keeps a cluster
-    with repeated wire copy from producing an excessively long article.
+    Sparse sources must still reach BODY_MIN_CHARS; the prompt target stays
+    2500–3000 so the model does not stop at a short summary. Richer sources
+    may use the soft upper band.
     """
     source_chars = len(sources_text.strip())
     hard_min = body_min_chars_for_source(source_chars)
-    if source_chars <= 900:
-        return BodyLengthProfile(source_chars, 300, 800, hard_min)
-    if source_chars <= 2200:
-        return BodyLengthProfile(source_chars, BODY_TARGET_MIN, 1500, hard_min)
     if source_chars <= 5000:
-        return BodyLengthProfile(source_chars, 1500, 2500, hard_min)
-    return BodyLengthProfile(source_chars, 2500, BODY_SOFT_MAX_CHARS, hard_min)
+        return BodyLengthProfile(
+            source_chars, BODY_TARGET_MIN, BODY_TARGET_MAX, hard_min
+        )
+    return BodyLengthProfile(
+        source_chars, BODY_TARGET_MIN, BODY_SOFT_MAX_CHARS, hard_min
+    )
 
 
 def _is_body_length_error(exc: ValidationError) -> bool:
