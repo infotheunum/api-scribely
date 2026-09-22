@@ -82,6 +82,9 @@ class Source(Base):
     last_polled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
+    # Soft-delete for Admin: hide from registry without breaking RawItem FK.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
     created_at: Mapped[datetime] = _created_at()
 
     raw_items: Mapped[list[RawItem]] = relationship(back_populates="source")

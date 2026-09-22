@@ -377,7 +377,9 @@ def inject_submit(
     if user is None:
         return RedirectResponse("/ui/login", status_code=status.HTTP_303_SEE_OTHER)
 
-    source = db.scalar(select(Source).where(Source.type == SourceType.MANUAL))
+    source = db.scalar(
+        select(Source).where(Source.type == SourceType.MANUAL, Source.deleted_at.is_(None))
+    )
     if source is None:
         return RedirectResponse(
             "/ui/inject?error=Источник+для+ручного+добавления+не+настроен",

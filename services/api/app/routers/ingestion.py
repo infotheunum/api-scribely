@@ -25,7 +25,9 @@ class InjectResponse(BaseModel):
 
 
 def _manual_source(db: Session) -> Source:
-    source = db.scalar(select(Source).where(Source.type == SourceType.MANUAL))
+    source = db.scalar(
+        select(Source).where(Source.type == SourceType.MANUAL, Source.deleted_at.is_(None))
+    )
     if source is None:
         # Seeded by scripts/seed_sources.py — a real deployment that has
         # run migrations but not the seed script hits this once, loudly,
