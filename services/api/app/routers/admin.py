@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 from api_app.auth.dependencies import require_role
@@ -55,7 +56,7 @@ class QuarantineOut(BaseModel):
     created_at: str
 
     @classmethod
-    def from_model(cls, row: ClusterQuarantine) -> "QuarantineOut":
+    def from_model(cls, row: ClusterQuarantine) -> QuarantineOut:
         return cls(
             cluster_id=str(row.cluster_id),
             reason=str(row.reason),
@@ -156,7 +157,12 @@ class SourceOut(BaseModel):
 
 @router.get("/sources", response_model=list[SourceOut])
 def list_sources(db: Session = Depends(get_db)) -> list[SourceOut]:
-    return [SourceOut.from_model(s) for s in db.scalars(select(Source))]
+    rows = db.scalars(
+        select(Source)
+        .where(Source.deleted_at.is_(None))
+        .order_by(Source.name.asc())
+    )
+    return [SourceOut.from_model(s) for s in rows]
 
 
 @router.post("/sources", response_model=SourceOut, status_code=status.HTTP_201_CREATED)
@@ -187,7 +193,7 @@ def update_source(
     user: User = Depends(require_role("admin")),
 ) -> SourceOut:
     source = db.get(Source, source_id)
-    if source is None:
+    if source is None or source.deleted_at is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "source not found")
     changes = body.model_dump(exclude_unset=True)
     for field, value in changes.items():
@@ -201,6 +207,28 @@ def update_source(
         details=changes,
     )
     return SourceOut.from_model(source)
+
+
+@router.delete("/sources/{source_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_source(
+    source_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("admin")),
+) -> None:
+    """Soft-delete: hide from Admin registry, stop polling, keep RawItem history."""
+    source = db.get(Source, source_id)
+    if source is None or source.deleted_at is not None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "source not found")
+    source.deleted_at = datetime.now(UTC)
+    source.is_active = False
+    _audit(
+        db,
+        user,
+        action="admin_delete",
+        entity_type="Source",
+        entity_id=str(source.id),
+        details={"name": source.name, "url": source.url},
+    )
 
 
 # ---------------------------------------------------------------------

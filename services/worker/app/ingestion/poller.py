@@ -20,7 +20,11 @@ def due_sources(db: Session, *, now: datetime | None = None) -> list[Source]:
     elapsed. API connectors (Уровень 2) are out of Phase 1 scope (План §3)."""
     now = now or datetime.now(UTC)
     candidates = db.scalars(
-        select(Source).where(Source.is_active.is_(True), Source.type == SourceType.RSS)
+        select(Source).where(
+            Source.is_active.is_(True),
+            Source.deleted_at.is_(None),
+            Source.type == SourceType.RSS,
+        )
     ).all()
     due = []
     for source in candidates:

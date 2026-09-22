@@ -14,9 +14,9 @@ from common.generation_hours import (
 )
 from common.integration_export_settings import load_export_defaults, save_export_defaults
 from common.rewrite_output_locales import get_output_locales, set_output_locales
+from db.app_settings import get_setting, set_setting
 from db.enums import PromptVersionStatus, SourceTier
 from db.models import PromptVersion, User
-from db.app_settings import get_setting, set_setting
 from fastapi import APIRouter, Depends, Form, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -104,6 +104,19 @@ def toggle_source_ui(
     admin_api.update_source(
         source_id, admin_api.SourcePatch(is_active=is_active == "true"), db=db, user=user
     )
+    return RedirectResponse("/ui/admin/sources", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/sources/{source_id}/delete")
+def delete_source_ui(
+    source_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
+    redirect = _require_admin(user)
+    if redirect:
+        return redirect
+    admin_api.delete_source(source_id, db=db, user=user)
     return RedirectResponse("/ui/admin/sources", status_code=status.HTTP_303_SEE_OTHER)
 
 

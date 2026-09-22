@@ -58,6 +58,38 @@ def test_admin_ui_sources_create_and_toggle(client, admin_user, clean_db):
     assert source.is_active is False
 
 
+def test_admin_ui_sources_delete(client, admin_user, clean_db):
+    headers = _auth_headers(client, admin_user)
+    client.post(
+        "/ui/admin/sources",
+        data={
+            "name": "Remove Me",
+            "url": "https://example.com/remove",
+            "tier": "2",
+            "language": "en",
+            "poll_interval_seconds": "900",
+        },
+        headers=headers,
+        follow_redirects=False,
+    )
+
+    from db.models import Source
+
+    source = clean_db.query(Source).filter_by(name="Remove Me").one()
+    resp = client.post(
+        f"/ui/admin/sources/{source.id}/delete",
+        headers=headers,
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+
+    listed = client.get("/ui/admin/sources", headers=headers)
+    assert "Remove Me" not in listed.text
+    clean_db.refresh(source)
+    assert source.deleted_at is not None
+    assert source.is_active is False
+
+
 def test_admin_ui_topics_create_and_edit_keywords(client, admin_user, clean_db):
     headers = _auth_headers(client, admin_user)
     client.post(
