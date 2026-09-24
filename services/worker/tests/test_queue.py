@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 from db.app_settings import set_setting
 from db.enums import SourceTier, SourceType, TopicStatus
 from db.models import NewsCluster, RawItem, Source
@@ -20,7 +22,14 @@ def _source(clean_db, name) -> Source:
     return source
 
 
-def _cluster(clean_db, source, *, score, topic_status=TopicStatus.IN_TOPIC) -> NewsCluster:
+def _cluster(
+    clean_db,
+    source,
+    *,
+    score,
+    topic_status=TopicStatus.IN_TOPIC,
+    published_at: datetime | None = None,
+) -> NewsCluster:
     cluster = NewsCluster(trace_id="t", priority_score=score, topic_status=topic_status)
     clean_db.add(cluster)
     clean_db.commit()
@@ -33,6 +42,7 @@ def _cluster(clean_db, source, *, score, topic_status=TopicStatus.IN_TOPIC) -> N
             language="en",
             trace_id="t",
             cluster_id=cluster.id,
+            published_at=published_at,
         )
     )
     clean_db.commit()
@@ -100,3 +110,15 @@ def test_limit_defaults_to_app_setting_when_not_passed(clean_db):
     selected = select_top_clusters(clean_db)  # no explicit limit/ratio
 
     assert len(selected) == 3
+
+
+def test_selection_excludes_clusters_with_stale_published_at(clean_db):
+    source = _source(clean_db, "s")
+    now = datetime.now(UTC)
+    fresh = _cluster(clean_db, source, score=10, published_at=now - timedelta(hours=12))
+    # High score but outside the 48h editorial window — must not enter rewrite.
+    _cluster(clean_db, source, score=99, published_at=now - timedelta(hours=60))
+
+    selected = select_top_clusters(clean_db, limit=10, fairness_cap_ratio=1.0, now=now)
+
+    assert [c.id for c in selected] == [fresh.id]

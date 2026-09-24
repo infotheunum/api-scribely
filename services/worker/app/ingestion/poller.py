@@ -9,6 +9,7 @@ from db.enums import SourceTier, SourceType
 from db.models import RawItem, Source
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from worker_app.filter.freshness import max_item_age_window
 from worker_app.ingestion.circuit_breaker import is_paused, record_failure, record_success
 from worker_app.ingestion.rss_connector import FeedFetchError, fetch_feed_entries
 
@@ -63,9 +64,18 @@ def poll_source(db: Session, source: Source) -> int:
         db.commit()
         return 0
 
+    now = datetime.now(UTC)
+    age_window = max_item_age_window(db)
+    cutoff = now - age_window
     created = 0
+    skipped_stale = 0
     for entry in entries:
         if _raw_item_exists(db, source.id, entry.external_id):
+            continue
+        # RSS feeds often keep 7–30 days of history. Only keep items inside
+        # the editorial window (~1–2 days): older news must not enter rewrite.
+        if entry.published_at is not None and entry.published_at < cutoff:
+            skipped_stale += 1
             continue
 
         body = entry.summary
@@ -93,7 +103,14 @@ def poll_source(db: Session, source: Source) -> int:
 
     record_success(source)
     db.commit()
-    logger.info("polled source %s (%s): %d new items", source.name, source.id, created)
+    logger.info(
+        "polled source %s (%s): %d new items (%d skipped stale >%sh)",
+        source.name,
+        source.id,
+        created,
+        skipped_stale,
+        int(age_window.total_seconds() // 3600),
+    )
     return created
 
 

@@ -20,6 +20,7 @@ from worker_app.dedup.embeddings import (
     embed_texts,
     embedding_text,
 )
+from worker_app.filter.freshness import fresh_unclustered_raw_items
 
 logger = logging.getLogger(__name__)
 
@@ -62,14 +63,10 @@ def _embed_batch_size(db: Session) -> int:
 
 
 def unclustered_raw_items(db: Session, *, limit: int) -> list[RawItem]:
-    return list(
-        db.scalars(
-            select(RawItem)
-            .where(RawItem.cluster_id.is_(None))
-            .order_by(RawItem.fetched_at)
-            .limit(limit)
-        )
-    )
+    # Skip week-old RSS backlog left over from first polls of new sources —
+    # otherwise order_by(fetched_at) keeps feeding stale items forever and
+    # starves fresh coverage (see worker_app.filter.freshness).
+    return fresh_unclustered_raw_items(db, limit=limit)
 
 
 def recent_clusters(

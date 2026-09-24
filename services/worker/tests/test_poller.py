@@ -118,3 +118,41 @@ def test_due_sources_excludes_not_yet_due(clean_db):
 
     due = due_sources(clean_db)
     assert [s.name for s in due] == ["Overdue"]
+
+
+def test_poll_source_skips_entries_older_than_max_age(clean_db, monkeypatch):
+    source = _make_source(clean_db)
+    now = datetime.now(UTC)
+    entries = [
+        ParsedEntry(
+            external_id="old",
+            url="https://example.com/old",
+            title="Week old",
+            summary="A" * 700,
+            published_at=now - timedelta(hours=60),
+        ),
+        ParsedEntry(
+            external_id="fresh",
+            url="https://example.com/fresh",
+            title="Fresh",
+            summary="B" * 700,
+            published_at=now - timedelta(hours=12),
+        ),
+        ParsedEntry(
+            external_id="no-date",
+            url="https://example.com/nodate",
+            title="No date",
+            summary="C" * 700,
+            published_at=None,
+        ),
+    ]
+    monkeypatch.setattr("worker_app.ingestion.poller.fetch_feed_entries", lambda *a, **kw: entries)
+    monkeypatch.setattr(
+        "worker_app.ingestion.poller.fetch_full_text", lambda *a, **kw: "fetched full text"
+    )
+
+    created = poll_source(clean_db, source)
+
+    assert created == 2
+    ids = {item.external_id for item in clean_db.query(RawItem).all()}
+    assert ids == {"fresh", "no-date"}
