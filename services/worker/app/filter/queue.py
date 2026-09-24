@@ -7,11 +7,11 @@ from db.app_settings import get_setting
 from db.enums import TopicStatus
 from db.models import NewsCluster
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
+from worker_app.filter.freshness import cluster_is_fresh, max_item_age_window
 
-# Same relevance window as clustering/scoring — a cluster older than this
-# has already decayed to zero freshness score anyway (ТЗ §4.20 TTL/aging).
-SELECTION_WINDOW = timedelta(hours=72)
+# Fallback only — runtime window is ingestion.max_item_age_hours (default 48h).
+SELECTION_WINDOW = timedelta(hours=48)
 
 # Editorial daily target/cap. Dispatch counts drafts already created today,
 # so no more than this number is sent to review in one editorial day.
@@ -51,14 +51,20 @@ def select_top_clusters(
             db, FAIRNESS_CAP_RATIO_SETTING_KEY, DEFAULT_FAIRNESS_CAP_RATIO
         )
     now = now or datetime.now(UTC)
+    window = max_item_age_window(db)
+    # Pre-filter by cluster.created_at (cheap index) then drop clusters whose
+    # newest raw_item publish/fetch stamp is outside the editorial window.
     conditions = [
         NewsCluster.topic_status == TopicStatus.IN_TOPIC,
-        NewsCluster.created_at >= now - SELECTION_WINDOW,
+        NewsCluster.created_at >= now - window,
     ]
     if exclude_cluster_ids:
         conditions.append(NewsCluster.id.not_in(exclude_cluster_ids))
     candidates = db.scalars(
-        select(NewsCluster).where(*conditions).order_by(NewsCluster.priority_score.desc())
+        select(NewsCluster)
+        .where(*conditions)
+        .options(selectinload(NewsCluster.raw_items))
+        .order_by(NewsCluster.priority_score.desc())
     ).all()
 
     max_per_source = max(1, int(limit * fairness_cap_ratio))
@@ -68,6 +74,8 @@ def select_top_clusters(
     for cluster in candidates:
         if len(selected) >= limit:
             break
+        if not cluster_is_fresh(cluster, now=now, window=window):
+            continue
         cluster_source_ids = {item.source_id for item in cluster.raw_items}
         if any(per_source_count[sid] >= max_per_source for sid in cluster_source_ids):
             continue
