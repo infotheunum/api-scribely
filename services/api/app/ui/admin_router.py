@@ -9,8 +9,12 @@ from api_app.auth.dependencies import get_current_user_optional
 from api_app.db import get_db
 from api_app.routers import admin as admin_api
 from common.generation_hours import (
+    WEEKDAY_DAILY_LIMIT_KEY,
+    DayWindow,
+    cancel_manual_burst,
     generation_hours_as_dict,
     load_generation_hours,
+    request_manual_burst,
     save_generation_hours,
 )
 from common.integration_export_settings import load_export_defaults, save_export_defaults
@@ -321,7 +325,7 @@ def settings_page(
     settings = admin_api.list_settings(db=db)
     export_defaults = load_export_defaults(db)
     output_locales = get_output_locales(db)
-    generation_hours = generation_hours_as_dict(load_generation_hours(db))
+    generation_hours = generation_hours_as_dict(load_generation_hours(db), db=db)
     translate_originals = bool(get_setting(db, "review.translate_originals.enabled", False))
     return templates.TemplateResponse(
         request,
@@ -383,24 +387,97 @@ def upsert_export_freshness_ui(
 def upsert_generation_hours_ui(
     enabled: str | None = Form(None),
     timezone_name: str = Form("Europe/Minsk"),
-    start_hour: int = Form(6),
-    end_hour: int = Form(18),
-    working_days: list[str] | None = Form(None),
+    weekday_daily_limit: int = Form(100),
+    weekend_daily_limit: int = Form(25),
+    day_0_enabled: str | None = Form(None),
+    day_0_start: int = Form(6),
+    day_0_end: int = Form(18),
+    day_1_enabled: str | None = Form(None),
+    day_1_start: int = Form(6),
+    day_1_end: int = Form(18),
+    day_2_enabled: str | None = Form(None),
+    day_2_start: int = Form(6),
+    day_2_end: int = Form(18),
+    day_3_enabled: str | None = Form(None),
+    day_3_start: int = Form(6),
+    day_3_end: int = Form(18),
+    day_4_enabled: str | None = Form(None),
+    day_4_start: int = Form(6),
+    day_4_end: int = Form(18),
+    day_5_enabled: str | None = Form(None),
+    day_5_start: int = Form(2),
+    day_5_end: int = Form(9),
+    day_6_enabled: str | None = Form(None),
+    day_6_start: int = Form(2),
+    day_6_end: int = Form(9),
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
     redirect = _require_admin(user)
     if redirect:
         return redirect
+
+    raw_days = [
+        (day_0_enabled, day_0_start, day_0_end),
+        (day_1_enabled, day_1_start, day_1_end),
+        (day_2_enabled, day_2_start, day_2_end),
+        (day_3_enabled, day_3_start, day_3_end),
+        (day_4_enabled, day_4_start, day_4_end),
+        (day_5_enabled, day_5_start, day_5_end),
+        (day_6_enabled, day_6_start, day_6_end),
+    ]
+    days = [
+        DayWindow(enabled=bool(flag), start_hour=start, end_hour=end)
+        for flag, start, end in raw_days
+    ]
     save_generation_hours(
         db,
         enabled=bool(enabled),
         timezone_name=timezone_name,
-        start_hour=start_hour,
-        end_hour=end_hour,
-        working_days=[int(day) for day in (working_days or [])],
+        days=days,
+        weekend_daily_limit=weekend_daily_limit,
         updated_by=user.id if user else None,
     )
+    set_setting(
+        db,
+        WEEKDAY_DAILY_LIMIT_KEY,
+        max(1, min(1000, int(weekday_daily_limit))),
+        description="Editorial daily draft cap on weekdays (Mon–Fri).",
+        updated_by=user.id if user else None,
+    )
+    db.commit()
+    return RedirectResponse("/ui/admin/settings", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/settings/manual-burst")
+def start_manual_burst_ui(
+    quota: int = Form(25),
+    ttl_hours: int = Form(3),
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
+    redirect = _require_admin(user)
+    if redirect:
+        return redirect
+    request_manual_burst(
+        db,
+        quota=quota,
+        ttl_hours=ttl_hours,
+        requested_by=user.id if user else None,
+    )
+    db.commit()
+    return RedirectResponse("/ui/admin/settings", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/settings/manual-burst/cancel")
+def cancel_manual_burst_ui(
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
+    redirect = _require_admin(user)
+    if redirect:
+        return redirect
+    cancel_manual_burst(db, updated_by=user.id if user else None)
     db.commit()
     return RedirectResponse("/ui/admin/settings", status_code=status.HTTP_303_SEE_OTHER)
 

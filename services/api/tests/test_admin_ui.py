@@ -228,9 +228,29 @@ def test_admin_ui_generation_hours(client, admin_user, clean_db):
         data={
             "enabled": "1",
             "timezone_name": "Europe/Minsk",
-            "start_hour": "6",
-            "end_hour": "18",
-            "working_days": ["0", "1", "2", "3", "4", "5"],
+            "weekend_daily_limit": "25",
+            "weekday_daily_limit": "300",
+            "day_0_enabled": "1",
+            "day_0_start": "6",
+            "day_0_end": "18",
+            "day_1_enabled": "1",
+            "day_1_start": "6",
+            "day_1_end": "18",
+            "day_2_enabled": "1",
+            "day_2_start": "6",
+            "day_2_end": "18",
+            "day_3_enabled": "1",
+            "day_3_start": "6",
+            "day_3_end": "18",
+            "day_4_enabled": "1",
+            "day_4_start": "6",
+            "day_4_end": "18",
+            "day_5_enabled": "1",
+            "day_5_start": "2",
+            "day_5_end": "9",
+            "day_6_start": "2",
+            "day_6_end": "9",
+            # Sunday unchecked → disabled
         },
         headers=headers,
         follow_redirects=False,
@@ -239,14 +259,31 @@ def test_admin_ui_generation_hours(client, admin_user, clean_db):
     from db.models import AppSetting
 
     assert clean_db.get(AppSetting, "pipeline.generation_hours_enabled").value is True
-    assert clean_db.get(AppSetting, "pipeline.generation_start_hour").value == 6
-    assert clean_db.get(AppSetting, "pipeline.generation_end_hour").value == 18
-    assert clean_db.get(AppSetting, "pipeline.generation_working_days").value == [0, 1, 2, 3, 4, 5]
+    schedule = clean_db.get(AppSetting, "pipeline.generation_schedule").value
+    assert schedule["0"]["start"] == 6
+    assert schedule["5"]["enabled"] is True
+    assert schedule["5"]["start"] == 2
+    assert schedule["5"]["end"] == 9
+    assert schedule["6"]["enabled"] is False
+    assert clean_db.get(AppSetting, "queue.weekend_daily_limit").value == 25
+    assert clean_db.get(AppSetting, "queue.daily_limit").value == 300
 
     page = client.get("/ui/admin/settings", headers=headers)
     assert page.status_code == 200
     assert "Окно генерации" in page.text
     assert "Пн" in page.text
+    assert "Лимит в будни" in page.text
+    assert "Лимит в выходные" in page.text
+    assert "Ручная генерация" in page.text
+
+    burst = client.post(
+        "/ui/admin/settings/manual-burst",
+        data={"quota": "15", "ttl_hours": "2"},
+        headers=headers,
+        follow_redirects=False,
+    )
+    assert burst.status_code == 303
+    assert clean_db.get(AppSetting, "pipeline.manual_generation_burst").value["quota"] == 15
 
 
 def test_admin_ui_output_locales(client, admin_user, clean_db):

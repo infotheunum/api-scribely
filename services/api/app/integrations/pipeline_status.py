@@ -158,7 +158,7 @@ def build_pipeline_status(
             "within_generation_hours": within_generation_hours,
             "rewrite_reachable": rewrite_reachable,
         },
-        "generation_hours": generation_hours_as_dict(hours_config),
+        "generation_hours": generation_hours_as_dict(hours_config, db=db),
         "queue": {
             "unconsumed_drafts": unconsumed_drafts,
             "undrafted_in_topic_clusters": undrafted,

@@ -6,43 +6,95 @@
 <div class="card">
   <h2>Окно генерации статей</h2>
   <p class="note">
-    Poll / cluster / filter / dispatch / compliance работают только в этом окне.
-    Архивация и sync категорий идут круглосуточно.
+    Здесь задаётся <strong>расписание по каждому дню</strong>: во сколько начинать и заканчивать
+    генерацию (час «до» не включая). Poll / cluster / filter / dispatch / compliance работают
+    только в этом окне. Архивация и sync категорий — круглосуточно.
     Сейчас: {% if generation_hours.within_hours %}<strong>внутри окна</strong>{% else %}<strong>вне окна (генерация на паузе)</strong>{% endif %}.
   </p>
-  <form class="inline-form" method="post" action="/ui/admin/settings/generation-hours">
-    <div class="field">
-      <label><input type="checkbox" name="enabled" value="1" {% if generation_hours.enabled %}checked{% endif %}> Включить расписание</label>
-    </div>
-    <div class="field" style="flex:2;">
-      <label>Рабочие дни</label>
-      <div style="display:flex; flex-wrap:wrap; gap:12px;">
-        <label><input type="checkbox" name="working_days" value="0" {% if 0 in generation_hours.working_days %}checked{% endif %}> Пн</label>
-        <label><input type="checkbox" name="working_days" value="1" {% if 1 in generation_hours.working_days %}checked{% endif %}> Вт</label>
-        <label><input type="checkbox" name="working_days" value="2" {% if 2 in generation_hours.working_days %}checked{% endif %}> Ср</label>
-        <label><input type="checkbox" name="working_days" value="3" {% if 3 in generation_hours.working_days %}checked{% endif %}> Чт</label>
-        <label><input type="checkbox" name="working_days" value="4" {% if 4 in generation_hours.working_days %}checked{% endif %}> Пт</label>
-        <label><input type="checkbox" name="working_days" value="5" {% if 5 in generation_hours.working_days %}checked{% endif %}> Сб</label>
-        <label><input type="checkbox" name="working_days" value="6" {% if 6 in generation_hours.working_days %}checked{% endif %}> Вс</label>
+  <form method="post" action="/ui/admin/settings/generation-hours">
+    <div class="inline-form">
+      <div class="field">
+        <label><input type="checkbox" name="enabled" value="1" {% if generation_hours.enabled %}checked{% endif %}> Включить расписание</label>
+      </div>
+      <div class="field">
+        <label>Часовой пояс</label>
+        <input type="text" name="timezone_name" value="{{ generation_hours.timezone }}" required>
+      </div>
+      <div class="field field-narrow">
+        <label>Лимит в будни</label>
+        <input type="number" name="weekday_daily_limit" min="1" max="1000" value="{{ generation_hours.weekday_daily_limit }}" required>
+      </div>
+      <div class="field field-narrow">
+        <label>Лимит в выходные</label>
+        <input type="number" name="weekend_daily_limit" min="1" max="500" value="{{ generation_hours.weekend_daily_limit }}" required>
       </div>
     </div>
-    <div class="field">
-      <label>Часовой пояс</label>
-      <input type="text" name="timezone_name" value="{{ generation_hours.timezone }}" required>
-    </div>
-    <div class="field field-narrow">
-      <label>С (час)</label>
-      <input type="number" name="start_hour" min="0" max="23" value="{{ generation_hours.start_hour }}" required>
-    </div>
-    <div class="field field-narrow">
-      <label>До (час, не включая)</label>
-      <input type="number" name="end_hour" min="1" max="24" value="{{ generation_hours.end_hour }}" required>
-    </div>
-    <div class="field field-narrow">
-      <button class="btn btn-primary" type="submit">Сохранить окно</button>
+    <p class="note">Дефолты: будни 06:00–18:00 / лимит из поля выше; выходные 02:00–09:00 / 25. Любой день можно поменять в таблице и сохранить.</p>
+    <table class="admin" style="margin-top:12px;">
+      <thead>
+        <tr><th>День</th><th>Генерировать</th><th>С (час)</th><th>До (час)</th></tr>
+      </thead>
+      <tbody>
+        {% for day in generation_hours.days %}
+        <tr>
+          <td>{{ day.label }}</td>
+          <td>
+            <input type="checkbox" name="day_{{ day.weekday }}_enabled" value="1" {% if day.enabled %}checked{% endif %}>
+          </td>
+          <td>
+            <input type="number" name="day_{{ day.weekday }}_start" min="0" max="23" value="{{ day.start_hour }}" required style="width:5rem;">
+          </td>
+          <td>
+            <input type="number" name="day_{{ day.weekday }}_end" min="1" max="24" value="{{ day.end_hour }}" required style="width:5rem;">
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="inline-form" style="margin-top:12px;">
+      <div class="field field-narrow">
+        <button class="btn btn-primary" type="submit">Сохранить расписание</button>
+      </div>
     </div>
   </form>
-  <p class="note">По умолчанию: Пн–Пт 06:00–18:00 Europe/Minsk. REST: <code>GET/PUT /admin/pipeline/generation-hours</code>.</p>
+  <p class="note">REST: <code>GET/PUT /admin/pipeline/generation-hours</code>.</p>
+</div>
+
+<div class="card">
+  <h2>Ручная генерация (burst)</h2>
+  <p class="note">
+    Вне окна расписания (например днём в выходной) можно один раз запросить ещё N статей.
+    Воркер снова включит poll/cluster/dispatch, пока не сделает квоту или не истечёт TTL.
+    Архивация и так круглосуточная.
+  </p>
+  {% if generation_hours.manual_burst and generation_hours.manual_burst.active %}
+  <p>
+    Активен burst: <strong>{{ generation_hours.manual_burst.created }} / {{ generation_hours.manual_burst.quota }}</strong>
+    (осталось {{ generation_hours.manual_burst.remaining }}),
+    до {{ generation_hours.manual_burst.expires_at }}.
+  </p>
+  <form class="inline-form" method="post" action="/ui/admin/settings/manual-burst/cancel">
+    <div class="field field-narrow">
+      <button class="btn btn-ghost" type="submit">Остановить</button>
+    </div>
+  </form>
+  {% else %}
+  <p class="note">Сейчас burst не активен.{% if generation_hours.generation_allowed %} Генерация разрешена (внутри окна).{% else %} Генерация на паузе.{% endif %}</p>
+  {% endif %}
+  <form class="inline-form" method="post" action="/ui/admin/settings/manual-burst" style="margin-top:12px;">
+    <div class="field field-narrow">
+      <label>Сколько статей</label>
+      <input type="number" name="quota" min="1" max="200" value="25" required>
+    </div>
+    <div class="field field-narrow">
+      <label>TTL (часы)</label>
+      <input type="number" name="ttl_hours" min="1" max="12" value="3" required>
+    </div>
+    <div class="field field-narrow">
+      <button class="btn btn-primary" type="submit">Сгенерировать сейчас</button>
+    </div>
+  </form>
+  <p class="note">REST: <code>POST /admin/pipeline/manual-burst</code>, <code>DELETE /admin/pipeline/manual-burst</code>.</p>
 </div>
 
 <div class="card">
