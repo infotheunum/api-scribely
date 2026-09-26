@@ -81,8 +81,8 @@ def test_disabled_gate_always_allows():
 
 
 def test_saturday_inside_default_weekend_window():
-    # Saturday 07:00 Minsk = 04:00 UTC — default weekend 06–09
-    now = datetime(2026, 9, 5, 4, 0, tzinfo=UTC)
+    # Saturday 03:00 Minsk = 00:00 UTC — default weekend 02–09
+    now = datetime(2026, 9, 5, 0, 0, tzinfo=UTC)
     days = default_schedule()
     assert is_within_generation_hours(_cfg(days=days), now=now) is True
 
@@ -103,7 +103,7 @@ def test_load_defaults_when_unseeded(clean_db):
     assert cfg.working_days == (0, 1, 2, 3, 4, 5, 6)
     assert cfg.days[0].start_hour == 6 and cfg.days[0].end_hour == 18
     assert cfg.days[5].enabled is True
-    assert cfg.days[5].start_hour == 6
+    assert cfg.days[5].start_hour == 2
     assert cfg.days[5].end_hour == 9
     assert cfg.weekend_daily_limit == 25
 
@@ -164,7 +164,7 @@ def test_manual_burst_allows_generation_outside_hours(clean_db):
         request_manual_burst,
     )
 
-    # Saturday 15:00 Minsk = 12:00 UTC — outside 06–09
+    # Saturday 15:00 Minsk = 12:00 UTC — outside 02–09
     now = datetime(2026, 9, 5, 12, 0, tzinfo=UTC)
     assert generation_allowed(clean_db, now=now) is False
     request_manual_burst(clean_db, quota=2, ttl_hours=1, now=now)

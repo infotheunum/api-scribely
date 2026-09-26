@@ -245,9 +245,9 @@ def test_admin_ui_generation_hours(client, admin_user, clean_db):
             "day_4_start": "6",
             "day_4_end": "18",
             "day_5_enabled": "1",
-            "day_5_start": "6",
+            "day_5_start": "2",
             "day_5_end": "9",
-            "day_6_start": "6",
+            "day_6_start": "2",
             "day_6_end": "9",
             # Sunday unchecked → disabled
         },
@@ -261,7 +261,7 @@ def test_admin_ui_generation_hours(client, admin_user, clean_db):
     schedule = clean_db.get(AppSetting, "pipeline.generation_schedule").value
     assert schedule["0"]["start"] == 6
     assert schedule["5"]["enabled"] is True
-    assert schedule["5"]["start"] == 6
+    assert schedule["5"]["start"] == 2
     assert schedule["5"]["end"] == 9
     assert schedule["6"]["enabled"] is False
     assert clean_db.get(AppSetting, "queue.weekend_daily_limit").value == 25

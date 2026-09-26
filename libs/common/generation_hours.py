@@ -2,7 +2,7 @@
 
 Defaults (Europe/Minsk):
 - Mon–Fri 06:00–18:00
-- Sat–Sun 06:00–09:00 (morning only), then full pause
+- Sat–Sun 02:00–09:00 (night→morning), then full pause
 - Weekend daily draft cap 25
 - Admin can request a manual burst (e.g. +25) outside the window
 
@@ -40,7 +40,7 @@ DEFAULT_ENABLED = True
 DEFAULT_TIMEZONE = "Europe/Minsk"
 DEFAULT_WEEKDAY_START = 6
 DEFAULT_WEEKDAY_END = 18
-DEFAULT_WEEKEND_START = 6
+DEFAULT_WEEKEND_START = 2
 DEFAULT_WEEKEND_END = 9
 DEFAULT_WEEKDAY_DAILY_LIMIT = 100
 DEFAULT_WEEKEND_DAILY_LIMIT = 25
