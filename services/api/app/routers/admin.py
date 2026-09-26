@@ -593,6 +593,7 @@ class GenerationHoursIn(BaseModel):
     enabled: bool = True
     timezone: str = "Europe/Minsk"
     weekend_daily_limit: int = Field(25, ge=1, le=500)
+    weekday_daily_limit: int | None = Field(None, ge=1, le=1000)
     days: list[GenerationDayIn] | None = None
     # Legacy flat fields — used when ``days`` is omitted.
     start_hour: int = Field(6, ge=0, le=23)
@@ -615,6 +616,7 @@ class GenerationHoursOut(BaseModel):
     end_hour: int
     working_days: list[int]
     weekend_daily_limit: int
+    weekday_daily_limit: int | None = None
     days: list[GenerationDayOut]
     within_hours: bool
     generation_allowed: bool | None = None
@@ -635,12 +637,14 @@ def upsert_generation_hours(
     user: User = Depends(require_role("admin")),
 ) -> GenerationHoursOut:
     from common.generation_hours import (
+        WEEKDAY_DAILY_LIMIT_KEY,
         DayWindow,
         default_schedule,
         generation_hours_as_dict,
         load_generation_hours,
         save_generation_hours,
     )
+    from db.app_settings import set_setting
 
     previous = generation_hours_as_dict(load_generation_hours(db), db=db)
     if body.days is not None:
@@ -676,6 +680,14 @@ def upsert_generation_hours(
             end_hour=body.end_hour,
             working_days=body.working_days,
             weekend_daily_limit=body.weekend_daily_limit,
+            updated_by=user.id,
+        )
+    if body.weekday_daily_limit is not None:
+        set_setting(
+            db,
+            WEEKDAY_DAILY_LIMIT_KEY,
+            int(body.weekday_daily_limit),
+            description="Editorial daily draft cap on weekdays (Mon–Fri).",
             updated_by=user.id,
         )
     db.flush()

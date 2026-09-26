@@ -229,6 +229,7 @@ def test_admin_ui_generation_hours(client, admin_user, clean_db):
             "enabled": "1",
             "timezone_name": "Europe/Minsk",
             "weekend_daily_limit": "25",
+            "weekday_daily_limit": "300",
             "day_0_enabled": "1",
             "day_0_start": "6",
             "day_0_end": "18",
@@ -265,12 +266,14 @@ def test_admin_ui_generation_hours(client, admin_user, clean_db):
     assert schedule["5"]["end"] == 9
     assert schedule["6"]["enabled"] is False
     assert clean_db.get(AppSetting, "queue.weekend_daily_limit").value == 25
+    assert clean_db.get(AppSetting, "queue.daily_limit").value == 300
 
     page = client.get("/ui/admin/settings", headers=headers)
     assert page.status_code == 200
     assert "Окно генерации" in page.text
     assert "Пн" in page.text
-    assert "Лимит черновиков в выходные" in page.text
+    assert "Лимит в будни" in page.text
+    assert "Лимит в выходные" in page.text
     assert "Ручная генерация" in page.text
 
     burst = client.post(
