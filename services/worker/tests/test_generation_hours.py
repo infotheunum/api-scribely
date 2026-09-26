@@ -156,6 +156,17 @@ def test_effective_daily_limit_weekday_vs_weekend(clean_db):
     assert effective_daily_limit(clean_db, now=saturday) == 25
 
 
+def test_manual_burst_does_not_raise_weekend_daily_cap(clean_db):
+    from common.generation_hours import request_manual_burst
+
+    set_setting(clean_db, "queue.weekend_daily_limit", 25)
+    clean_db.commit()
+    saturday = datetime(2026, 9, 5, 12, 0, tzinfo=UTC)  # outside morning window
+    request_manual_burst(clean_db, quota=25, ttl_hours=3, now=saturday)
+    clean_db.commit()
+    assert effective_daily_limit(clean_db, now=saturday) == 25
+
+
 def test_manual_burst_allows_generation_outside_hours(clean_db):
     from common.generation_hours import (
         generation_allowed,
