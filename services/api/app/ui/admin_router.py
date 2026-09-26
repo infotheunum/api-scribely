@@ -9,6 +9,7 @@ from api_app.auth.dependencies import get_current_user_optional
 from api_app.db import get_db
 from api_app.routers import admin as admin_api
 from common.generation_hours import (
+    DayWindow,
     generation_hours_as_dict,
     load_generation_hours,
     save_generation_hours,
@@ -383,22 +384,54 @@ def upsert_export_freshness_ui(
 def upsert_generation_hours_ui(
     enabled: str | None = Form(None),
     timezone_name: str = Form("Europe/Minsk"),
-    start_hour: int = Form(6),
-    end_hour: int = Form(18),
-    working_days: list[str] | None = Form(None),
+    weekend_daily_limit: int = Form(50),
+    day_0_enabled: str | None = Form(None),
+    day_0_start: int = Form(6),
+    day_0_end: int = Form(18),
+    day_1_enabled: str | None = Form(None),
+    day_1_start: int = Form(6),
+    day_1_end: int = Form(18),
+    day_2_enabled: str | None = Form(None),
+    day_2_start: int = Form(6),
+    day_2_end: int = Form(18),
+    day_3_enabled: str | None = Form(None),
+    day_3_start: int = Form(6),
+    day_3_end: int = Form(18),
+    day_4_enabled: str | None = Form(None),
+    day_4_start: int = Form(6),
+    day_4_end: int = Form(18),
+    day_5_enabled: str | None = Form(None),
+    day_5_start: int = Form(9),
+    day_5_end: int = Form(12),
+    day_6_enabled: str | None = Form(None),
+    day_6_start: int = Form(9),
+    day_6_end: int = Form(12),
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
     redirect = _require_admin(user)
     if redirect:
         return redirect
+
+    raw_days = [
+        (day_0_enabled, day_0_start, day_0_end),
+        (day_1_enabled, day_1_start, day_1_end),
+        (day_2_enabled, day_2_start, day_2_end),
+        (day_3_enabled, day_3_start, day_3_end),
+        (day_4_enabled, day_4_start, day_4_end),
+        (day_5_enabled, day_5_start, day_5_end),
+        (day_6_enabled, day_6_start, day_6_end),
+    ]
+    days = [
+        DayWindow(enabled=bool(flag), start_hour=start, end_hour=end)
+        for flag, start, end in raw_days
+    ]
     save_generation_hours(
         db,
         enabled=bool(enabled),
         timezone_name=timezone_name,
-        start_hour=start_hour,
-        end_hour=end_hour,
-        working_days=[int(day) for day in (working_days or [])],
+        days=days,
+        weekend_daily_limit=weekend_daily_limit,
         updated_by=user.id if user else None,
     )
     db.commit()

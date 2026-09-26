@@ -582,12 +582,30 @@ def upsert_rewrite_output_locales(
 # ---------------------------------------------------------------------
 
 
+class GenerationDayIn(BaseModel):
+    weekday: int = Field(..., ge=0, le=6)
+    enabled: bool = True
+    start_hour: int = Field(6, ge=0, le=23)
+    end_hour: int = Field(18, ge=1, le=24)
+
+
 class GenerationHoursIn(BaseModel):
     enabled: bool = True
     timezone: str = "Europe/Minsk"
+    weekend_daily_limit: int = Field(50, ge=1, le=500)
+    days: list[GenerationDayIn] | None = None
+    # Legacy flat fields — used when ``days`` is omitted.
     start_hour: int = Field(6, ge=0, le=23)
     end_hour: int = Field(18, ge=1, le=24)
     working_days: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4])
+
+
+class GenerationDayOut(BaseModel):
+    weekday: int
+    label: str
+    enabled: bool
+    start_hour: int
+    end_hour: int
 
 
 class GenerationHoursOut(BaseModel):
@@ -596,6 +614,8 @@ class GenerationHoursOut(BaseModel):
     start_hour: int
     end_hour: int
     working_days: list[int]
+    weekend_daily_limit: int
+    days: list[GenerationDayOut]
     within_hours: bool
 
 
@@ -613,21 +633,49 @@ def upsert_generation_hours(
     user: User = Depends(require_role("admin")),
 ) -> GenerationHoursOut:
     from common.generation_hours import (
+        DayWindow,
+        default_schedule,
         generation_hours_as_dict,
         load_generation_hours,
         save_generation_hours,
     )
 
     previous = generation_hours_as_dict(load_generation_hours(db))
-    saved = save_generation_hours(
-        db,
-        enabled=body.enabled,
-        timezone_name=body.timezone,
-        start_hour=body.start_hour,
-        end_hour=body.end_hour,
-        working_days=body.working_days,
-        updated_by=user.id,
-    )
+    if body.days is not None:
+        by_weekday = {d.weekday: d for d in body.days}
+        base = list(default_schedule())
+        days = []
+        for i, fallback in enumerate(base):
+            item = by_weekday.get(i)
+            if item is None:
+                days.append(fallback)
+            else:
+                days.append(
+                    DayWindow(
+                        enabled=item.enabled,
+                        start_hour=item.start_hour,
+                        end_hour=item.end_hour,
+                    )
+                )
+        saved = save_generation_hours(
+            db,
+            enabled=body.enabled,
+            timezone_name=body.timezone,
+            days=days,
+            weekend_daily_limit=body.weekend_daily_limit,
+            updated_by=user.id,
+        )
+    else:
+        saved = save_generation_hours(
+            db,
+            enabled=body.enabled,
+            timezone_name=body.timezone,
+            start_hour=body.start_hour,
+            end_hour=body.end_hour,
+            working_days=body.working_days,
+            weekend_daily_limit=body.weekend_daily_limit,
+            updated_by=user.id,
+        )
     db.flush()
     current = generation_hours_as_dict(saved)
     _audit(
