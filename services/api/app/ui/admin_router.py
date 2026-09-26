@@ -9,6 +9,7 @@ from api_app.auth.dependencies import get_current_user_optional
 from api_app.db import get_db
 from api_app.routers import admin as admin_api
 from common.generation_hours import (
+    WEEKDAY_DAILY_LIMIT_KEY,
     DayWindow,
     cancel_manual_burst,
     generation_hours_as_dict,
@@ -386,6 +387,7 @@ def upsert_export_freshness_ui(
 def upsert_generation_hours_ui(
     enabled: str | None = Form(None),
     timezone_name: str = Form("Europe/Minsk"),
+    weekday_daily_limit: int = Form(100),
     weekend_daily_limit: int = Form(25),
     day_0_enabled: str | None = Form(None),
     day_0_start: int = Form(6),
@@ -434,6 +436,13 @@ def upsert_generation_hours_ui(
         timezone_name=timezone_name,
         days=days,
         weekend_daily_limit=weekend_daily_limit,
+        updated_by=user.id if user else None,
+    )
+    set_setting(
+        db,
+        WEEKDAY_DAILY_LIMIT_KEY,
+        max(1, min(1000, int(weekday_daily_limit))),
+        description="Editorial daily draft cap on weekdays (Mon–Fri).",
         updated_by=user.id if user else None,
     )
     db.commit()

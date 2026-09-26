@@ -191,6 +191,7 @@ def test_generation_hours_get_and_put(client, admin_user, clean_db):
     assert body["end_hour"] == 18
     assert body["working_days"] == [0, 1, 2, 3, 4, 5, 6]
     assert body["weekend_daily_limit"] == 25
+    assert body["weekday_daily_limit"] == 100
     assert len(body["days"]) == 7
     assert body["days"][5]["start_hour"] == 2
     assert body["days"][5]["end_hour"] == 9
@@ -202,6 +203,7 @@ def test_generation_hours_get_and_put(client, admin_user, clean_db):
             "enabled": True,
             "timezone": "Europe/Minsk",
             "weekend_daily_limit": 25,
+            "weekday_daily_limit": 300,
             "days": [
                 {"weekday": i, "enabled": True, "start_hour": 6, "end_hour": 18}
                 for i in range(5)
@@ -218,6 +220,7 @@ def test_generation_hours_get_and_put(client, admin_user, clean_db):
     assert updated.json()["days"][5]["end_hour"] == 9
     assert updated.json()["days"][6]["enabled"] is False
     assert updated.json()["weekend_daily_limit"] == 25
+    assert updated.json()["weekday_daily_limit"] == 300
 
     burst = client.post(
         "/admin/pipeline/manual-burst",

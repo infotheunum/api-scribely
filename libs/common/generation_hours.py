@@ -628,6 +628,7 @@ def generation_hours_as_dict(
         "end_hour": config.end_hour,
         "working_days": list(config.working_days),
         "weekend_daily_limit": config.weekend_daily_limit,
+        "weekday_daily_limit": DEFAULT_WEEKDAY_DAILY_LIMIT,
         "days": [
             {
                 "weekday": i,
@@ -642,6 +643,10 @@ def generation_hours_as_dict(
         "manual_burst": None,
     }
     if db is not None:
+        payload["weekday_daily_limit"] = _as_positive_int(
+            get_setting(db, WEEKDAY_DAILY_LIMIT_KEY, DEFAULT_WEEKDAY_DAILY_LIMIT),
+            DEFAULT_WEEKDAY_DAILY_LIMIT,
+        )
         payload["manual_burst"] = manual_burst_as_dict(db)
         # within_hours stays schedule-only; generation_allowed includes burst.
         payload["generation_allowed"] = generation_allowed(db)
