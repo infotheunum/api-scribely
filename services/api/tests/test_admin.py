@@ -192,7 +192,7 @@ def test_generation_hours_get_and_put(client, admin_user, clean_db):
     assert body["working_days"] == [0, 1, 2, 3, 4, 5, 6]
     assert body["weekend_daily_limit"] == 25
     assert len(body["days"]) == 7
-    assert body["days"][5]["start_hour"] == 6
+    assert body["days"][5]["start_hour"] == 2
     assert body["days"][5]["end_hour"] == 9
     assert "within_hours" in body
 
@@ -207,13 +207,14 @@ def test_generation_hours_get_and_put(client, admin_user, clean_db):
                 for i in range(5)
             ]
             + [
-                {"weekday": 5, "enabled": True, "start_hour": 6, "end_hour": 9},
-                {"weekday": 6, "enabled": False, "start_hour": 6, "end_hour": 9},
+                {"weekday": 5, "enabled": True, "start_hour": 2, "end_hour": 9},
+                {"weekday": 6, "enabled": False, "start_hour": 2, "end_hour": 9},
             ],
         },
         headers=headers,
     )
     assert updated.status_code == 200
+    assert updated.json()["days"][5]["start_hour"] == 2
     assert updated.json()["days"][5]["end_hour"] == 9
     assert updated.json()["days"][6]["enabled"] is False
     assert updated.json()["weekend_daily_limit"] == 25
