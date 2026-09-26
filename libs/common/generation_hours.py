@@ -336,39 +336,25 @@ def generation_allowed(db: Session, *, now: datetime | None = None) -> bool:
 
 
 def effective_daily_limit(db: Session, *, now: datetime | None = None) -> int:
-    """Weekday → queue.daily_limit; Sat/Sun → weekend cap; +manual burst headroom."""
-    from db.models import Draft
-    from sqlalchemy import func, select
+    """Weekday → queue.daily_limit; Sat/Sun → weekend cap.
 
+    Manual burst only unlocks generation outside the schedule window; it never
+    raises this daily ceiling (weekend max stays weekend_daily_limit).
+    """
     config = load_generation_hours(db)
     moment = now or datetime.now(UTC)
     if moment.tzinfo is None:
         moment = moment.replace(tzinfo=UTC)
     local = moment.astimezone(resolve_tz(config.timezone_name))
     if local.weekday() >= 5:
-        base = max(1, config.weekend_daily_limit)
-    else:
-        base = max(
-            1,
-            _as_positive_int(
-                get_setting(db, WEEKDAY_DAILY_LIMIT_KEY, DEFAULT_WEEKDAY_DAILY_LIMIT),
-                DEFAULT_WEEKDAY_DAILY_LIMIT,
-            ),
-        )
-
-    burst_left = manual_burst_remaining(db, now=moment)
-    if burst_left <= 0:
-        return base
-
-    # Allow drafts_today + remaining burst so an afternoon weekend request
-    # can still produce N more after the morning cap is already filled.
-    local_day_start = local.replace(hour=0, minute=0, second=0, microsecond=0)
-    day_start = local_day_start.astimezone(UTC)
-    drafts_today = int(
-        db.scalar(select(func.count()).select_from(Draft).where(Draft.created_at >= day_start))
-        or 0
+        return max(1, config.weekend_daily_limit)
+    return max(
+        1,
+        _as_positive_int(
+            get_setting(db, WEEKDAY_DAILY_LIMIT_KEY, DEFAULT_WEEKDAY_DAILY_LIMIT),
+            DEFAULT_WEEKDAY_DAILY_LIMIT,
+        ),
     )
-    return max(base, drafts_today + burst_left)
 
 
 @dataclass(frozen=True, slots=True)
