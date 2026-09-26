@@ -7,6 +7,7 @@ from threading import Lock
 from zoneinfo import ZoneInfo
 
 import grpc
+from common.generation_hours import effective_daily_limit
 from common.grpc_client import build_rewrite_channel, rewrite_stub
 from common.llm_token_totals import record_token_usage
 from common.pipeline_telemetry import record_dispatch_cycle_result
@@ -253,7 +254,7 @@ def run_dispatch_cycle(db: Session, *, settings: WorkerSettings | None = None) -
     cannot consume every minute of dispatch capacity."""
     settings = settings or WorkerSettings()
     batch_size = max(1, int(get_setting(db, BATCH_SIZE_SETTING_KEY, DISPATCH_BATCH_SIZE)))
-    daily_limit = int(get_setting(db, "queue.daily_limit", 100))
+    daily_limit = effective_daily_limit(db)
     remaining_today = max(0, daily_limit - _drafts_created_today(db))
     target_per_hour = max(
         1, int(get_setting(db, TARGET_PER_HOUR_SETTING_KEY, DEFAULT_TARGET_PER_HOUR))
