@@ -298,6 +298,10 @@ def run_dispatch_cycle(db: Session, *, settings: WorkerSettings | None = None) -
     last_error_message: str | None = None
     try:
         for cluster in candidates:
+            # Re-check after each slow LLM call so concurrent ticks / batch_size
+            # cannot push past the editorial daily cap (esp. weekend max 25).
+            if _drafts_created_today(db) >= daily_limit:
+                break
             set_trace_id(new_trace_id())
             trace_id = get_trace_id()
             sources = _build_source_refs(cluster)
