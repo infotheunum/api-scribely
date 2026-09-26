@@ -24,7 +24,7 @@
         <input type="number" name="weekend_daily_limit" min="1" max="500" value="{{ generation_hours.weekend_daily_limit }}" required>
       </div>
     </div>
-    <p class="note">Будни (Пн–Пт) по умолчанию 06:00–18:00; выходные (Сб–Вс) 09:00–12:00. Суточный лимит будней — ключ <code>queue.daily_limit</code> (сейчас в таблице ниже).</p>
+    <p class="note">Будни (Пн–Пт) по умолчанию 06:00–18:00; выходные (Сб–Вс) <strong>06:00–09:00</strong>, потом полная пауза (воркер не поллит/не рерайтит). Лимит выходных по умолчанию <strong>25</strong>. Суточный лимит будней — <code>queue.daily_limit</code>.</p>
     <table class="admin" style="margin-top:12px;">
       <thead>
         <tr><th>День</th><th>Генерировать</th><th>С (час)</th><th>До (час)</th></tr>
@@ -53,6 +53,43 @@
     </div>
   </form>
   <p class="note">REST: <code>GET/PUT /admin/pipeline/generation-hours</code>.</p>
+</div>
+
+<div class="card">
+  <h2>Ручная генерация (burst)</h2>
+  <p class="note">
+    Вне окна расписания (например днём в выходной) можно один раз запросить ещё N статей.
+    Воркер снова включит poll/cluster/dispatch, пока не сделает квоту или не истечёт TTL.
+    Архивация и так круглосуточная.
+  </p>
+  {% if generation_hours.manual_burst and generation_hours.manual_burst.active %}
+  <p>
+    Активен burst: <strong>{{ generation_hours.manual_burst.created }} / {{ generation_hours.manual_burst.quota }}</strong>
+    (осталось {{ generation_hours.manual_burst.remaining }}),
+    до {{ generation_hours.manual_burst.expires_at }}.
+  </p>
+  <form class="inline-form" method="post" action="/ui/admin/settings/manual-burst/cancel">
+    <div class="field field-narrow">
+      <button class="btn btn-ghost" type="submit">Остановить</button>
+    </div>
+  </form>
+  {% else %}
+  <p class="note">Сейчас burst не активен.{% if generation_hours.generation_allowed %} Генерация разрешена (внутри окна).{% else %} Генерация на паузе.{% endif %}</p>
+  {% endif %}
+  <form class="inline-form" method="post" action="/ui/admin/settings/manual-burst" style="margin-top:12px;">
+    <div class="field field-narrow">
+      <label>Сколько статей</label>
+      <input type="number" name="quota" min="1" max="200" value="25" required>
+    </div>
+    <div class="field field-narrow">
+      <label>TTL (часы)</label>
+      <input type="number" name="ttl_hours" min="1" max="12" value="3" required>
+    </div>
+    <div class="field field-narrow">
+      <button class="btn btn-primary" type="submit">Сгенерировать сейчас</button>
+    </div>
+  </form>
+  <p class="note">REST: <code>POST /admin/pipeline/manual-burst</code>, <code>DELETE /admin/pipeline/manual-burst</code>.</p>
 </div>
 
 <div class="card">

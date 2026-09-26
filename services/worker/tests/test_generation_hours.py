@@ -40,7 +40,7 @@ def _cfg(**overrides) -> GenerationHoursConfig:
         enabled=True,
         timezone_name="Europe/Minsk",
         days=days,
-        weekend_daily_limit=50,
+        weekend_daily_limit=25,
     )
     base.update(overrides)
     return GenerationHoursConfig(**base)
@@ -81,15 +81,15 @@ def test_disabled_gate_always_allows():
 
 
 def test_saturday_inside_default_weekend_window():
-    # Saturday 10:00 Minsk = 07:00 UTC — default weekend 09–12
-    now = datetime(2026, 9, 5, 7, 0, tzinfo=UTC)
+    # Saturday 07:00 Minsk = 04:00 UTC — default weekend 06–09
+    now = datetime(2026, 9, 5, 4, 0, tzinfo=UTC)
     days = default_schedule()
     assert is_within_generation_hours(_cfg(days=days), now=now) is True
 
 
-def test_saturday_outside_after_noon():
-    # Saturday 12:00 Minsk = 09:00 UTC — end exclusive
-    now = datetime(2026, 9, 5, 9, 0, tzinfo=UTC)
+def test_saturday_outside_after_nine():
+    # Saturday 09:00 Minsk = 06:00 UTC — end exclusive
+    now = datetime(2026, 9, 5, 6, 0, tzinfo=UTC)
     days = default_schedule()
     assert is_within_generation_hours(_cfg(days=days), now=now) is False
 
@@ -103,9 +103,9 @@ def test_load_defaults_when_unseeded(clean_db):
     assert cfg.working_days == (0, 1, 2, 3, 4, 5, 6)
     assert cfg.days[0].start_hour == 6 and cfg.days[0].end_hour == 18
     assert cfg.days[5].enabled is True
-    assert cfg.days[5].start_hour == 9
-    assert cfg.days[5].end_hour == 12
-    assert cfg.weekend_daily_limit == 50
+    assert cfg.days[5].start_hour == 6
+    assert cfg.days[5].end_hour == 9
+    assert cfg.weekend_daily_limit == 25
 
 
 def test_save_and_load_per_day_roundtrip(clean_db):
@@ -148,12 +148,36 @@ def test_legacy_save_still_works(clean_db):
 
 def test_effective_daily_limit_weekday_vs_weekend(clean_db):
     set_setting(clean_db, "queue.daily_limit", 300)
-    set_setting(clean_db, "queue.weekend_daily_limit", 50)
+    set_setting(clean_db, "queue.weekend_daily_limit", 25)
     clean_db.commit()
     monday = datetime(2026, 9, 7, 10, 0, tzinfo=UTC)
     saturday = datetime(2026, 9, 5, 10, 0, tzinfo=UTC)
     assert effective_daily_limit(clean_db, now=monday) == 300
-    assert effective_daily_limit(clean_db, now=saturday) == 50
+    assert effective_daily_limit(clean_db, now=saturday) == 25
+
+
+def test_manual_burst_allows_generation_outside_hours(clean_db):
+    from common.generation_hours import (
+        generation_allowed,
+        manual_burst_remaining,
+        record_manual_burst_draft,
+        request_manual_burst,
+    )
+
+    # Saturday 15:00 Minsk = 12:00 UTC — outside 06–09
+    now = datetime(2026, 9, 5, 12, 0, tzinfo=UTC)
+    assert generation_allowed(clean_db, now=now) is False
+    request_manual_burst(clean_db, quota=2, ttl_hours=1, now=now)
+    clean_db.commit()
+    assert generation_allowed(clean_db, now=now) is True
+    assert manual_burst_remaining(clean_db, now=now) == 2
+    record_manual_burst_draft(clean_db, now=now)
+    clean_db.commit()
+    assert manual_burst_remaining(clean_db, now=now) == 1
+    record_manual_burst_draft(clean_db, now=now)
+    clean_db.commit()
+    assert manual_burst_remaining(clean_db, now=now) == 0
+    assert generation_allowed(clean_db, now=now) is False
 
 
 def test_stage_enabled_respects_generation_hours(clean_db, monkeypatch):

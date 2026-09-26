@@ -7,7 +7,11 @@ from threading import Lock
 from zoneinfo import ZoneInfo
 
 import grpc
-from common.generation_hours import effective_daily_limit
+from common.generation_hours import (
+    effective_daily_limit,
+    manual_burst_remaining,
+    record_manual_burst_draft,
+)
 from common.grpc_client import build_rewrite_channel, rewrite_stub
 from common.llm_token_totals import record_token_usage
 from common.pipeline_telemetry import record_dispatch_cycle_result
@@ -260,6 +264,10 @@ def run_dispatch_cycle(db: Session, *, settings: WorkerSettings | None = None) -
         1, int(get_setting(db, TARGET_PER_HOUR_SETTING_KEY, DEFAULT_TARGET_PER_HOUR))
     )
     remaining_this_hour = max(0, target_per_hour - _drafts_created_this_hour(db))
+    # Manual admin bursts must not be throttled by the hourly target.
+    burst_left = manual_burst_remaining(db)
+    if burst_left > 0:
+        remaining_this_hour = max(remaining_this_hour, burst_left)
     if remaining_today == 0 or remaining_this_hour == 0:
         record_dispatch_cycle_result(db, dispatched=0, failed=0)
         return {"dispatched": 0, "failed": 0}
@@ -335,6 +343,8 @@ def run_dispatch_cycle(db: Session, *, settings: WorkerSettings | None = None) -
                 )
                 db.commit()
                 dispatched += 1
+                record_manual_burst_draft(db)
+                db.commit()
             except grpc.RpcError as exc:
                 db.rollback()
                 details = exc.details() or str(exc)

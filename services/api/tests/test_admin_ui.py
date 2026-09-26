@@ -228,7 +228,7 @@ def test_admin_ui_generation_hours(client, admin_user, clean_db):
         data={
             "enabled": "1",
             "timezone_name": "Europe/Minsk",
-            "weekend_daily_limit": "50",
+            "weekend_daily_limit": "25",
             "day_0_enabled": "1",
             "day_0_start": "6",
             "day_0_end": "18",
@@ -245,10 +245,10 @@ def test_admin_ui_generation_hours(client, admin_user, clean_db):
             "day_4_start": "6",
             "day_4_end": "18",
             "day_5_enabled": "1",
-            "day_5_start": "9",
-            "day_5_end": "12",
-            "day_6_start": "9",
-            "day_6_end": "12",
+            "day_5_start": "6",
+            "day_5_end": "9",
+            "day_6_start": "6",
+            "day_6_end": "9",
             # Sunday unchecked → disabled
         },
         headers=headers,
@@ -261,16 +261,26 @@ def test_admin_ui_generation_hours(client, admin_user, clean_db):
     schedule = clean_db.get(AppSetting, "pipeline.generation_schedule").value
     assert schedule["0"]["start"] == 6
     assert schedule["5"]["enabled"] is True
-    assert schedule["5"]["start"] == 9
-    assert schedule["5"]["end"] == 12
+    assert schedule["5"]["start"] == 6
+    assert schedule["5"]["end"] == 9
     assert schedule["6"]["enabled"] is False
-    assert clean_db.get(AppSetting, "queue.weekend_daily_limit").value == 50
+    assert clean_db.get(AppSetting, "queue.weekend_daily_limit").value == 25
 
     page = client.get("/ui/admin/settings", headers=headers)
     assert page.status_code == 200
     assert "Окно генерации" in page.text
     assert "Пн" in page.text
     assert "Лимит черновиков в выходные" in page.text
+    assert "Ручная генерация" in page.text
+
+    burst = client.post(
+        "/ui/admin/settings/manual-burst",
+        data={"quota": "15", "ttl_hours": "2"},
+        headers=headers,
+        follow_redirects=False,
+    )
+    assert burst.status_code == 303
+    assert clean_db.get(AppSetting, "pipeline.manual_generation_burst").value["quota"] == 15
 
 
 def test_admin_ui_output_locales(client, admin_user, clean_db):

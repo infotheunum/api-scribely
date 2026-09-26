@@ -2,8 +2,9 @@
 
 Defaults (Europe/Minsk):
 - Mon–Fri 06:00–18:00
-- Sat–Sun 09:00–12:00
-- Weekend daily draft cap separate from weekday cap (~50).
+- Sat–Sun 06:00–09:00 (morning only), then full pause
+- Weekend daily draft cap 25
+- Admin can request a manual burst (e.g. +25) outside the window
 
 Tunable via AppSetting / Admin UI without redeploy (ТЗ §4.21).
 """
@@ -29,6 +30,8 @@ WEEKDAYS_ONLY_KEY = "pipeline.generation_weekdays_only"
 WORKING_DAYS_KEY = "pipeline.generation_working_days"
 # Per-day schedule: {"0":{"enabled":true,"start":6,"end":18}, ...}
 SCHEDULE_KEY = "pipeline.generation_schedule"
+# One-shot admin burst outside the schedule window.
+MANUAL_BURST_KEY = "pipeline.manual_generation_burst"
 
 WEEKDAY_DAILY_LIMIT_KEY = "queue.daily_limit"
 WEEKEND_DAILY_LIMIT_KEY = "queue.weekend_daily_limit"
@@ -37,11 +40,13 @@ DEFAULT_ENABLED = True
 DEFAULT_TIMEZONE = "Europe/Minsk"
 DEFAULT_WEEKDAY_START = 6
 DEFAULT_WEEKDAY_END = 18
-DEFAULT_WEEKEND_START = 9
-DEFAULT_WEEKEND_END = 12
+DEFAULT_WEEKEND_START = 6
+DEFAULT_WEEKEND_END = 9
 DEFAULT_WEEKDAY_DAILY_LIMIT = 100
-DEFAULT_WEEKEND_DAILY_LIMIT = 50
+DEFAULT_WEEKEND_DAILY_LIMIT = 25
 DEFAULT_WORKING_DAYS = (0, 1, 2, 3, 4)
+DEFAULT_MANUAL_BURST_QUOTA = 25
+DEFAULT_MANUAL_BURST_TTL_HOURS = 3
 
 DAY_LABELS_RU = ("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
 
@@ -51,7 +56,8 @@ _MINSK_FALLBACK = timezone(timedelta(hours=3), name="UTC+3")
 _DESCRIPTIONS = {
     ENABLED_KEY: (
         "If true, poll/cluster/filter/dispatch/compliance run only inside "
-        "the per-day schedule. Archival & category sync keep running."
+        "the per-day schedule (or during an active manual burst). "
+        "Archival & category sync keep running."
     ),
     TIMEZONE_KEY: "IANA timezone for generation windows (default Europe/Minsk).",
     START_HOUR_KEY: "Legacy flat start hour (migrated into schedule when absent).",
@@ -63,8 +69,12 @@ _DESCRIPTIONS = {
         '{"0":{"enabled":true,"start":6,"end":18},...} Mon=0 … Sun=6.'
     ),
     WEEKEND_DAILY_LIMIT_KEY: (
-        "Max drafts created on Sat/Sun (editorial day, Europe/Minsk). "
-        "Weekdays use queue.daily_limit."
+        "Max drafts created on Sat/Sun during the scheduled morning window "
+        "(editorial day, Europe/Minsk). Weekdays use queue.daily_limit."
+    ),
+    MANUAL_BURST_KEY: (
+        "Active admin-requested generation burst: "
+        '{"quota":25,"created":0,"expires_at":"...","requested_at":"..."}.'
     ),
 }
 
@@ -319,25 +329,212 @@ def is_within_generation_hours(
 
 
 def generation_allowed(db: Session, *, now: datetime | None = None) -> bool:
-    return is_within_generation_hours(load_generation_hours(db), now=now)
+    moment = now or datetime.now(UTC)
+    if is_within_generation_hours(load_generation_hours(db), now=moment):
+        return True
+    return manual_burst_remaining(db, now=moment) > 0
 
 
 def effective_daily_limit(db: Session, *, now: datetime | None = None) -> int:
-    """Weekday → queue.daily_limit; Sat/Sun → queue.weekend_daily_limit."""
+    """Weekday → queue.daily_limit; Sat/Sun → weekend cap; +manual burst headroom."""
+    from db.models import Draft
+    from sqlalchemy import func, select
+
     config = load_generation_hours(db)
     moment = now or datetime.now(UTC)
     if moment.tzinfo is None:
         moment = moment.replace(tzinfo=UTC)
     local = moment.astimezone(resolve_tz(config.timezone_name))
     if local.weekday() >= 5:
-        return max(1, config.weekend_daily_limit)
-    return max(
-        1,
-        _as_positive_int(
-            get_setting(db, WEEKDAY_DAILY_LIMIT_KEY, DEFAULT_WEEKDAY_DAILY_LIMIT),
-            DEFAULT_WEEKDAY_DAILY_LIMIT,
-        ),
+        base = max(1, config.weekend_daily_limit)
+    else:
+        base = max(
+            1,
+            _as_positive_int(
+                get_setting(db, WEEKDAY_DAILY_LIMIT_KEY, DEFAULT_WEEKDAY_DAILY_LIMIT),
+                DEFAULT_WEEKDAY_DAILY_LIMIT,
+            ),
+        )
+
+    burst_left = manual_burst_remaining(db, now=moment)
+    if burst_left <= 0:
+        return base
+
+    # Allow drafts_today + remaining burst so an afternoon weekend request
+    # can still produce N more after the morning cap is already filled.
+    local_day_start = local.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_start = local_day_start.astimezone(UTC)
+    drafts_today = int(
+        db.scalar(select(func.count()).select_from(Draft).where(Draft.created_at >= day_start))
+        or 0
     )
+    return max(base, drafts_today + burst_left)
+
+
+@dataclass(frozen=True, slots=True)
+class ManualBurstState:
+    quota: int
+    created: int
+    expires_at: datetime
+    requested_at: datetime | None
+    requested_by: str | None
+
+    @property
+    def remaining(self) -> int:
+        return max(0, self.quota - self.created)
+
+    @property
+    def active(self) -> bool:
+        return self.remaining > 0
+
+
+def _parse_burst(raw: Any, *, now: datetime) -> ManualBurstState | None:
+    if not isinstance(raw, dict):
+        return None
+    try:
+        quota = max(1, int(raw.get("quota", 0)))
+        created = max(0, int(raw.get("created", 0)))
+        expires_at = datetime.fromisoformat(str(raw["expires_at"]))
+    except (KeyError, TypeError, ValueError):
+        return None
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=UTC)
+    if expires_at <= now:
+        return None
+    if created >= quota:
+        return None
+    requested_at = None
+    if raw.get("requested_at"):
+        try:
+            requested_at = datetime.fromisoformat(str(raw["requested_at"]))
+            if requested_at.tzinfo is None:
+                requested_at = requested_at.replace(tzinfo=UTC)
+        except ValueError:
+            requested_at = None
+    return ManualBurstState(
+        quota=quota,
+        created=created,
+        expires_at=expires_at,
+        requested_at=requested_at,
+        requested_by=str(raw["requested_by"]) if raw.get("requested_by") else None,
+    )
+
+
+def load_manual_burst(db: Session, *, now: datetime | None = None) -> ManualBurstState | None:
+    moment = now or datetime.now(UTC)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    state = _parse_burst(get_setting(db, MANUAL_BURST_KEY, None), now=moment)
+    if state is None and get_setting(db, MANUAL_BURST_KEY, None) not in (None, "", {}):
+        # Expired / completed — clear stale row.
+        set_setting(db, MANUAL_BURST_KEY, None, description=_DESCRIPTIONS[MANUAL_BURST_KEY])
+    return state
+
+
+def manual_burst_remaining(db: Session, *, now: datetime | None = None) -> int:
+    state = load_manual_burst(db, now=now)
+    return state.remaining if state else 0
+
+
+def request_manual_burst(
+    db: Session,
+    *,
+    quota: int = DEFAULT_MANUAL_BURST_QUOTA,
+    ttl_hours: int = DEFAULT_MANUAL_BURST_TTL_HOURS,
+    requested_by: uuid.UUID | None = None,
+    now: datetime | None = None,
+) -> ManualBurstState:
+    """Start (or replace) an admin-requested generation burst."""
+    moment = now or datetime.now(UTC)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    quota = max(1, min(200, int(quota)))
+    ttl_hours = max(1, min(12, int(ttl_hours)))
+    state = ManualBurstState(
+        quota=quota,
+        created=0,
+        expires_at=moment + timedelta(hours=ttl_hours),
+        requested_at=moment,
+        requested_by=str(requested_by) if requested_by else None,
+    )
+    set_setting(
+        db,
+        MANUAL_BURST_KEY,
+        {
+            "quota": state.quota,
+            "created": 0,
+            "expires_at": state.expires_at.isoformat(),
+            "requested_at": state.requested_at.isoformat(),
+            "requested_by": state.requested_by,
+        },
+        description=_DESCRIPTIONS[MANUAL_BURST_KEY],
+        updated_by=requested_by,
+    )
+    return state
+
+
+def cancel_manual_burst(db: Session, *, updated_by: uuid.UUID | None = None) -> None:
+    set_setting(
+        db,
+        MANUAL_BURST_KEY,
+        None,
+        description=_DESCRIPTIONS[MANUAL_BURST_KEY],
+        updated_by=updated_by,
+    )
+
+
+def record_manual_burst_draft(
+    db: Session, *, now: datetime | None = None
+) -> ManualBurstState | None:
+    """Increment created count after a successful dispatch during a burst."""
+    moment = now or datetime.now(UTC)
+    state = load_manual_burst(db, now=moment)
+    if state is None:
+        return None
+    created = state.created + 1
+    if created >= state.quota:
+        cancel_manual_burst(db)
+        return ManualBurstState(
+            quota=state.quota,
+            created=created,
+            expires_at=state.expires_at,
+            requested_at=state.requested_at,
+            requested_by=state.requested_by,
+        )
+    set_setting(
+        db,
+        MANUAL_BURST_KEY,
+        {
+            "quota": state.quota,
+            "created": created,
+            "expires_at": state.expires_at.isoformat(),
+            "requested_at": state.requested_at.isoformat() if state.requested_at else None,
+            "requested_by": state.requested_by,
+        },
+        description=_DESCRIPTIONS[MANUAL_BURST_KEY],
+    )
+    return ManualBurstState(
+        quota=state.quota,
+        created=created,
+        expires_at=state.expires_at,
+        requested_at=state.requested_at,
+        requested_by=state.requested_by,
+    )
+
+
+def manual_burst_as_dict(db: Session, *, now: datetime | None = None) -> dict[str, Any] | None:
+    state = load_manual_burst(db, now=now)
+    if state is None:
+        return None
+    return {
+        "quota": state.quota,
+        "created": state.created,
+        "remaining": state.remaining,
+        "expires_at": state.expires_at.isoformat(),
+        "requested_at": state.requested_at.isoformat() if state.requested_at else None,
+        "requested_by": state.requested_by,
+        "active": state.active,
+    }
 
 
 def save_generation_hours(
@@ -421,8 +618,10 @@ def save_generation_hours(
     )
 
 
-def generation_hours_as_dict(config: GenerationHoursConfig) -> dict[str, Any]:
-    return {
+def generation_hours_as_dict(
+    config: GenerationHoursConfig, *, db: Session | None = None
+) -> dict[str, Any]:
+    payload = {
         "enabled": config.enabled,
         "timezone": config.timezone_name,
         "start_hour": config.start_hour,
@@ -440,4 +639,11 @@ def generation_hours_as_dict(config: GenerationHoursConfig) -> dict[str, Any]:
             for i, day in enumerate(config.days)
         ],
         "within_hours": is_within_generation_hours(config),
+        "manual_burst": None,
     }
+    if db is not None:
+        payload["manual_burst"] = manual_burst_as_dict(db)
+        # within_hours stays schedule-only; generation_allowed includes burst.
+        payload["generation_allowed"] = generation_allowed(db)
+    return payload
+
