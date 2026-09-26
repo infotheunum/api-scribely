@@ -10,8 +10,10 @@ from api_app.db import get_db
 from api_app.routers import admin as admin_api
 from common.generation_hours import (
     DayWindow,
+    cancel_manual_burst,
     generation_hours_as_dict,
     load_generation_hours,
+    request_manual_burst,
     save_generation_hours,
 )
 from common.integration_export_settings import load_export_defaults, save_export_defaults
@@ -322,7 +324,7 @@ def settings_page(
     settings = admin_api.list_settings(db=db)
     export_defaults = load_export_defaults(db)
     output_locales = get_output_locales(db)
-    generation_hours = generation_hours_as_dict(load_generation_hours(db))
+    generation_hours = generation_hours_as_dict(load_generation_hours(db), db=db)
     translate_originals = bool(get_setting(db, "review.translate_originals.enabled", False))
     return templates.TemplateResponse(
         request,
@@ -384,7 +386,7 @@ def upsert_export_freshness_ui(
 def upsert_generation_hours_ui(
     enabled: str | None = Form(None),
     timezone_name: str = Form("Europe/Minsk"),
-    weekend_daily_limit: int = Form(50),
+    weekend_daily_limit: int = Form(25),
     day_0_enabled: str | None = Form(None),
     day_0_start: int = Form(6),
     day_0_end: int = Form(18),
@@ -401,11 +403,11 @@ def upsert_generation_hours_ui(
     day_4_start: int = Form(6),
     day_4_end: int = Form(18),
     day_5_enabled: str | None = Form(None),
-    day_5_start: int = Form(9),
-    day_5_end: int = Form(12),
+    day_5_start: int = Form(6),
+    day_5_end: int = Form(9),
     day_6_enabled: str | None = Form(None),
-    day_6_start: int = Form(9),
-    day_6_end: int = Form(12),
+    day_6_start: int = Form(6),
+    day_6_end: int = Form(9),
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
@@ -434,6 +436,39 @@ def upsert_generation_hours_ui(
         weekend_daily_limit=weekend_daily_limit,
         updated_by=user.id if user else None,
     )
+    db.commit()
+    return RedirectResponse("/ui/admin/settings", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/settings/manual-burst")
+def start_manual_burst_ui(
+    quota: int = Form(25),
+    ttl_hours: int = Form(3),
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
+    redirect = _require_admin(user)
+    if redirect:
+        return redirect
+    request_manual_burst(
+        db,
+        quota=quota,
+        ttl_hours=ttl_hours,
+        requested_by=user.id if user else None,
+    )
+    db.commit()
+    return RedirectResponse("/ui/admin/settings", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/settings/manual-burst/cancel")
+def cancel_manual_burst_ui(
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
+    redirect = _require_admin(user)
+    if redirect:
+        return redirect
+    cancel_manual_burst(db, updated_by=user.id if user else None)
     db.commit()
     return RedirectResponse("/ui/admin/settings", status_code=status.HTTP_303_SEE_OTHER)
 

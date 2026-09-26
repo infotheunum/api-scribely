@@ -190,10 +190,10 @@ def test_generation_hours_get_and_put(client, admin_user, clean_db):
     assert body["start_hour"] == 6
     assert body["end_hour"] == 18
     assert body["working_days"] == [0, 1, 2, 3, 4, 5, 6]
-    assert body["weekend_daily_limit"] == 50
+    assert body["weekend_daily_limit"] == 25
     assert len(body["days"]) == 7
-    assert body["days"][5]["start_hour"] == 9
-    assert body["days"][5]["end_hour"] == 12
+    assert body["days"][5]["start_hour"] == 6
+    assert body["days"][5]["end_hour"] == 9
     assert "within_hours" in body
 
     updated = client.put(
@@ -201,22 +201,35 @@ def test_generation_hours_get_and_put(client, admin_user, clean_db):
         json={
             "enabled": True,
             "timezone": "Europe/Minsk",
-            "weekend_daily_limit": 50,
+            "weekend_daily_limit": 25,
             "days": [
                 {"weekday": i, "enabled": True, "start_hour": 6, "end_hour": 18}
                 for i in range(5)
             ]
             + [
-                {"weekday": 5, "enabled": True, "start_hour": 9, "end_hour": 14},
-                {"weekday": 6, "enabled": False, "start_hour": 9, "end_hour": 12},
+                {"weekday": 5, "enabled": True, "start_hour": 6, "end_hour": 9},
+                {"weekday": 6, "enabled": False, "start_hour": 6, "end_hour": 9},
             ],
         },
         headers=headers,
     )
     assert updated.status_code == 200
-    assert updated.json()["days"][5]["end_hour"] == 14
+    assert updated.json()["days"][5]["end_hour"] == 9
     assert updated.json()["days"][6]["enabled"] is False
-    assert updated.json()["weekend_daily_limit"] == 50
+    assert updated.json()["weekend_daily_limit"] == 25
+
+    burst = client.post(
+        "/admin/pipeline/manual-burst",
+        json={"quota": 25, "ttl_hours": 2},
+        headers=headers,
+    )
+    assert burst.status_code == 200
+    assert burst.json()["quota"] == 25
+    assert burst.json()["remaining"] == 25
+    assert burst.json()["active"] is True
+
+    stopped = client.delete("/admin/pipeline/manual-burst", headers=headers)
+    assert stopped.status_code == 200
 
     # Legacy flat payload still accepted
     legacy = client.put(
@@ -227,14 +240,14 @@ def test_generation_hours_get_and_put(client, admin_user, clean_db):
             "start_hour": 7,
             "end_hour": 17,
             "working_days": [0, 1, 2, 3, 4, 5],
-            "weekend_daily_limit": 40,
+            "weekend_daily_limit": 25,
         },
         headers=headers,
     )
     assert legacy.status_code == 200
     assert legacy.json()["start_hour"] == 7
     assert legacy.json()["working_days"] == [0, 1, 2, 3, 4, 5]
-    assert legacy.json()["weekend_daily_limit"] == 40
+    assert legacy.json()["weekend_daily_limit"] == 25
 
 
 def test_prompt_version_create_and_activate(client, admin_user, clean_db):
