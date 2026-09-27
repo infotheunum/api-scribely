@@ -156,15 +156,31 @@ def test_effective_daily_limit_weekday_vs_weekend(clean_db):
     assert effective_daily_limit(clean_db, now=saturday) == 25
 
 
-def test_manual_burst_does_not_raise_weekend_daily_cap(clean_db):
+def test_manual_burst_bypasses_weekend_daily_cap(clean_db):
     from common.generation_hours import request_manual_burst
+    from db.models import Draft, NewsCluster
 
     set_setting(clean_db, "queue.weekend_daily_limit", 25)
     clean_db.commit()
     saturday = datetime(2026, 9, 5, 12, 0, tzinfo=UTC)  # outside morning window
-    request_manual_burst(clean_db, quota=25, ttl_hours=3, now=saturday)
+    # Simulate morning window already filled the weekend cap.
+    for i in range(25):
+        cluster = NewsCluster(trace_id=f"burst-cap-{i}")
+        clean_db.add(cluster)
+        clean_db.flush()
+        draft = Draft(
+            cluster_id=cluster.id,
+            trace_id=f"burst-cap-{i}",
+            content_generated_at=saturday,
+        )
+        draft.created_at = saturday
+        clean_db.add(draft)
     clean_db.commit()
     assert effective_daily_limit(clean_db, now=saturday) == 25
+    request_manual_burst(clean_db, quota=25, ttl_hours=3, now=saturday)
+    clean_db.commit()
+    # Burst allows exactly +25 more on top of today's drafts.
+    assert effective_daily_limit(clean_db, now=saturday) == 50
 
 
 def test_manual_burst_allows_generation_outside_hours(clean_db):
