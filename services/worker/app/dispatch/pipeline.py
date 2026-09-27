@@ -299,7 +299,8 @@ def run_dispatch_cycle(db: Session, *, settings: WorkerSettings | None = None) -
     try:
         for cluster in candidates:
             # Re-check after each slow LLM call so concurrent ticks / batch_size
-            # cannot push past the editorial daily cap (esp. weekend max 25).
+            # cannot push past the effective cap (base day limit, or burst quota).
+            daily_limit = effective_daily_limit(db)
             if _drafts_created_today(db) >= daily_limit:
                 break
             set_trace_id(new_trace_id())
