@@ -36,6 +36,51 @@
 </div>
 {% endif %}
 
+{% set summary = draft.review_report.get('summary') if draft.review_report else None %}
+{% if summary %}
+<div class="card">
+  <h2>Проверка рерайта</h2>
+  {% set verdict = summary.get('verdict', '') %}
+  <div style="margin-bottom:8px;">
+    {% if verdict == 'blocked' %}
+      <span class="pill flag">Вердикт: нельзя публиковать</span>
+    {% elif verdict == 'needs_attention' %}
+      <span class="pill flag warn">Вердикт: нужна правка</span>
+    {% else %}
+      <span class="pill flag info">Вердикт: можно публиковать</span>
+    {% endif %}
+    <span class="note">критичных: {{ summary.get('critical_count', 0) }}, предупреждений: {{ summary.get('warning_count', 0) }}</span>
+  </div>
+  <ul style="margin:0;padding-left:18px;">
+    <li class="note">Факты: {{ summary.get('facts_coverage_pct', '—') }}% перенесено</li>
+    <li class="note">Добавлено: {{ summary.get('invented_count', 0) }} фрагмент(ов)</li>
+    <li class="note">Цитаты: {{ summary.get('quotes_issues', 0) }} замечаний</li>
+    {% set banned = summary.get('banned_counts') or {} %}
+    <li class="note">Политика / стиль:
+      {% if banned %}
+        {% for cat, count in banned.items() %}{{ cat }}: {{ count }}{% if not loop.last %}; {% endif %}{% endfor %}
+      {% else %}
+        чисто
+      {% endif %}
+    </li>
+  </ul>
+  {% set filters = draft.review_report.get('filters') or {} %}
+  <div style="margin-top:10px;">
+    <strong>Места для правки</strong>
+    <ul style="margin:6px 0 0;padding-left:18px;">
+      {% for key, block in filters.items() if block is mapping %}
+        {% for item in block.get('findings') or [] if item is mapping %}
+        <li class="{{ 'error' if item.get('severity') == 'critical' else 'note' }}">
+          [{{ key }}] {{ item.get('message') }}
+          {% if item.get('rewrite_span') %}<span class="note"> — «{{ item.get('rewrite_span') }}»</span>{% endif %}
+        </li>
+        {% endfor %}
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+{% endif %}
+
 {% if draft.review_report.editorial_review_flags %}
 <div class="card">
   <h2>Нужна редакторская проверка</h2>
