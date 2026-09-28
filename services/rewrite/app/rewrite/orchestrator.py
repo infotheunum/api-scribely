@@ -25,7 +25,7 @@ from rewrite_app.prompt.style_guide import (
     REWRITE_FIDELITY_CONTRACT,
 )
 from rewrite_app.rewrite.openrouter_client import extract_json
-from rewrite_app.rewrite.quality_gate import review_rewrite
+from rewrite_app.rewrite.rewrite_review import run_rewrite_review
 from rewrite_app.rewrite.rotation import AllKeysExhaustedError, call_with_rotation
 from rewrite_app.rewrite.schemas import RewriteResultSchema
 from rewrite_app.settings import RewriteSettings
@@ -229,6 +229,12 @@ def _reviewable_rewrite_text(result: RewriteResultSchema) -> str:
     )
 
 
+def _plain_rewrite_text(result: RewriteResultSchema) -> str:
+    """Plain titles+bodies for deterministic filters 1–5."""
+    parts = [result.title_en, result.body_en, result.title_ru, result.body_ru]
+    return "\n\n".join(part for part in parts if part and part.strip())
+
+
 def rewrite_cluster(
     db: Session,
     settings: RewriteSettings,
@@ -316,21 +322,25 @@ def rewrite_cluster(
             )
             review_report: dict = {}
             if bool(get_setting(db, "quality_gate.enabled", False)):
-                approved, issues, review_report, _, _, quality_usage = review_rewrite(
+                approved, issues, review_report, _, _, quality_usage = run_rewrite_review(
                     db,
                     settings,
                     sources_text=sources_text,
+                    facts_text=facts_text,
                     required_facts_text=quality_required_facts,
                     rewritten_text=_reviewable_rewrite_text(result),
+                    rewrite_plain_text=_plain_rewrite_text(result),
                     translate_sources=bool(
                         get_setting(db, "review.translate_originals.enabled", False)
                     ),
+                    run_semantic=True,
                 )
                 review_report["all_extracted_facts"] = facts_text
                 review_report["quality_gate_required_facts"] = quality_required_facts
                 if not approved:
                     raise ValueError("quality gate failed: " + "; ".join(issues[:8]))
-                token_usage += quality_usage
+                if quality_usage is not None:
+                    token_usage += quality_usage
             review_report["seo_review_report"] = seo_review_report
             return result, key_alias, model, token_usage, review_report
         except AllKeysExhaustedError:
