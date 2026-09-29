@@ -71,6 +71,39 @@ def test_filter_title_case_headline_noise_not_invented_name():
     )
 
 
+def test_filter_missing_only_checks_required_facts_not_full_cluster():
+    """Multi-article clusters list many figures; rewrite must keep required ones."""
+    source = (
+        "Fund bought 100 BTC. Separately markets saw $17.2 billion flows, "
+        "$71 billion AUM, 847,666 BTC held elsewhere, and a $13.7 billion deal."
+    )
+    required = "- [number] 100 BTC\n- [who] Fund\n- [essence] Fund bought bitcoin"
+    rewrite = "Fund bought 100 BTC, according to the report."
+    result = compare_facts(
+        source_text=source,
+        rewrite_text=rewrite,
+        required_text=required,
+    )
+    missing_msgs = " ".join(f["message"] for f in result["missing"]["findings"])
+    assert "17.2" not in missing_msgs
+    assert "71" not in missing_msgs
+    assert "847" not in missing_msgs
+    assert result["missing"]["status"] != "critical"
+
+
+def test_filter_missing_still_blocks_when_required_money_absent():
+    source = "Fund bought 100 BTC at $79 670 average."
+    required = "- [number] $79 670\n- [number] 100 BTC"
+    rewrite = "Fund bought 100 BTC."
+    result = compare_facts(
+        source_text=source,
+        rewrite_text=rewrite,
+        required_text=required,
+    )
+    assert result["missing"]["status"] == "critical"
+    assert any("79" in f["message"] for f in result["missing"]["findings"])
+
+
 def test_filter_invented_share_sale_amount():
     source = "Компания объявила о новой стратегии."
     rewrite = "Компания провела продажу акций на $80,1 млн."

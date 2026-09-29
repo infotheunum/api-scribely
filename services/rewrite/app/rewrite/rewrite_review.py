@@ -24,6 +24,7 @@ def run_filters_1_5(
     source_text: str,
     rewrite_text: str,
     facts_text: str = "",
+    required_text: str = "",
     banned_phrases: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Deterministic filters: missing / invented / distorted / quotes / banned."""
@@ -32,6 +33,7 @@ def run_filters_1_5(
         source_text=source_text,
         rewrite_text=rewrite_text,
         facts_text=facts_text,
+        required_text=required_text or None,
     )
     fact_parts.pop("_coverage_base", None)
     filters.update(fact_parts)
@@ -58,6 +60,7 @@ def run_rewrite_review(
         source_text=sources_text,
         rewrite_text=rewrite_plain_text,
         facts_text=facts_text,
+        required_text=required_facts_text or facts_text,
         banned_phrases=banned,
     )
 
