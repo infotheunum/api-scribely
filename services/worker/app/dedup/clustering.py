@@ -34,14 +34,16 @@ SIMILARITY_THRESHOLD_SETTING_KEY = "dedup.similarity_threshold"
 CLUSTER_PER_TICK_LIMIT_KEY = "dedup.cluster_per_tick_limit"
 DEFAULT_CLUSTER_PER_TICK_LIMIT = 20
 
-# Only near-identical embeddings attach without a factual check.  Every other
-# plausible match is checked by rewrite before a new cluster can be created.
-# This favors withholding an ambiguous item over publishing the same event
-# twice under different wording.
+# Only near-identical embeddings attach without a factual check.  Borderline
+# matches optionally go through LLM confirm (AppSetting-gated) — default off
+# to avoid burning paid tokens on every poll tick (ТЗ §4.2 / §4.21).
 AUTO_ATTACH_THRESHOLD = 0.98
-CONFIRMATION_THRESHOLD = 0.45
+CONFIRMATION_THRESHOLD = 0.82
 CONFIRMATION_THRESHOLD_SETTING_KEY = "dedup.confirmation_threshold"
-MAX_CONFIRMATION_CANDIDATES = 3
+LLM_CONFIRM_ENABLED_KEY = "dedup.llm_confirm_enabled"
+DEFAULT_LLM_CONFIRM_ENABLED = False
+MAX_CONFIRMATION_CANDIDATES = 1
+MAX_CONFIRMATION_CANDIDATES_KEY = "dedup.max_confirmation_candidates"
 
 
 def _cluster_per_tick_limit(db: Session) -> int:
@@ -195,6 +197,18 @@ def confirm_duplicate_with_llm(
         channel.close()
 
 
+def _llm_confirm_enabled(db: Session) -> bool:
+    return bool(get_setting(db, LLM_CONFIRM_ENABLED_KEY, DEFAULT_LLM_CONFIRM_ENABLED))
+
+
+def _max_confirmation_candidates(db: Session) -> int:
+    raw = get_setting(db, MAX_CONFIRMATION_CANDIDATES_KEY, MAX_CONFIRMATION_CANDIDATES)
+    try:
+        return max(1, min(3, int(raw)))
+    except (TypeError, ValueError):
+        return MAX_CONFIRMATION_CANDIDATES
+
+
 def _prefetch_embeddings(db: Session, raw_items: list[RawItem]) -> None:
     pending: list[tuple[RawItem, str]] = []
     for raw_item in raw_items:
@@ -240,31 +254,46 @@ def cluster_raw_item(
             )
             return candidate
 
-    plausible = [
-        (candidate, score)
-        for candidate, score in matches
-        if score >= confirmation_threshold
-    ][:MAX_CONFIRMATION_CANDIDATES]
-    for candidate, score in plausible:
-        if confirm_duplicate is not None:
-            decision = confirm_duplicate(raw_item, candidate)
-        else:
-            decision = confirm_duplicate_with_llm(db, raw_item, candidate)
-        if decision is True:
-            raw_item.cluster_id = candidate.id
-            logger.info(
-                "raw_item %s confirmed as duplicate of cluster %s (score=%.3f)",
-                raw_item.id,
-                candidate.id,
-                score,
-            )
-            return candidate
-        if decision is None:
-            logger.warning(
-                "deferring raw_item %s: duplicate confirmation unavailable for plausible match",
-                raw_item.id,
-            )
-            return None
+    # Tests inject confirm_duplicate and always exercise the LLM path.
+    # Production: AppSetting dedup.llm_confirm_enabled (default false).
+    use_llm_confirm = confirm_duplicate is not None or _llm_confirm_enabled(db)
+    if use_llm_confirm:
+        max_candidates = (
+            MAX_CONFIRMATION_CANDIDATES
+            if confirm_duplicate is not None
+            else _max_confirmation_candidates(db)
+        )
+        plausible = [
+            (candidate, score)
+            for candidate, score in matches
+            if score >= confirmation_threshold
+        ][:max_candidates]
+        for candidate, score in plausible:
+            if confirm_duplicate is not None:
+                decision = confirm_duplicate(raw_item, candidate)
+            else:
+                decision = confirm_duplicate_with_llm(db, raw_item, candidate)
+            if decision is True:
+                raw_item.cluster_id = candidate.id
+                logger.info(
+                    "raw_item %s confirmed as duplicate of cluster %s (score=%.3f)",
+                    raw_item.id,
+                    candidate.id,
+                    score,
+                )
+                return candidate
+            if decision is None:
+                logger.warning(
+                    "deferring raw_item %s: duplicate confirmation unavailable "
+                    "for plausible match",
+                    raw_item.id,
+                )
+                return None
+    elif any(score >= confirmation_threshold for _, score in matches):
+        logger.info(
+            "raw_item %s: LLM confirm disabled — new cluster for borderline match",
+            raw_item.id,
+        )
 
     new_cluster = NewsCluster(embedding=raw_item.embedding, trace_id=new_trace_id())
     db.add(new_cluster)

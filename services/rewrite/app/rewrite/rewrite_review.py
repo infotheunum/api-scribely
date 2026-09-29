@@ -70,7 +70,12 @@ def run_rewrite_review(
     translations: list[object] = []
     llm_issues: list[str] = []
 
-    if run_semantic:
+    # Skip paid semantic LLM when deterministic filters already reject —
+    # regenerate path does not need filter 6 tokens on a doomed draft.
+    pre_summary = build_summary(filters)
+    run_llm_semantic = run_semantic and pre_summary["critical_count"] == 0
+
+    if run_llm_semantic:
         _approved, llm_issues, semantic_report, key_alias, model, usage = review_rewrite(
             db,
             settings,
@@ -86,6 +91,12 @@ def run_rewrite_review(
         semantic = (semantic_report.get("filters") or {}).get("semantic")
         if isinstance(semantic, dict):
             filters["semantic"] = semantic
+    elif run_semantic and pre_summary["critical_count"] > 0:
+        filters["semantic"] = {
+            "status": "skipped",
+            "severity": "skipped_due_to_critical_filters_1_5",
+            "findings": [],
+        }
 
     summary = build_summary(filters)
     fact_checks = fact_checks_from_filters(filters)
