@@ -23,6 +23,7 @@ from db.models import (  # noqa: E402
     AppSetting,
     AuditLog,
     ClusterContext,
+    ClusterQuarantine,
     Draft,
     DraftExportLog,
     DraftLock,
@@ -83,6 +84,7 @@ def clean_db():
         session.execute(delete(DraftRevision))
         session.execute(delete(DraftExportLog))
         session.execute(delete(Draft))
+        session.execute(delete(ClusterQuarantine))
         session.execute(delete(ClusterContext))
         session.execute(delete(RawItem))
         session.execute(delete(NewsCluster))
