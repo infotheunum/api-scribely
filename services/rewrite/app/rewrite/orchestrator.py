@@ -337,27 +337,38 @@ def rewrite_cluster(
                 seo_description_ru=result.seo_ru.seo_description,
                 focus_keyphrase_ru=result.seo_ru.focus_keyphrase,
             )
-            review_report: dict = {}
-            if bool(get_setting(db, "quality_gate.enabled", False)):
-                approved, issues, review_report, _, _, quality_usage = run_rewrite_review(
-                    db,
-                    settings,
-                    sources_text=sources_text,
-                    facts_text=facts_text,
-                    required_facts_text=quality_required_facts,
-                    rewritten_text=_reviewable_rewrite_text(result),
-                    rewrite_plain_text=_plain_rewrite_text(result),
-                    translate_sources=bool(
-                        get_setting(db, "review.translate_originals.enabled", False)
-                    ),
-                    run_semantic=True,
+            gate_strict = bool(get_setting(db, "quality_gate.enabled", False))
+            # Always run deterministic filters 1–5 so editors see QA flags even
+            # when the hard gate is off (advisory mode). Paid semantic LLM (6)
+            # and dead-letter only in strict mode.
+            approved, issues, review_report, _, _, quality_usage = run_rewrite_review(
+                db,
+                settings,
+                sources_text=sources_text,
+                facts_text=facts_text,
+                required_facts_text=quality_required_facts,
+                rewritten_text=_reviewable_rewrite_text(result),
+                rewrite_plain_text=_plain_rewrite_text(result),
+                translate_sources=bool(
+                    get_setting(db, "review.translate_originals.enabled", False)
                 )
-                review_report["all_extracted_facts"] = facts_text
-                review_report["quality_gate_required_facts"] = quality_required_facts
-                if not approved:
-                    raise ValueError("quality gate failed: " + "; ".join(issues[:8]))
-                if quality_usage is not None:
-                    token_usage += quality_usage
+                and gate_strict,
+                run_semantic=gate_strict,
+            )
+            review_report["all_extracted_facts"] = facts_text
+            review_report["quality_gate_required_facts"] = quality_required_facts
+            review_report["quality_gate_mode"] = "strict" if gate_strict else "advisory"
+            if gate_strict and not approved:
+                raise ValueError("quality gate failed: " + "; ".join(issues[:8]))
+            if quality_usage is not None:
+                token_usage += quality_usage
+            # Surface advisory failures as draft flags for Unum / Scribely queue.
+            banned_findings = (
+                ((review_report.get("filters") or {}).get("banned") or {}).get("findings")
+                or []
+            )
+            if any(f.get("category") == "investment" for f in banned_findings):
+                result.disclaimer_flag = True
             review_report["seo_review_report"] = seo_review_report
             return result, key_alias, model, token_usage, review_report
         except AllKeysExhaustedError:
