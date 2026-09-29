@@ -20,14 +20,23 @@ def test_record_token_totals(clean_db):
     record_token_usage(clean_db, TokenUsage(100, 50, 150), calls=2)
     clean_db.commit()
     totals = load_token_totals(clean_db)
-    assert totals == {
-        "prompt_tokens": 100,
-        "completion_tokens": 50,
-        "total_tokens": 150,
-        "calls": 2,
-    }
+    assert totals["prompt_tokens"] == 100
+    assert totals["completion_tokens"] == 50
+    assert totals["total_tokens"] == 150
+    assert totals["calls"] == 2
+    assert totals["dedup_calls"] == 0
     record_token_usage(clean_db, TokenUsage(1, 1, 2), calls=1)
     clean_db.commit()
     totals = load_token_totals(clean_db)
     assert totals["total_tokens"] == 152
     assert totals["calls"] == 3
+
+
+def test_record_dedup_bucket(clean_db):
+    record_token_usage(clean_db, TokenUsage(10, 5, 15), calls=1, bucket="dedup")
+    clean_db.commit()
+    totals = load_token_totals(clean_db)
+    assert totals["total_tokens"] == 15
+    assert totals["calls"] == 1
+    assert totals["dedup_total_tokens"] == 15
+    assert totals["dedup_calls"] == 1

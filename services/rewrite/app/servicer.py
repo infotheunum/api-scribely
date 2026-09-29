@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import logging
 import json
+import logging
 
 import grpc
 from common.integration_reasons import (
@@ -180,6 +180,11 @@ class RewriteServicer(rewrite_pb2_grpc.RewriteServiceServicer):
                 model,
                 usage.total_tokens,
             )
+            from common.llm_token_totals import record_token_usage
+
+            if usage.total_tokens or usage.prompt_tokens or usage.completion_tokens:
+                record_token_usage(db, usage, calls=1, bucket="dedup")
+                db.commit()
             return rewrite_pb2.ConfirmDuplicateResponse(
                 same_event=same_event,
                 llm_usage=_llm_usage_proto(key_alias, model, usage),

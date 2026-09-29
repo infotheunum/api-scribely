@@ -329,6 +329,9 @@ def settings_page(
     llm_providers = get_enabled_providers(db)
     generation_hours = generation_hours_as_dict(load_generation_hours(db), db=db)
     translate_originals = bool(get_setting(db, "review.translate_originals.enabled", False))
+    dedup_llm_confirm = bool(get_setting(db, "dedup.llm_confirm_enabled", False))
+    dedup_confirm_threshold = float(get_setting(db, "dedup.confirmation_threshold", 0.82))
+    dedup_max_candidates = int(get_setting(db, "dedup.max_confirmation_candidates", 1))
     return templates.TemplateResponse(
         request,
         "admin_settings.html",
@@ -351,6 +354,9 @@ def settings_page(
             "llm_provider_anthropic": "anthropic" in llm_providers,
             "generation_hours": generation_hours,
             "translate_originals": translate_originals,
+            "dedup_llm_confirm": dedup_llm_confirm,
+            "dedup_confirm_threshold": dedup_confirm_threshold,
+            "dedup_max_candidates": dedup_max_candidates,
         },
     )
 
@@ -526,6 +532,45 @@ def upsert_llm_providers_ui(
     if provider_anthropic:
         selected.append("anthropic")
     set_enabled_providers(db, selected, updated_by=user.id if user else None)
+    db.commit()
+    return RedirectResponse("/ui/admin/settings", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/settings/dedup-llm")
+def upsert_dedup_llm_ui(
+    llm_confirm_enabled: str | None = Form(None),
+    confirmation_threshold: float = Form(0.82),
+    max_confirmation_candidates: int = Form(1),
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
+    redirect = _require_admin(user)
+    if redirect:
+        return redirect
+    threshold = max(0.5, min(0.97, float(confirmation_threshold)))
+    candidates = max(1, min(3, int(max_confirmation_candidates)))
+    uid = user.id if user else None
+    set_setting(
+        db,
+        "dedup.llm_confirm_enabled",
+        bool(llm_confirm_enabled),
+        description="When false, borderline embedding matches skip ConfirmDuplicate LLM.",
+        updated_by=uid,
+    )
+    set_setting(
+        db,
+        "dedup.confirmation_threshold",
+        threshold,
+        description="Min cosine similarity for optional LLM confirm.",
+        updated_by=uid,
+    )
+    set_setting(
+        db,
+        "dedup.max_confirmation_candidates",
+        candidates,
+        description="Max ConfirmDuplicate candidates per raw_item (1–3).",
+        updated_by=uid,
+    )
     db.commit()
     return RedirectResponse("/ui/admin/settings", status_code=status.HTTP_303_SEE_OTHER)
 
