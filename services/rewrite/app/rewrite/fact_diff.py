@@ -156,6 +156,24 @@ _NAME_STOP_TOKENS = frozenset(
         "update",
         "report",
         "news",
+        "pattern",
+        "patterns",
+        "accumulation",
+        "distribution",
+        "support",
+        "resistance",
+        "breakout",
+        "rally",
+        "crash",
+        "price",
+        "prices",
+        "volume",
+        "trend",
+        "bull",
+        "bear",
+        "capital",
+        "капитала",
+        "капитал",
     }
 )
 
@@ -204,17 +222,24 @@ def _parse_number(raw: str) -> _NumberHit | None:
         kind = "crypto"
     if "%" in token or "pct" in lower or "процент" in lower:
         kind = "percent"
+    # Attached $60k / 80k without currency still counts as money shorthand.
+    if kind == "plain" and re.search(r"(?i)\d\s*[kmb]\b", lower):
+        kind = "money"
 
     # Bare long integers (tweet/article IDs) are not financial facts.
     if kind == "plain" and _digit_run_len(token) > _MAX_PLAIN_DIGITS:
         return None
 
     multiplier = 1.0
-    if re.search(r"млрд|billion|\bbn\b", lower):
+    # Match both "60k" / "$80k" (attached) and "60 k" / "60 thousand".
+    if re.search(r"млрд|billion|(?<![a-z])bn\b", lower):
         multiplier = 1_000_000_000
-    elif re.search(r"млн|million|\bm\b", lower) and not re.search(r"\bbtc\b|\beth\b", lower):
+    elif (
+        re.search(r"млн|million|(?<![a-z])m\b", lower)
+        and not re.search(r"\bbtc\b|\beth\b", lower)
+    ):
         multiplier = 1_000_000
-    elif re.search(r"тыс|thousand|\bk\b", lower):
+    elif re.search(r"тыс|thousand|(?<![a-z])k\b", lower):
         multiplier = 1_000
 
     core = re.sub(r"(?i)^(?:\$|€|£|¥|usd|eur|rub|usdt)\s*", "", token)
@@ -569,9 +594,11 @@ def compare_facts(
             continue
         if tokens and tokens[-1].casefold() in source_text.casefold():
             continue
+        # Bilingual rewrites often transliterate EN orgs into RU (and vice versa);
+        # treat unmatched names as editorial warnings, not dead-letter blockers.
         invented_findings.append(
             finding(
-                severity="critical",
+                severity="warning",
                 message=f"этого нет в источнике: «{name}»",
                 rewrite_span=name,
             )
