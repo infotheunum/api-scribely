@@ -310,6 +310,31 @@ def test_admin_ui_output_locales(client, admin_user, clean_db):
     assert "Языки генерации" in page.text
 
 
+def test_admin_ui_llm_providers(client, admin_user, clean_db):
+    headers = _auth_headers(client, admin_user)
+    client.post(
+        "/ui/admin/settings/llm-providers",
+        data={"provider_openai": "1", "provider_qwen": "1"},
+        headers=headers,
+        follow_redirects=False,
+    )
+
+    from db.models import AppSetting
+
+    assert clean_db.get(AppSetting, "llm.enabled_providers").value == ["qwen", "openai"]
+
+    client.post(
+        "/ui/admin/settings/llm-providers",
+        data={},
+        headers=headers,
+        follow_redirects=False,
+    )
+    assert clean_db.get(AppSetting, "llm.enabled_providers").value == ["openai"]
+
+    page = client.get("/ui/admin/settings", headers=headers)
+    assert "LLM-провайдеры" in page.text
+
+
 def test_admin_ui_prompt_versions_create_and_activate(client, admin_user, clean_db):
     headers = _auth_headers(client, admin_user)
     resp = client.post(

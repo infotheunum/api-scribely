@@ -115,6 +115,30 @@
 </div>
 
 <div class="card">
+  <h2>LLM-провайдеры (ротация новостей)</h2>
+  <p class="note">
+    Какие слоты участвуют в enrich / rewrite / confirm-duplicate.
+    Round-robin и failover только среди отмеченных (и только если ключ есть в env rewrite).
+    По умолчанию — только <strong>OpenAI</strong>. Ключ БД: <code>llm.enabled_providers</code>.
+  </p>
+  <form class="inline-form" method="post" action="/ui/admin/settings/llm-providers">
+    <div class="field">
+      <label><input type="checkbox" name="provider_openai" value="1" {% if llm_provider_openai %}checked{% endif %}> OpenAI (gpt-4o-mini)</label>
+    </div>
+    <div class="field">
+      <label><input type="checkbox" name="provider_qwen" value="1" {% if llm_provider_qwen %}checked{% endif %}> Qwen (qwen-plus)</label>
+    </div>
+    <div class="field">
+      <label><input type="checkbox" name="provider_anthropic" value="1" {% if llm_provider_anthropic %}checked{% endif %}> Anthropic (Haiku)</label>
+    </div>
+    <div class="field field-narrow">
+      <button class="btn btn-primary" type="submit">Сохранить провайдеры</button>
+    </div>
+  </form>
+  <p class="note">REST: <code>GET/PUT /admin/llm/enabled-providers</code>. Если ничего не отмечено — сохранится <code>["openai"]</code>. OpenRouter в ротацию статей не входит.</p>
+</div>
+
+<div class="card">
   <h2>Ревью: перевод оригиналов</h2>
   <p class="note">Добавляет к новым черновикам полный русский перевод исходных материалов. Он сохраняется в карточке вместе с фактологической сверкой; отключение не удаляет уже созданные переводы.</p>
   <form class="inline-form" method="post" action="/ui/admin/settings/review-source-translation">

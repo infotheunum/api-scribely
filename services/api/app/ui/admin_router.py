@@ -18,6 +18,7 @@ from common.generation_hours import (
     save_generation_hours,
 )
 from common.integration_export_settings import load_export_defaults, save_export_defaults
+from common.llm_providers import get_enabled_providers, set_enabled_providers
 from common.rewrite_output_locales import get_output_locales, set_output_locales
 from db.app_settings import get_setting, set_setting
 from db.enums import PromptVersionStatus, SourceTier
@@ -325,6 +326,7 @@ def settings_page(
     settings = admin_api.list_settings(db=db)
     export_defaults = load_export_defaults(db)
     output_locales = get_output_locales(db)
+    llm_providers = get_enabled_providers(db)
     generation_hours = generation_hours_as_dict(load_generation_hours(db), db=db)
     translate_originals = bool(get_setting(db, "review.translate_originals.enabled", False))
     return templates.TemplateResponse(
@@ -344,6 +346,9 @@ def settings_page(
             else "",
             "output_locale_ru": "ru" in output_locales,
             "output_locale_en": "en" in output_locales,
+            "llm_provider_qwen": "qwen" in llm_providers,
+            "llm_provider_openai": "openai" in llm_providers,
+            "llm_provider_anthropic": "anthropic" in llm_providers,
             "generation_hours": generation_hours,
             "translate_originals": translate_originals,
         },
@@ -498,6 +503,29 @@ def upsert_output_locales_ui(
     if locale_en:
         selected.append("en")
     set_output_locales(db, selected, updated_by=user.id if user else None)
+    db.commit()
+    return RedirectResponse("/ui/admin/settings", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/settings/llm-providers")
+def upsert_llm_providers_ui(
+    provider_qwen: str | None = Form(None),
+    provider_openai: str | None = Form(None),
+    provider_anthropic: str | None = Form(None),
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
+    redirect = _require_admin(user)
+    if redirect:
+        return redirect
+    selected: list[str] = []
+    if provider_qwen:
+        selected.append("qwen")
+    if provider_openai:
+        selected.append("openai")
+    if provider_anthropic:
+        selected.append("anthropic")
+    set_enabled_providers(db, selected, updated_by=user.id if user else None)
     db.commit()
     return RedirectResponse("/ui/admin/settings", status_code=status.HTTP_303_SEE_OTHER)
 

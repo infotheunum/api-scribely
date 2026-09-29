@@ -71,7 +71,7 @@ def enrich_cluster(
         try:
             content, key_alias, model, token_usage = call_with_rotation(
                 db,
-                api_keys=settings.llm_provider_keys(),
+                api_keys=settings.llm_provider_keys(db),
                 system_prompt=ENRICH_SYSTEM_PROMPT,
                 user_prompt=f"Источники кластера:\n\n{sources_text}",
                 anthropic_model=settings.anthropic_model,
