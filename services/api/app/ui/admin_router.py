@@ -329,8 +329,8 @@ def settings_page(
     llm_providers = get_enabled_providers(db)
     generation_hours = generation_hours_as_dict(load_generation_hours(db), db=db)
     translate_originals = bool(get_setting(db, "review.translate_originals.enabled", False))
-    dedup_llm_confirm = bool(get_setting(db, "dedup.llm_confirm_enabled", False))
-    dedup_confirm_threshold = float(get_setting(db, "dedup.confirmation_threshold", 0.82))
+    dedup_llm_confirm = bool(get_setting(db, "dedup.llm_confirm_enabled", True))
+    dedup_confirm_threshold = float(get_setting(db, "dedup.confirmation_threshold", 0.85))
     dedup_max_candidates = int(get_setting(db, "dedup.max_confirmation_candidates", 1))
     return templates.TemplateResponse(
         request,
@@ -539,7 +539,7 @@ def upsert_llm_providers_ui(
 @router.post("/settings/dedup-llm")
 def upsert_dedup_llm_ui(
     llm_confirm_enabled: str | None = Form(None),
-    confirmation_threshold: float = Form(0.82),
+    confirmation_threshold: float = Form(0.85),
     max_confirmation_candidates: int = Form(1),
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
@@ -554,14 +554,14 @@ def upsert_dedup_llm_ui(
         db,
         "dedup.llm_confirm_enabled",
         bool(llm_confirm_enabled),
-        description="When false, borderline embedding matches skip ConfirmDuplicate LLM.",
+        description="When true, borderline embedding matches get ConfirmDuplicate LLM.",
         updated_by=uid,
     )
     set_setting(
         db,
         "dedup.confirmation_threshold",
         threshold,
-        description="Min cosine similarity for optional LLM confirm.",
+        description="Min cosine similarity for optional LLM confirm (balanced default 0.85).",
         updated_by=uid,
     )
     set_setting(

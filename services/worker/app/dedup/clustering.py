@@ -34,14 +34,15 @@ SIMILARITY_THRESHOLD_SETTING_KEY = "dedup.similarity_threshold"
 CLUSTER_PER_TICK_LIMIT_KEY = "dedup.cluster_per_tick_limit"
 DEFAULT_CLUSTER_PER_TICK_LIMIT = 20
 
-# Only near-identical embeddings attach without a factual check.  Borderline
-# matches optionally go through LLM confirm (AppSetting-gated) — default off
-# to avoid burning paid tokens on every poll tick (ТЗ §4.2 / §4.21).
+# Near-identical embeddings attach without LLM (≥0.98). Borderline matches
+# use ConfirmDuplicate when enabled — default ON with a high threshold so
+# duplicate quality stays high while token volume stays far below the old
+# 0.45×3 confirm storm (ТЗ §4.2 / §4.21).
 AUTO_ATTACH_THRESHOLD = 0.98
-CONFIRMATION_THRESHOLD = 0.82
+CONFIRMATION_THRESHOLD = 0.85
 CONFIRMATION_THRESHOLD_SETTING_KEY = "dedup.confirmation_threshold"
 LLM_CONFIRM_ENABLED_KEY = "dedup.llm_confirm_enabled"
-DEFAULT_LLM_CONFIRM_ENABLED = False
+DEFAULT_LLM_CONFIRM_ENABLED = True
 MAX_CONFIRMATION_CANDIDATES = 1
 MAX_CONFIRMATION_CANDIDATES_KEY = "dedup.max_confirmation_candidates"
 
@@ -255,7 +256,7 @@ def cluster_raw_item(
             return candidate
 
     # Tests inject confirm_duplicate and always exercise the LLM path.
-    # Production: AppSetting dedup.llm_confirm_enabled (default false).
+    # Production: AppSetting dedup.llm_confirm_enabled (default true, high threshold).
     use_llm_confirm = confirm_duplicate is not None or _llm_confirm_enabled(db)
     if use_llm_confirm:
         max_candidates = (

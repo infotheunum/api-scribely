@@ -141,9 +141,10 @@
 <div class="card">
   <h2>Дедуп: LLM-confirm</h2>
   <p class="note">
-    Раньше почти все токены OpenAI уходили сюда (ConfirmDuplicate на каждый borderline-матч).
-    По умолчанию <strong>выключено</strong>: merge только при cosine ≥ 0.98, иначе новый кластер.
-    Порог и лимит кандидатов действуют только если LLM-confirm включён.
+    Сверка borderline-матчей через ConfirmDuplicate.
+    Баланс по умолчанию: <strong>включено</strong>, порог <strong>0.85</strong>, макс. <strong>1</strong> кандидат
+    (раньше было 0.45×3 и съедало почти весь бюджет OpenAI).
+    Merge без LLM только при cosine ≥ 0.98.
   </p>
   <form class="inline-form" method="post" action="/ui/admin/settings/dedup-llm">
     <div class="field">
