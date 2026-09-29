@@ -50,18 +50,22 @@
       <span class="pill flag info">Вердикт: можно публиковать</span>
     {% endif %}
     <span class="note">критичных: {{ summary.get('critical_count', 0) }}, предупреждений: {{ summary.get('warning_count', 0) }}</span>
+    {% if draft.review_report.get('quality_gate_mode') %}
+      <span class="note">· режим: {{ draft.review_report.get('quality_gate_mode') }}</span>
+    {% endif %}
   </div>
   <ul style="margin:0;padding-left:18px;">
-    <li class="note">Факты: {{ summary.get('facts_coverage_pct', '—') }}% перенесено</li>
-    <li class="note">Добавлено: {{ summary.get('invented_count', 0) }} фрагмент(ов)</li>
-    <li class="note">Цитаты: {{ summary.get('quotes_issues', 0) }} замечаний</li>
+    <li class="note"><strong>Факты:</strong> {{ summary.get('facts_coverage_pct', '—') }}% перенесено</li>
+    <li class="note"><strong>Выдуманное:</strong> {{ summary.get('invented_count', 0) }} фрагмент(ов)</li>
+    <li class="note"><strong>Цитаты:</strong> {{ summary.get('quotes_issues', 0) }} замечаний</li>
     {% set banned = summary.get('banned_counts') or {} %}
-    <li class="note">Политика / стиль:
-      {% if banned %}
-        {% for cat, count in banned.items() %}{{ cat }}: {{ count }}{% if not loop.last %}; {% endif %}{% endfor %}
-      {% else %}
-        чисто
-      {% endif %}
+    <li class="note"><strong>Инвестсоветы:</strong> {{ banned.get('investment', 0) }}</li>
+    <li class="note"><strong>Прогнозы / канцелярит / стиль:</strong>
+      {% set ns = namespace(shown=false) %}
+      {% for cat, count in banned.items() if cat != 'investment' %}
+        {% if ns.shown %}; {% endif %}{{ cat }}: {{ count }}{% set ns.shown = true %}
+      {% endfor %}
+      {% if not ns.shown %}чисто{% endif %}
     </li>
   </ul>
   {% set filters = draft.review_report.get('filters') or {} %}
@@ -78,6 +82,11 @@
       {% endfor %}
     </ul>
   </div>
+</div>
+{% else %}
+<div class="card">
+  <h2>Проверка рерайта</h2>
+  <p class="note">Нет вердикта / фактов / цитат / инвестфлагов — черновик собран до advisory QA или отчёт пустой. Перегенерируй после деплоя soft-quality.</p>
 </div>
 {% endif %}
 

@@ -215,6 +215,35 @@ def test_banned_phrase_ignored_inside_quotes():
     assert result["findings"] == []
 
 
+def test_get_banned_phrases_merges_code_defaults_over_stale_db(clean_db):
+    """Old AppSetting (5 invest phrases) must still pick up new code defaults."""
+    from rewrite_app.rewrite.banned_phrases import (
+        DEFAULT_BANNED_PHRASES,
+        get_banned_phrases,
+        set_banned_phrases,
+    )
+
+    set_banned_phrases(
+        clean_db,
+        [
+            {"phrase": "следите", "category": "investment"},
+            {"phrase": "стоит купить", "category": "investment"},
+        ],
+    )
+    merged = get_banned_phrases(clean_db)
+    phrases = {p["phrase"].casefold() for p in merged}
+    assert "следите" in phrases
+    assert "точка входа" in phrases
+    assert "добиться прорыва" in phrases
+    assert len(merged) >= len(DEFAULT_BANNED_PHRASES)
+
+
+def test_investment_phrase_entry_point_flagged():
+    rewrite = "Это потенциальная точка входа для покупки токена."
+    result = find_banned_phrases(rewrite)
+    assert any(f.get("category") == "investment" for f in result["findings"])
+
+
 def test_run_filters_1_5_summary_blocked_on_invention():
     filters = run_filters_1_5(
         source_text="Компания объявила о планах.",

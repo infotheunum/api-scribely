@@ -18,7 +18,8 @@ BANNED_PHRASES_DESCRIPTION = (
     "forecast, bureaucracy, bad_translation. Matches outside quotes only."
 )
 
-# Seed inventory from style guide + editorial brief. Runtime SoT is AppSetting.
+# Seed inventory from style guide + editorial brief. Runtime SoT is AppSetting
+# merged with these defaults (DB can add/override; code adds never drop).
 DEFAULT_BANNED_PHRASES: list[dict[str, str]] = [
     # investment advice tone
     {"phrase": "следите", "category": "investment"},
@@ -26,6 +27,8 @@ DEFAULT_BANNED_PHRASES: list[dict[str, str]] = [
     {"phrase": "может предвещать", "category": "investment"},
     {"phrase": "buy now", "category": "investment"},
     {"phrase": "стоит купить", "category": "investment"},
+    {"phrase": "рекомендуем купить", "category": "investment"},
+    {"phrase": "не рекомендует покупать", "category": "investment"},
     {"phrase": "хорошая возможность для покупки", "category": "investment"},
     {"phrase": "возможность для покупки", "category": "investment"},
     {"phrase": "потенциальная точка входа", "category": "investment"},
@@ -35,8 +38,10 @@ DEFAULT_BANNED_PHRASES: list[dict[str, str]] = [
     {"phrase": "новые возможности для инвестирования", "category": "investment"},
     {"phrase": "путь для инвестирования", "category": "investment"},
     {"phrase": "главным катализатором", "category": "investment"},
+    {"phrase": "стать катализатором", "category": "investment"},
     {"phrase": "добиться прорыва", "category": "investment"},
     {"phrase": "гарантировать большую ликвидность", "category": "investment"},
+    {"phrase": "хорошая возможность", "category": "investment"},
     # evaluative intensifiers
     {"phrase": "важный", "category": "evaluation"},
     {"phrase": "важная", "category": "evaluation"},
@@ -79,6 +84,7 @@ DEFAULT_BANNED_PHRASES: list[dict[str, str]] = [
 
 
 def parse_banned_phrases(raw: Any) -> list[dict[str, str]]:
+    """Parse AppSetting JSON; empty/invalid → code defaults only."""
     if raw is None or raw == "":
         return [dict(item) for item in DEFAULT_BANNED_PHRASES]
     if not isinstance(raw, list):
@@ -98,10 +104,27 @@ def parse_banned_phrases(raw: Any) -> list[dict[str, str]]:
     return parsed or [dict(item) for item in DEFAULT_BANNED_PHRASES]
 
 
+def merge_banned_phrases(db_phrases: list[dict[str, str]] | None) -> list[dict[str, str]]:
+    """Code defaults ∪ DB list. DB wins on same phrase (category/override)."""
+    merged: dict[str, dict[str, str]] = {
+        item["phrase"].casefold(): dict(item) for item in DEFAULT_BANNED_PHRASES
+    }
+    for item in db_phrases or []:
+        phrase = str(item.get("phrase") or "").strip()
+        if not phrase:
+            continue
+        category = str(item.get("category") or "other").strip() or "other"
+        merged[phrase.casefold()] = {"phrase": phrase, "category": category}
+    return list(merged.values())
+
+
 def get_banned_phrases(db: Session | None) -> list[dict[str, str]]:
     if db is None:
         return [dict(item) for item in DEFAULT_BANNED_PHRASES]
-    return parse_banned_phrases(get_setting(db, BANNED_PHRASES_KEY, None))
+    raw = get_setting(db, BANNED_PHRASES_KEY, None)
+    if raw is None or raw == "":
+        return [dict(item) for item in DEFAULT_BANNED_PHRASES]
+    return merge_banned_phrases(parse_banned_phrases(raw))
 
 
 def set_banned_phrases(
