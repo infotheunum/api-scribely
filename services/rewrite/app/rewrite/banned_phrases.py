@@ -26,6 +26,17 @@ DEFAULT_BANNED_PHRASES: list[dict[str, str]] = [
     {"phrase": "может предвещать", "category": "investment"},
     {"phrase": "buy now", "category": "investment"},
     {"phrase": "стоит купить", "category": "investment"},
+    {"phrase": "хорошая возможность для покупки", "category": "investment"},
+    {"phrase": "возможность для покупки", "category": "investment"},
+    {"phrase": "потенциальная точка входа", "category": "investment"},
+    {"phrase": "точка входа", "category": "investment"},
+    {"phrase": "потенциал роста", "category": "investment"},
+    {"phrase": "возможности для инвестирования", "category": "investment"},
+    {"phrase": "новые возможности для инвестирования", "category": "investment"},
+    {"phrase": "путь для инвестирования", "category": "investment"},
+    {"phrase": "главным катализатором", "category": "investment"},
+    {"phrase": "добиться прорыва", "category": "investment"},
+    {"phrase": "гарантировать большую ликвидность", "category": "investment"},
     # evaluative intensifiers
     {"phrase": "важный", "category": "evaluation"},
     {"phrase": "важная", "category": "evaluation"},
@@ -57,6 +68,9 @@ DEFAULT_BANNED_PHRASES: list[dict[str, str]] = [
     {"phrase": "нельзя не сказать", "category": "bureaucracy"},
     {"phrase": "подводя итог", "category": "bureaucracy"},
     {"phrase": "в заключение", "category": "bureaucracy"},
+    # political / climate padding not in source (editorial false positives)
+    {"phrase": "глобального изменения климата", "category": "evaluation"},
+    {"phrase": "глобальное изменение климата", "category": "evaluation"},
     # bad translation / glossary misses
     {"phrase": "лендинг", "category": "bad_translation"},
     {"phrase": "кредитный etf", "category": "bad_translation"},
