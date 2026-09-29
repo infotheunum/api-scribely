@@ -16,7 +16,59 @@ def test_filter_missing_average_price():
     result = compare_facts(source_text=source, rewrite_text=rewrite)
     messages = [f["message"] for f in result["missing"]["findings"]]
     assert any("79" in m or "79670" in m.replace(" ", "") for m in messages)
-    assert result["missing"]["status"] in {"critical", "warning"}
+    assert result["missing"]["status"] == "critical"
+
+
+def test_filter_ignores_tweet_or_article_ids_in_urls():
+    source = (
+        "Пост на X: https://x.com/user/status/1970123456789012345 "
+        "сообщает, что фонд купил 100 BTC."
+    )
+    rewrite = "Фонд купил 100 BTC, сообщил источник в соцсети."
+    result = compare_facts(source_text=source, rewrite_text=rewrite)
+    missing_msgs = " ".join(f["message"] for f in result["missing"]["findings"])
+    invented_msgs = " ".join(f["message"] for f in result["invented"]["findings"])
+    assert "1970123456789012345" not in missing_msgs
+    assert "1970123456789012345" not in invented_msgs
+    assert result["missing"]["status"] != "critical"
+    assert result["invented"]["status"] != "critical"
+
+
+def test_filter_plain_integer_id_is_not_critical():
+    source = "Статья 1052 описывает запуск продукта."
+    rewrite = "Компания запустила продукт."
+    result = compare_facts(source_text=source, rewrite_text=rewrite)
+    # four-digit plain ints still extract, but must not block as critical money/crypto.
+    critical = [f for f in result["missing"]["findings"] if f["severity"] == "critical"]
+    assert not any("1052" in f["message"] for f in critical)
+
+
+def test_filter_month_only_missing_is_warning():
+    source = "Сделка обсуждалась в September на конференции."
+    rewrite = "Сделка обсуждалась на конференции."
+    result = compare_facts(source_text=source, rewrite_text=rewrite)
+    month_missing = [
+        f for f in result["missing"]["findings"] if "дата" in f["message"]
+    ]
+    assert month_missing
+    assert all(f["severity"] == "warning" for f in month_missing)
+
+
+def test_filter_title_case_headline_noise_not_invented_name():
+    source = "Company announced a token sale after restructuring."
+    rewrite = "Why Did Token Sale Spins Out Months After Restructuring"
+    result = compare_facts(source_text=source, rewrite_text=rewrite)
+    invented_names = [
+        f
+        for f in result["invented"]["findings"]
+        if "имени" in f["message"] or "нет в источнике" in f["message"]
+    ]
+    noise = ("Why Did", "Token Sale", "Spins Out", "Months After")
+    # Title-case headline fragments must not look like person/org inventions.
+    assert not any(
+        any(tok in f.get("rewrite_span", "") for tok in noise)
+        for f in invented_names
+    )
 
 
 def test_filter_invented_share_sale_amount():

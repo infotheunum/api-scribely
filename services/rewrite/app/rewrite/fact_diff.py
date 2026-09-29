@@ -20,6 +20,11 @@ _NUMBER_RE = re.compile(
     rf"{_SUFFIX}?"
 )
 
+# Tweet/article/tx IDs and similar — not editorial facts.
+_MAX_PLAIN_DIGITS = 7
+_URL_RE = re.compile(r"https?://\S+|www\.\S+", re.I)
+_HEX_ID_RE = re.compile(r"\b0x[a-fA-F0-9]{8,}\b")
+
 _MONTHS = {
     "январ": 1,
     "феврал": 2,
@@ -80,6 +85,77 @@ _STOP_NAMES = frozenset(
         "White House",
         "Federal Reserve",
         "European Union",
+        "Token Sale",
+        "Spins Out",
+        "Onchain Finance",
+        "Why Did",
+        "Months After",
+        "Chief Commercial",
+    }
+)
+
+# Headline/title-case noise tokens.
+_NAME_STOP_TOKENS = frozenset(
+    {
+        "the",
+        "a",
+        "an",
+        "and",
+        "or",
+        "of",
+        "in",
+        "on",
+        "for",
+        "to",
+        "from",
+        "with",
+        "by",
+        "at",
+        "as",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "why",
+        "how",
+        "what",
+        "when",
+        "where",
+        "who",
+        "which",
+        "this",
+        "that",
+        "these",
+        "those",
+        "after",
+        "before",
+        "new",
+        "old",
+        "more",
+        "most",
+        "over",
+        "under",
+        "into",
+        "about",
+        "did",
+        "does",
+        "do",
+        "sale",
+        "spins",
+        "out",
+        "months",
+        "token",
+        "tokens",
+        "finance",
+        "market",
+        "markets",
+        "crypto",
+        "bitcoin",
+        "update",
+        "report",
+        "news",
     }
 )
 
@@ -104,6 +180,18 @@ def _strip_noise(text: str) -> str:
     return re.sub(r"\s+", " ", text or "").strip()
 
 
+def _scrub_non_fact_noise(text: str) -> str:
+    """Drop URLs / hex ids so tweet/article IDs are not treated as facts."""
+    cleaned = _URL_RE.sub(" ", text or "")
+    cleaned = _HEX_ID_RE.sub(" ", cleaned)
+    return cleaned
+
+
+def _digit_run_len(token: str) -> int:
+    digits = re.sub(r"\D", "", token)
+    return len(digits)
+
+
 def _parse_number(raw: str) -> _NumberHit | None:
     token = raw.strip()
     if not token:
@@ -116,6 +204,10 @@ def _parse_number(raw: str) -> _NumberHit | None:
         kind = "crypto"
     if "%" in token or "pct" in lower or "процент" in lower:
         kind = "percent"
+
+    # Bare long integers (tweet/article IDs) are not financial facts.
+    if kind == "plain" and _digit_run_len(token) > _MAX_PLAIN_DIGITS:
+        return None
 
     multiplier = 1.0
     if re.search(r"млрд|billion|\bbn\b", lower):
@@ -161,7 +253,8 @@ def _parse_number(raw: str) -> _NumberHit | None:
 def extract_numbers(text: str) -> list[_NumberHit]:
     hits: list[_NumberHit] = []
     seen: set[tuple[float, str]] = set()
-    for match in _NUMBER_RE.finditer(text or ""):
+    scrubbed = _scrub_non_fact_noise(text)
+    for match in _NUMBER_RE.finditer(scrubbed):
         parsed = _parse_number(match.group(0))
         if parsed is None:
             continue
@@ -184,7 +277,8 @@ def _month_from_name(name: str) -> int | None:
 def extract_dates(text: str) -> list[_DateHit]:
     hits: list[_DateHit] = []
     seen: set[str] = set()
-    for match in _DATE_RE.finditer(text or ""):
+    scrubbed = _scrub_non_fact_noise(text)
+    for match in _DATE_RE.finditer(scrubbed):
         raw = _strip_noise(match.group(0))
         if match.group("iso"):
             year_s, month_s, day_s = match.group("iso").split("-")
@@ -205,13 +299,25 @@ def extract_dates(text: str) -> list[_DateHit]:
     return hits
 
 
+def _looks_like_person_or_org(name: str) -> bool:
+    tokens = name.split()
+    if len(tokens) < 2:
+        return False
+    lower_tokens = [t.casefold() for t in tokens]
+    if any(t in _NAME_STOP_TOKENS for t in lower_tokens):
+        return False
+    return True
+
+
 def extract_names(text: str, facts_text: str = "") -> list[str]:
     names: list[str] = []
     seen: set[str] = set()
 
-    def _add(name: str) -> None:
+    def _add(name: str, *, from_who_fact: bool = False) -> None:
         cleaned = _strip_noise(name)
         if len(cleaned) < 3 or cleaned in _STOP_NAMES:
+            return
+        if not from_who_fact and not _looks_like_person_or_org(cleaned):
             return
         key = cleaned.casefold()
         if key in seen:
@@ -220,18 +326,18 @@ def extract_names(text: str, facts_text: str = "") -> list[str]:
         names.append(cleaned)
 
     for match in _WHO_FACT_RE.finditer(facts_text or ""):
+        _add(match.group(1), from_who_fact=True)
+    scrubbed = _scrub_non_fact_noise(text)
+    for match in _NAME_EN_RE.finditer(scrubbed):
         _add(match.group(1))
-    for match in _NAME_EN_RE.finditer(text or ""):
-        _add(match.group(1))
-    for match in _NAME_RU_RE.finditer(text or ""):
+    for match in _NAME_RU_RE.finditer(scrubbed):
         _add(match.group(1))
     return names
 
 
 def _number_severity(hit: _NumberHit) -> str:
+    """Only money/crypto/percent block publication when missing."""
     if hit.kind in {"money", "crypto", "percent"}:
-        return "critical"
-    if hit.value >= 1000:
         return "critical"
     return "warning"
 
@@ -273,6 +379,13 @@ def _date_exact(a: _DateHit, b: _DateHit) -> bool:
     return a.month == b.month and a.day == b.day and a.year == b.year
 
 
+def _date_missing_severity(hit: _DateHit) -> str:
+    # Bare month name in source ("September") is too weak to block a draft.
+    if hit.day is None and hit.year is None:
+        return "warning"
+    return "critical"
+
+
 def compare_facts(
     *,
     source_text: str,
@@ -296,7 +409,6 @@ def compare_facts(
     matched_src_number_idxs: set[int] = set()
     matched_rew_number_idxs: set[int] = set()
 
-    # Exact number matches first.
     for i, src in enumerate(src_numbers):
         for j, rew in enumerate(rew_numbers):
             if j in matched_rew_number_idxs:
@@ -306,7 +418,6 @@ def compare_facts(
                 matched_rew_number_idxs.add(j)
                 break
 
-    # Magnitude distortions on unmatched pairs.
     for i, src in enumerate(src_numbers):
         if i in matched_src_number_idxs:
             continue
@@ -341,10 +452,10 @@ def compare_facts(
     for j, rew in enumerate(rew_numbers):
         if j in matched_rew_number_idxs:
             continue
-        # invented number — always critical per product brief
+        sev = "critical" if rew.kind in {"money", "crypto", "percent"} else "warning"
         invented_findings.append(
             finding(
-                severity="critical",
+                severity=sev,  # type: ignore[arg-type]
                 message=f"этого нет в источнике: «{rew.raw}»",
                 source_span="",
                 rewrite_span=rew.raw,
@@ -363,7 +474,6 @@ def compare_facts(
                 matched_src_dates.add(i)
                 matched_rew_dates.add(j)
                 break
-            # same month/day but year added or changed
             if src.year != rew.year:
                 distorted_findings.append(
                     finding(
@@ -382,7 +492,7 @@ def compare_facts(
             continue
         missing_findings.append(
             finding(
-                severity="critical",
+                severity=_date_missing_severity(src),  # type: ignore[arg-type]
                 message=f"пропала дата: «{src.raw}»",
                 source_span=src.raw,
             )
@@ -401,12 +511,10 @@ def compare_facts(
     for name in src_names:
         if name.casefold() in rew_names_cf:
             continue
-        # allow last-token match (Elon Musk → Musk)
         tokens = name.split()
         if tokens and tokens[-1].casefold() in {n.casefold() for n in rew_names} | {
             t.casefold() for n in rew_names for t in n.split()
         }:
-            # last name present somewhere in rewrite names or as token in rewrite text
             if tokens[-1].casefold() in rewrite_text.casefold():
                 continue
         if name.casefold() in rewrite_text.casefold():
