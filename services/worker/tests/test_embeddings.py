@@ -44,6 +44,27 @@ def test_embed_texts_returns_one_vector_per_input(monkeypatch):
     assert embed_texts([]) == []
 
 
+def test_release_embedding_model_clears_lru_cache(monkeypatch):
+    from worker_app.dedup import embeddings as emb
+
+    calls = {"n": 0}
+
+    @emb.lru_cache
+    def _fake():
+        calls["n"] += 1
+        return object()
+
+    monkeypatch.setattr(emb, "_model", _fake)
+    first = emb._model()
+    second = emb._model()
+    assert first is second
+    assert calls["n"] == 1
+    emb.release_embedding_model()
+    third = emb._model()
+    assert third is not first
+    assert calls["n"] == 2
+
+
 def test_real_model_scores_same_event_en_ru_higher_than_unrelated():
     """Slow (loads the real multilingual model, ~seconds on first call)
     on purpose — this is the actual claim the whole feature rests on:

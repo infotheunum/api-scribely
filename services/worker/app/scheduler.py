@@ -45,6 +45,7 @@ def _run_cluster_tick() -> None:
     """Cross-language clustering (ТЗ §4.2) — separate job so slow CPU
     embedding does not block poll/filter/dispatch."""
     from worker_app.dedup.clustering import run_clustering_cycle
+    from worker_app.dedup.embeddings import release_embedding_model
 
     session = new_session()
     try:
@@ -52,6 +53,9 @@ def _run_cluster_tick() -> None:
             stats = run_clustering_cycle(session)
             if stats["attached"] or stats["created"]:
                 logger.info("clustering tick: %s", stats)
+        else:
+            # Outside generation hours (or cluster paused): free torch RSS.
+            release_embedding_model()
     except Exception:
         logger.exception("clustering tick failed unexpectedly")
     finally:

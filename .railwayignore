@@ -1,0 +1,14 @@
+# Keep `railway up` snapshots lean — local tooling must not enter the deploy tarball.
+.tools/
+.venv/
+venv/
+**/__pycache__/
+**/.pytest_cache/
+**/.ruff_cache/
+**/.mypy_cache/
+.git/
+*.pyc
+.env
+.env.*
+six_rewrite_filters_20aec86a.plan.md
+*.plan.md
