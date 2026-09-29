@@ -1,0 +1,87 @@
+{% extends "admin_base.html" %}
+{% block title %}Сводка генерации — Admin{% endblock %}
+{% block admin_content %}
+<p class="note">
+  Воронка за период (часовой пояс редакции Europe/Minsk).
+  <strong>Сгенерировано</strong> — черновики, попавшие в БД.
+  <strong>Отбраковано AI</strong> — quality gate / factual quarantine (статья «говно» до ревью).
+  <strong>Опубликовано / Отклонено редактором</strong> — действия rewriter из аудита.
+</p>
+
+<div class="inline-form" style="margin-bottom:16px;">
+  <a class="btn {{ 'btn-primary' if period == 'today' else 'btn-ghost' }}" href="/ui/admin/generation-stats?period=today">Сегодня</a>
+  <a class="btn {{ 'btn-primary' if period == '7d' else 'btn-ghost' }}" href="/ui/admin/generation-stats?period=7d">7 дней</a>
+  <a class="btn {{ 'btn-primary' if period == '30d' else 'btn-ghost' }}" href="/ui/admin/generation-stats?period=30d">30 дней</a>
+</div>
+
+<div class="card">
+  <h2>Воронка ({{ period }})</h2>
+  <p class="note">{{ stats.period.from }} → {{ stats.period.to }}</p>
+  <table class="admin">
+    <thead>
+      <tr><th>Метрика</th><th>Значение</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Попыток rewrite (черновик + AI-отбраковка)</td><td><strong>{{ stats.funnel.attempted_rewrite }}</strong></td></tr>
+      <tr><td>Сгенерировано черновиков</td><td><strong>{{ stats.funnel.drafts_created }}</strong></td></tr>
+      <tr><td>Отбраковано AI (quality gate)</td><td><strong>{{ stats.funnel.quality_gate_rejected }}</strong></td></tr>
+      <tr><td>Опубликовано редактором</td><td><strong>{{ stats.funnel.editor_published }}</strong></td></tr>
+      <tr><td>Отклонено редактором</td><td><strong>{{ stats.funnel.editor_rejected }}</strong></td></tr>
+      <tr><td>Needs fix (редактор)</td><td>{{ stats.funnel.editor_needs_fix }}</td></tr>
+    </tbody>
+  </table>
+  <p class="note">Суточный лимит сейчас: {{ stats.targets.effective_daily_limit }}; KPI-коридор 90–110.</p>
+</div>
+
+<div class="card">
+  <h2>Очередь сейчас</h2>
+  <table class="admin">
+    <tbody>
+      <tr><td>Ready for review</td><td>{{ stats.queue_now.ready_for_review }}</td></tr>
+      <tr><td>Needs fix</td><td>{{ stats.queue_now.needs_fix }}</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h2>Черновики за период по текущему статусу</h2>
+  <table class="admin">
+    <thead><tr><th>Статус</th><th>Кол-во</th></tr></thead>
+    <tbody>
+      {% for status, n in stats.drafts_by_status.items() %}
+      <tr><td>{{ status }}</td><td>{{ n }}</td></tr>
+      {% else %}
+      <tr><td colspan="2" class="note">Нет черновиков за период</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h2>Карантин за период</h2>
+  <table class="admin">
+    <thead><tr><th>Причина</th><th>Кол-во</th></tr></thead>
+    <tbody>
+      {% for reason, n in stats.quarantine_by_reason.items() %}
+      <tr><td>{{ reason }}</td><td>{{ n }}</td></tr>
+      {% else %}
+      <tr><td colspan="2" class="note">Пусто</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h2>LLM токены (lifetime)</h2>
+  <table class="admin">
+    <tbody>
+      <tr><td>Всего вызовов</td><td>{{ stats.llm_tokens.calls }}</td></tr>
+      <tr><td>Всего токенов</td><td>{{ stats.llm_tokens.total_tokens }}</td></tr>
+      <tr><td>Dedup вызовов</td><td>{{ stats.llm_tokens.dedup_calls }}</td></tr>
+      <tr><td>Dedup токенов</td><td>{{ stats.llm_tokens.dedup_total_tokens }}</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p class="note">REST: <code>GET /admin/pipeline/generation-stats?period=today|7d|30d</code> (JWT admin).</p>
+{% endblock %}

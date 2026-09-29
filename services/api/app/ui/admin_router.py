@@ -17,6 +17,7 @@ from common.generation_hours import (
     request_manual_burst,
     save_generation_hours,
 )
+from common.generation_stats import build_generation_stats
 from common.integration_export_settings import load_export_defaults, save_export_defaults
 from common.llm_providers import get_enabled_providers, set_enabled_providers
 from common.rewrite_output_locales import get_output_locales, set_output_locales
@@ -226,6 +227,38 @@ def update_topic_keywords_ui(
     kw = [k.strip() for k in keywords.split(",") if k.strip()]
     admin_api.update_topic(topic_id, admin_api.TopicPatch(keywords=kw), db=db, user=user)
     return RedirectResponse("/ui/admin/topics", status_code=status.HTTP_303_SEE_OTHER)
+
+
+# ---------------------------------------------------------------------
+# Generation funnel stats
+# ---------------------------------------------------------------------
+
+
+@router.get("/generation-stats", response_class=HTMLResponse)
+def generation_stats_page(
+    request: Request,
+    period: str = Query("today"),
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
+    redirect = _require_admin(user)
+    if redirect:
+        return redirect
+    raw = (period or "today").strip().lower()
+    if raw not in {"today", "7d", "30d"}:
+        raw = "today"
+    stats = build_generation_stats(db, period=raw)
+    return templates.TemplateResponse(
+        request,
+        "admin_generation_stats.html",
+        {
+            "user": user,
+            "active": "admin",
+            "admin_tab": "generation-stats",
+            "period": raw,
+            "stats": stats,
+        },
+    )
 
 
 # ---------------------------------------------------------------------

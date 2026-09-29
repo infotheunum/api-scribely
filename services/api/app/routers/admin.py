@@ -578,6 +578,35 @@ def upsert_rewrite_output_locales(
 
 
 # ---------------------------------------------------------------------
+# Generation funnel stats (Фаза 8 lite)
+# ---------------------------------------------------------------------
+
+
+class GenerationStatsOut(BaseModel):
+    period: dict
+    funnel: dict
+    drafts_by_status: dict[str, int]
+    quarantine_by_reason: dict[str, int]
+    queue_now: dict[str, int]
+    llm_tokens: dict[str, int]
+    targets: dict
+
+
+@router.get("/pipeline/generation-stats", response_model=GenerationStatsOut)
+def get_generation_stats(
+    period: str = "today",
+    db: Session = Depends(get_db),
+) -> GenerationStatsOut:
+    """Funnel: drafts created / quality-gate rejects / editor publish+reject."""
+    from common.generation_stats import build_generation_stats
+
+    raw = period.strip().lower() if period else "today"
+    if raw not in {"today", "7d", "30d"}:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "period must be today|7d|30d")
+    return GenerationStatsOut(**build_generation_stats(db, period=raw))
+
+
+# ---------------------------------------------------------------------
 # LLM enabled providers (article rotation)
 # ---------------------------------------------------------------------
 
