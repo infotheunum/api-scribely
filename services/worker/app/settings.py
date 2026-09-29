@@ -11,3 +11,7 @@ class WorkerSettings(CommonSettings):
     service_name: str = "worker"
     # No "port" field: same reasoning as ApiSettings — Dockerfile CMD
     # binds uvicorn to shell $PORT directly.
+
+    # Preload SentenceTransformer at boot. Default off: torch+MiniLM is the
+    # bulk of Railway RAM cost; load on first clustering tick instead.
+    worker_embed_warmup: bool = False

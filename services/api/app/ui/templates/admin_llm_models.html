@@ -1,7 +1,7 @@
 {% extends "admin_base.html" %}
 {% block title %}Модели ротации — Admin Settings{% endblock %}
 {% block admin_content %}
-<p class="note">OpenRouter free-модели для ротации Rewrite Orchestrator. Не более {{ max_active }} активных одновременно (лимит массива `models` у самого OpenRouter, ТЗ §4.5 п.6).</p>
+<p class="note">Legacy OpenRouter free-модели (в ротацию статей сейчас не входят). Провайдеры Qwen/OpenAI/Anthropic включаются в <a href="/ui/admin/settings">Настройки пайплайна</a>. Не более {{ max_active }} активных model_id одновременно.</p>
 
 <div class="card">
   <h2>Добавить модель</h2>

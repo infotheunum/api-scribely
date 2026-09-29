@@ -578,6 +578,48 @@ def upsert_rewrite_output_locales(
 
 
 # ---------------------------------------------------------------------
+# LLM enabled providers (article rotation)
+# ---------------------------------------------------------------------
+
+
+class LlmEnabledProvidersIn(BaseModel):
+    providers: list[str] = Field(default_factory=lambda: ["openai"])
+
+
+class LlmEnabledProvidersOut(BaseModel):
+    providers: list[str]
+
+
+@router.get("/llm/enabled-providers", response_model=LlmEnabledProvidersOut)
+def get_llm_enabled_providers(db: Session = Depends(get_db)) -> LlmEnabledProvidersOut:
+    from common.llm_providers import get_enabled_providers
+
+    return LlmEnabledProvidersOut(providers=list(get_enabled_providers(db)))
+
+
+@router.put("/llm/enabled-providers", response_model=LlmEnabledProvidersOut)
+def upsert_llm_enabled_providers(
+    body: LlmEnabledProvidersIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("admin")),
+) -> LlmEnabledProvidersOut:
+    from common.llm_providers import get_enabled_providers, set_enabled_providers
+
+    previous = list(get_enabled_providers(db))
+    saved = set_enabled_providers(db, body.providers, updated_by=user.id)
+    db.flush()
+    _audit(
+        db,
+        user,
+        action="admin_update",
+        entity_type="AppSetting",
+        entity_id="llm.enabled_providers",
+        details={"previous": previous, "new": list(saved)},
+    )
+    return LlmEnabledProvidersOut(providers=list(saved))
+
+
+# ---------------------------------------------------------------------
 # Generation working hours
 # ---------------------------------------------------------------------
 

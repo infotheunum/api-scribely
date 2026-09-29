@@ -269,7 +269,7 @@ def rewrite_cluster(
     last_error: Exception | None = None
     retry_note = ""
     previous_draft_json = ""
-    provider_keys = settings.llm_provider_keys()
+    provider_keys = settings.llm_provider_keys(db)
     length_editor_active = False
     active_bodies = " и ".join(
         name

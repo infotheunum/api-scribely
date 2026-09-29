@@ -49,7 +49,7 @@ def confirm_same_event(
     try:
         content, key_alias, model, usage = call_with_rotation(
             db,
-            api_keys=settings.llm_provider_keys(),
+            api_keys=settings.llm_provider_keys(db),
             system_prompt=_SYSTEM_PROMPT,
             user_prompt=user_prompt,
             anthropic_model=settings.anthropic_model,

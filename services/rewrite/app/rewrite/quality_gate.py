@@ -101,7 +101,7 @@ def _translate_sources_best_effort(
     try:
         content, _, _, usage = call_with_rotation(
             db,
-            api_keys=settings.llm_provider_keys(),
+            api_keys=settings.llm_provider_keys(db),
             system_prompt=TRANSLATION_SYSTEM_PROMPT,
             user_prompt=f"ИСХОДНИКИ ДЛЯ ПОЛНОГО ПЕРЕВОДА:\n{sources_text}",
             anthropic_model=settings.anthropic_model,
@@ -132,7 +132,7 @@ def review_rewrite(
     del required_facts_text  # Covered by deterministic filters 1–3.
     content, key_alias, model, usage = call_with_rotation(
         db,
-        api_keys=settings.llm_provider_keys(),
+        api_keys=settings.llm_provider_keys(db),
         system_prompt=SYSTEM_PROMPT,
         user_prompt=(
             f"ОРИГИНАЛЫ:\n{sources_text}\n\nРЕРАЙТ:\n{rewritten_text}"

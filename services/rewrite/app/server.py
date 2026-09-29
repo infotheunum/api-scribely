@@ -7,9 +7,9 @@ from concurrent import futures
 import grpc
 from common.grpc_interceptors import ServerAuthTraceInterceptor
 from common.logging import configure_logging
+from db.app_settings import set_setting
 from grpc_health.v1 import health, health_pb2, health_pb2_grpc
 from rewrite_app.servicer import RewriteServicer
-from db.app_settings import set_setting
 from rewrite_app.settings import RewriteSettings
 from scribely.rewrite.v1 import rewrite_pb2_grpc
 
@@ -44,9 +44,9 @@ def _persist_openrouter_key_count(settings: RewriteSettings) -> None:
     """Expose key count to api integrations /status via AppSetting."""
     from rewrite_app.db import new_session
 
-    count = settings.configured_llm_key_count()
     session = new_session()
     try:
+        count = settings.configured_llm_key_count(session)
         set_setting(session, "openrouter.keys_configured", count)
         session.commit()
         logger.info("LLM provider keys configured: %d", count)
