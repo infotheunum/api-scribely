@@ -68,10 +68,11 @@ VALID_RESULT = {
 @pytest.mark.parametrize(
     ("source_chars", "expected", "hard_min"),
     [
-        (2200, (2000, 3200), 1500),
-        (3000, (2400, 3600), 1500),
-        (5000, (2400, 3600), 1500),
-        (5001, (3000, 4500), 1500),
+        (500, (300, 800), 300),
+        (2200, (800, 1500), 300),
+        (3000, (1500, 2500), 300),
+        (5000, (1500, 2500), 300),
+        (5001, (2500, 4000), 300),
     ],
 )
 def test_body_length_profile_scales_with_source_volume(source_chars, expected, hard_min):
@@ -159,15 +160,15 @@ def test_rewrite_cluster_includes_source_proportional_target(
         flags_text="flags",
     )
 
-    assert "цель 2400–3600" in seen["system_prompt"]
-    assert "hard-min 1500" in seen["system_prompt"]
+    assert "цель 1500–2500" in seen["system_prompt"]
+    assert "hard-min 300" in seen["system_prompt"]
     assert "около 3000 символов" in seen["system_prompt"]
     assert "НЕОТМЕНИМАЯ ПРОВЕРКА ВЕРНОСТИ" in seen["system_prompt"]
     assert "ПУНКТУАЦИЯ" in seen["system_prompt"]
     assert "Никогда не приписывай дате отсутствующий в оригинале год" in seen["system_prompt"]
     assert "биткоин» и «эфир" in seen["system_prompt"]
     assert "«2 000»,\n  «10 000»" in seen["system_prompt"]
-    assert "цель 2400-3600" in seen["user_prompt"]
+    assert "цель 1500-2500" in seen["user_prompt"]
 
 
 @pytest.fixture
@@ -307,7 +308,11 @@ def test_rewrite_cluster_rejects_too_short_body(clean_db, prompt_version, monkey
 def test_rewrite_cluster_edits_short_draft_with_previous_json(
     clean_db, prompt_version, monkeypatch
 ):
+    from common.llm_providers import set_enabled_providers
+
     _enable_both_locales(clean_db)
+    set_enabled_providers(clean_db, ["openai", "anthropic"])
+    clean_db.commit()
     short = dict(
         VALID_RESULT,
         body_ru="Короткий подтвержденный текст.\n\nВторой абзац.\n\nТретий абзац.",
