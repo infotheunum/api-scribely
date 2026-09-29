@@ -21,8 +21,7 @@ def test_filter_missing_average_price():
 
 def test_filter_ignores_tweet_or_article_ids_in_urls():
     source = (
-        "Пост на X: https://x.com/user/status/1970123456789012345 "
-        "сообщает, что фонд купил 100 BTC."
+        "Пост на X: https://x.com/user/status/1970123456789012345 сообщает, что фонд купил 100 BTC."
     )
     rewrite = "Фонд купил 100 BTC, сообщил источник в соцсети."
     result = compare_facts(source_text=source, rewrite_text=rewrite)
@@ -47,9 +46,7 @@ def test_filter_month_only_missing_is_warning():
     source = "Сделка обсуждалась в September на конференции."
     rewrite = "Сделка обсуждалась на конференции."
     result = compare_facts(source_text=source, rewrite_text=rewrite)
-    month_missing = [
-        f for f in result["missing"]["findings"] if "дата" in f["message"]
-    ]
+    month_missing = [f for f in result["missing"]["findings"] if "дата" in f["message"]]
     assert month_missing
     assert all(f["severity"] == "warning" for f in month_missing)
 
@@ -65,10 +62,7 @@ def test_filter_title_case_headline_noise_not_invented_name():
     ]
     noise = ("Why Did", "Token Sale", "Spins Out", "Months After")
     # Title-case headline fragments must not look like person/org inventions.
-    assert not any(
-        any(tok in f.get("rewrite_span", "") for tok in noise)
-        for f in invented_names
-    )
+    assert not any(any(tok in f.get("rewrite_span", "") for tok in noise) for f in invented_names)
 
 
 def test_filter_missing_only_checks_required_facts_not_full_cluster():
@@ -116,9 +110,32 @@ def test_filter_chart_jargon_not_missing_name():
     source = "Traders watched an Accumulation Pattern near support."
     rewrite = "Traders watched buying near support."
     result = compare_facts(source_text=source, rewrite_text=rewrite)
-    assert not any(
-        "Accumulation Pattern" in f["message"] for f in result["missing"]["findings"]
+    assert not any("Accumulation Pattern" in f["message"] for f in result["missing"]["findings"])
+
+
+def test_filter_fuzzy_translit_name_not_missing():
+    """Cathie Wood ↔ Кэти Вуд should count as covered without exact string match."""
+    source = "Cathie Wood said tokenization opens a path for investors."
+    rewrite = "Кэти Вуд заявила, что токенизация открывает путь для инвесторов."
+    result = compare_facts(source_text=source, rewrite_text=rewrite)
+    assert not any("Cathie Wood" in f["message"] for f in result["missing"]["findings"])
+    assert not any("Кэти Вуд" in f.get("rewrite_span", "") for f in result["invented"]["findings"])
+
+
+def test_filter_fluff_rewrite_low_entity_coverage():
+    """Topic-only prose without source figures/names must fail coverage floor."""
+    source = (
+        "Uniswap processed $82.8 million in tokenized stocks, holding a 73% share "
+        "on Robinhood Chain. Sam Altman spoke at DevDay about Spaces."
     )
+    rewrite = (
+        "Токенизация продолжает трансформировать традиционные финансовые системы, "
+        "открывая новые возможности для участников рынка и меняя инфраструктуру."
+    )
+    result = compare_facts(source_text=source, rewrite_text=rewrite)
+    assert result["missing"]["status"] == "critical"
+    assert result["missing"]["entity_coverage_pct"] < 35
+    assert any(f.get("category") == "entity_coverage" for f in result["missing"]["findings"])
 
 
 def test_filter_invented_translated_name_is_warning_not_blocker():
@@ -162,26 +179,25 @@ def test_filter_distorted_year_added_to_month():
 
 def test_filter_invented_quote():
     source = "Аналитик отметил рост объёмов торгов."
-    rewrite = 'Аналитик заявил: «Рынок обречён на крах в ближайшие дни».'
+    rewrite = "Аналитик заявил: «Рынок обречён на крах в ближайшие дни»."
     result = check_quotes(source_text=source, rewrite_text=rewrite)
     assert result["status"] == "critical"
     assert any("придумана" in f["message"] for f in result["findings"])
 
 
 def test_filter_distorted_quote_partial_rewrite():
-    source = 'Директор сказал: «Мы увеличим инвестиции в инфраструктуру на 40 процентов».'
-    rewrite = 'Директор сказал: «Мы увеличим расходы на маркетинг в следующем квартале».'
+    source = "Директор сказал: «Мы увеличим инвестиции в инфраструктуру на 40 процентов»."
+    rewrite = "Директор сказал: «Мы увеличим расходы на маркетинг в следующем квартале»."
     result = check_quotes(source_text=source, rewrite_text=rewrite)
     assert result["status"] == "critical"
     assert any(
-        "искажена" in f["message"] or "придумана" in f["message"]
-        for f in result["findings"]
+        "искажена" in f["message"] or "придумана" in f["message"] for f in result["findings"]
     )
 
 
 def test_filter_quote_missing_author():
-    source = '«Мы готовы к запуску», — сказал Иванов.'
-    rewrite = '«Мы готовы к запуску».'
+    source = "«Мы готовы к запуску», — сказал Иванов."
+    rewrite = "«Мы готовы к запуску»."
     result = check_quotes(source_text=source, rewrite_text=rewrite)
     assert any("нет автора" in f["message"] for f in result["findings"])
 
@@ -194,7 +210,7 @@ def test_banned_phrase_outside_quotes():
 
 
 def test_banned_phrase_ignored_inside_quotes():
-    rewrite = 'Спикер сказал: «Таким образом мы победим».'
+    rewrite = "Спикер сказал: «Таким образом мы победим»."
     result = find_banned_phrases(rewrite)
     assert result["findings"] == []
 

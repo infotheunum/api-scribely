@@ -6,7 +6,16 @@ import math
 import re
 from dataclasses import dataclass
 
+from rapidfuzz import fuzz
 from rewrite_app.rewrite.review_report import filter_result, finding
+
+# Fuzzy name match (same-script + RU↔EN after fold). Editorial translit noise.
+_NAME_FUZZY_FULL = 84
+_NAME_FUZZY_TOKEN = 80
+_NAME_FUZZY_SHORT = 72  # Wood↔Vud, Su↔Su
+# Fluff rewrite: too few source anchors survive → critical even if some are warnings.
+_COVERAGE_FLOOR_PCT = 35
+_COVERAGE_MIN_ANCHORS = 3
 
 _CURRENCY = r"(?:\$|€|£|¥|USD|EUR|RUB|USDT)"
 _SUFFIX = (
@@ -234,9 +243,8 @@ def _parse_number(raw: str) -> _NumberHit | None:
     # Match both "60k" / "$80k" (attached) and "60 k" / "60 thousand".
     if re.search(r"млрд|billion|(?<![a-z])bn\b", lower):
         multiplier = 1_000_000_000
-    elif (
-        re.search(r"млн|million|(?<![a-z])m\b", lower)
-        and not re.search(r"\bbtc\b|\beth\b", lower)
+    elif re.search(r"млн|million|(?<![a-z])m\b", lower) and not re.search(
+        r"\bbtc\b|\beth\b", lower
     ):
         multiplier = 1_000_000
     elif re.search(r"тыс|thousand|(?<![a-z])k\b", lower):
@@ -360,6 +368,161 @@ def extract_names(text: str, facts_text: str = "") -> list[str]:
     return names
 
 
+# Digraphs first (RU→Latin phonetic fold for cross-script name match).
+_CYR_DIGRAPHS: tuple[tuple[str, str], ...] = (
+    ("кс", "x"),
+    ("дж", "j"),
+    ("ж", "zh"),
+    ("х", "kh"),
+    ("ц", "ts"),
+    ("ч", "ch"),
+    ("ш", "sh"),
+    ("щ", "sch"),
+    ("ю", "yu"),
+    ("я", "ya"),
+    ("ё", "e"),
+    ("й", "y"),
+    ("ъ", ""),
+    ("ь", ""),
+)
+_CYR_SINGLE = str.maketrans(
+    {
+        "а": "a",
+        "б": "b",
+        "в": "v",
+        "г": "g",
+        "д": "d",
+        "е": "e",
+        "з": "z",
+        "и": "i",
+        "к": "k",
+        "л": "l",
+        "м": "m",
+        "н": "n",
+        "о": "o",
+        "п": "p",
+        "р": "r",
+        "с": "s",
+        "т": "t",
+        "у": "u",
+        "ф": "f",
+        "ы": "y",
+        "э": "e",
+    }
+)
+
+
+def _fold_name(value: str) -> str:
+    """Normalize a person/org name for fuzzy compare (RU→Latin, punctuation out)."""
+    text = (value or "").casefold().strip()
+    for src, dst in _CYR_DIGRAPHS:
+        text = text.replace(src, dst)
+    text = text.translate(_CYR_SINGLE)
+    # EN phonetic approximations toward RU news transliteration.
+    text = (
+        text.replace("kh", "h")
+        .replace("th", "t")
+        .replace("ph", "f")
+        .replace("oo", "u")
+        .replace("ee", "i")
+        .replace("ie", "i")
+        .replace("ck", "k")
+    )
+    text = re.sub(r"\bc", "k", text)
+    text = re.sub(r"\bw", "v", text)
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _name_tokens(folded: str) -> list[str]:
+    return [t for t in folded.split() if len(t) >= 2]
+
+
+def _token_fuzzy_ok(a: str, b: str) -> bool:
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    threshold = _NAME_FUZZY_SHORT if min(len(a), len(b)) <= 4 else _NAME_FUZZY_TOKEN
+    return fuzz.ratio(a, b) >= threshold
+
+
+def names_fuzzy_match(left: str, right: str) -> bool:
+    """True when names are the same person/org under translit / typos."""
+    if not left or not right:
+        return False
+    if left.casefold() == right.casefold():
+        return True
+    a = _fold_name(left)
+    b = _fold_name(right)
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    if fuzz.token_set_ratio(a, b) >= _NAME_FUZZY_FULL:
+        return True
+    a_tokens = _name_tokens(a)
+    b_tokens = _name_tokens(b)
+    if not a_tokens or not b_tokens:
+        return False
+    # Surname is the durable signal in EN↔RU news (Wood↔Вуд, Altman↔Альтман).
+    if _token_fuzzy_ok(a_tokens[-1], b_tokens[-1]) and len(a_tokens[-1]) >= 3:
+        return True
+    for ta in a_tokens:
+        for tb in b_tokens:
+            if len(ta) >= 4 and len(tb) >= 4 and _token_fuzzy_ok(ta, tb):
+                return True
+    return False
+
+
+def name_covered_in_rewrite(name: str, rewrite_names: list[str], rewrite_text: str) -> bool:
+    """Missing-name check with exact, in-text, and fuzzy translit match."""
+    if not name:
+        return True
+    needle = name.casefold()
+    if needle in rewrite_text.casefold():
+        return True
+    for other in rewrite_names:
+        if names_fuzzy_match(name, other):
+            return True
+    tokens = name.split()
+    if tokens:
+        last = tokens[-1].casefold()
+        if last in rewrite_text.casefold():
+            return True
+        folded_last = _fold_name(tokens[-1])
+        for other in rewrite_names:
+            other_tokens = _name_tokens(_fold_name(other))
+            if other_tokens and _token_fuzzy_ok(folded_last, other_tokens[-1]):
+                return True
+        # Folded last name may appear as Latin in a RU rewrite body.
+        if folded_last and folded_last in _fold_name(rewrite_text):
+            return True
+    return False
+
+
+def name_supported_by_source(name: str, source_names: list[str], source_text: str) -> bool:
+    """Invented-name allow-list with fuzzy match against source corpus."""
+    if not name:
+        return True
+    if name.casefold() in source_text.casefold():
+        return True
+    for other in source_names:
+        if names_fuzzy_match(name, other):
+            return True
+    tokens = name.split()
+    if tokens and tokens[-1].casefold() in source_text.casefold():
+        return True
+    folded_last = _fold_name(tokens[-1]) if tokens else ""
+    if folded_last and folded_last in _fold_name(source_text):
+        return True
+    for other in source_names:
+        other_tokens = _name_tokens(_fold_name(other))
+        if other_tokens and folded_last and _token_fuzzy_ok(folded_last, other_tokens[-1]):
+            return True
+    return False
+
+
 def _number_severity(hit: _NumberHit) -> str:
     """Only money/crypto/percent block publication when missing."""
     if hit.kind in {"money", "crypto", "percent"}:
@@ -437,8 +600,6 @@ def compare_facts(
     rew_dates = extract_dates(rewrite_text)
     src_names = extract_names(source_text, facts_text)
     rew_names = extract_names(rewrite_text, "")
-    rew_names_cf = {n.casefold() for n in rew_names}
-    src_names_cf = {n.casefold() for n in src_names}
 
     missing_findings: list[dict] = []
     invented_findings: list[dict] = []
@@ -567,16 +728,10 @@ def compare_facts(
         )
 
     # --- names: missing against required; invented against full sources ---
+    matched_req_names = 0
     for name in req_names:
-        if name.casefold() in rew_names_cf:
-            continue
-        tokens = name.split()
-        if tokens and tokens[-1].casefold() in {n.casefold() for n in rew_names} | {
-            t.casefold() for n in rew_names for t in n.split()
-        }:
-            if tokens[-1].casefold() in rewrite_text.casefold():
-                continue
-        if name.casefold() in rewrite_text.casefold():
+        if name_covered_in_rewrite(name, rew_names, rewrite_text):
+            matched_req_names += 1
             continue
         missing_findings.append(
             finding(
@@ -587,12 +742,7 @@ def compare_facts(
         )
 
     for name in rew_names:
-        if name.casefold() in src_names_cf:
-            continue
-        tokens = name.split()
-        if name.casefold() in source_text.casefold():
-            continue
-        if tokens and tokens[-1].casefold() in source_text.casefold():
+        if name_supported_by_source(name, src_names, source_text):
             continue
         # Bilingual rewrites often transliterate EN orgs into RU (and vice versa);
         # treat unmatched names as editorial warnings, not dead-letter blockers.
@@ -604,9 +754,36 @@ def compare_facts(
             )
         )
 
+    # Anchor coverage: money/crypto/percent + required names. Catches fluff
+    # rewrites that drop almost all concrete facts while staying on-topic.
+    anchor_numbers = [n for n in req_numbers if n.kind in {"money", "crypto", "percent"}]
+    matched_anchor_numbers = 0
+    for i, src in enumerate(req_numbers):
+        if src.kind not in {"money", "crypto", "percent"}:
+            continue
+        if i in matched_req_number_idxs:
+            matched_anchor_numbers += 1
+    anchor_total = len(anchor_numbers) + len(req_names)
+    anchor_matched = matched_anchor_numbers + matched_req_names
+    coverage_pct = round(100 * anchor_matched / anchor_total) if anchor_total else 100
+    if anchor_total >= _COVERAGE_MIN_ANCHORS and coverage_pct < _COVERAGE_FLOOR_PCT:
+        missing_findings.append(
+            finding(
+                severity="critical",
+                message=(
+                    f"низкое покрытие фактов оригинала: {coverage_pct}% "
+                    f"({anchor_matched}/{anchor_total} имён и ключевых цифр)"
+                ),
+                category="entity_coverage",
+            )
+        )
+
     coverage_base = len(req_numbers) + len(req_dates) + len(req_names)
     missing = filter_result(missing_findings)
     missing["source_entity_count"] = coverage_base
+    missing["entity_coverage_pct"] = coverage_pct
+    missing["entity_coverage_matched"] = anchor_matched
+    missing["entity_coverage_total"] = anchor_total
     return {
         "missing": missing,
         "invented": filter_result(invented_findings),
