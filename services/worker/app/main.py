@@ -39,11 +39,16 @@ def _require_internal_token(x_internal_service_token: str = Header(...)) -> None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.rewrite_channel = build_rewrite_channel(settings)
-    embed_text("warmup")
+    # Skip by default — keeps torch unloaded overnight (generation hours).
+    if settings.worker_embed_warmup:
+        embed_text("warmup")
     app.state.scheduler = build_scheduler()
     app.state.scheduler.start()
     yield
     app.state.scheduler.shutdown(wait=False)
+    from worker_app.dedup.embeddings import release_embedding_model
+
+    release_embedding_model()
     app.state.rewrite_channel.close()
 
 

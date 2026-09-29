@@ -29,7 +29,14 @@ RUN PYTHON_BIN=/app/.venv/bin/python bash scripts/gen_proto.sh
 # ~1min download on every cold start).
 RUN python -c "from worker_app.dedup.embeddings import _model; _model()"
 
-ENV PYTHONUNBUFFERED=1
+ENV PYTHONUNBUFFERED=1 \
+    OMP_NUM_THREADS=1 \
+    MKL_NUM_THREADS=1 \
+    OPENBLAS_NUM_THREADS=1 \
+    NUMEXPR_NUM_THREADS=1 \
+    TOKENIZERS_PARALLELISM=false \
+    WORKER_TORCH_NUM_THREADS=1 \
+    WORKER_EMBED_WARMUP=0
 EXPOSE 8001
 
 CMD ["sh", "-c", "uvicorn worker_app.main:app --host 0.0.0.0 --port ${PORT:-8001}"]
