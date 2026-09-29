@@ -104,6 +104,36 @@ def test_filter_missing_still_blocks_when_required_money_absent():
     assert any("79" in f["message"] for f in result["missing"]["findings"])
 
 
+def test_filter_60k_equals_60000_not_distortion():
+    source = "Bitcoin traded between $60k and $80k."
+    rewrite = "Bitcoin traded between $60 000 and $80 000."
+    result = compare_facts(source_text=source, rewrite_text=rewrite)
+    assert result["distorted"]["findings"] == []
+    assert result["missing"]["status"] != "critical"
+
+
+def test_filter_chart_jargon_not_missing_name():
+    source = "Traders watched an Accumulation Pattern near support."
+    rewrite = "Traders watched buying near support."
+    result = compare_facts(source_text=source, rewrite_text=rewrite)
+    assert not any(
+        "Accumulation Pattern" in f["message"] for f in result["missing"]["findings"]
+    )
+
+
+def test_filter_invented_translated_name_is_warning_not_blocker():
+    source = "Rect Capital announced a sale."
+    rewrite = "Ректа Капитала объявила о продаже."
+    result = compare_facts(source_text=source, rewrite_text=rewrite)
+    critical = [
+        f
+        for f in result["invented"]["findings"]
+        if f["severity"] == "critical" and "Ректа" in f.get("rewrite_span", "")
+    ]
+    assert critical == []
+    assert result["invented"]["status"] != "critical"
+
+
 def test_filter_invented_share_sale_amount():
     source = "Компания объявила о новой стратегии."
     rewrite = "Компания провела продажу акций на $80,1 млн."
