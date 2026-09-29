@@ -246,7 +246,8 @@ class RewriteServicer(rewrite_pb2_grpc.RewriteServiceServicer):
                 sponsor_flag=result.sponsor_flag,
                 press_release_flag=result.press_release_flag,
                 disclaimer_flag=result.disclaimer_flag,
-                fact_conflict=request.context.fact_conflict,
+                fact_conflict=request.context.fact_conflict
+                or int((review_report.get("summary") or {}).get("critical_count") or 0) > 0,
                 suggested_category_slug=result.suggested_category_slug,
                 tags=[rewrite_pb2.TagCandidate(slug=t.slug, name=t.name) for t in result.tags],
                 seo_en=rewrite_pb2.SeoPack(**result.seo_en.model_dump()),

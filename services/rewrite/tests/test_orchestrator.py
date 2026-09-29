@@ -185,6 +185,47 @@ def _enable_both_locales(clean_db) -> None:
     clean_db.commit()
 
 
+def test_rewrite_cluster_advisory_review_without_hard_gate(
+    clean_db, prompt_version, monkeypatch
+):
+    """With quality_gate.enabled=false still attach filters/summary, never dead-letter."""
+    from db.app_settings import set_setting
+
+    _enable_both_locales(clean_db)
+    set_setting(clean_db, "quality_gate.enabled", False)
+    clean_db.commit()
+
+    monkeypatch.setattr(
+        "rewrite_app.rewrite.orchestrator.call_with_rotation",
+        lambda *a, **kw: (json.dumps(VALID_RESULT), "openai", "gpt-4o-mini", _USAGE),
+    )
+    monkeypatch.setattr(
+        "rewrite_app.rewrite.orchestrator.site_category_prompt_block",
+        lambda db: "",
+    )
+    monkeypatch.setattr(
+        "common.site_categories.resolve_site_category_slug",
+        lambda slug, **kw: slug or "world",
+    )
+
+    _result, _key, _model, _usage, report = rewrite_cluster(
+        clean_db,
+        RewriteSettings(),
+        prompt_version,
+        sources_text=(
+            "Fund bought 950 BTC at $79 670. CEO Jane Smith said the deal closed."
+        ),
+        facts_text="- [number] $79 670\n- [number] 950 BTC\n- [who] Jane Smith",
+        flags_text="flags",
+    )
+
+    assert report.get("quality_gate_mode") == "advisory"
+    assert "summary" in report
+    assert "filters" in report
+    # Missing money figure is critical in filters but must not raise in advisory.
+    assert report["summary"]["verdict"] in {"blocked", "needs_attention", "publishable"}
+
+
 def test_rewrite_cluster_parses_valid_response(clean_db, prompt_version, monkeypatch):
     _enable_both_locales(clean_db)
     seen: dict = {}
