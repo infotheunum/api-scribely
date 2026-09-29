@@ -6,13 +6,13 @@ aspiration band are accepted (editor can trim). Prompt still aims at the
 target band.
 """
 
-# Technical floor only. Editorial length follows source density; a sparse
-# title/excerpt must not be padded with invented prose.
-BODY_MIN_CHARS = 300
+# Hard floor: shorter bodies are regenerated. Aim above this in prompts so
+# free models reliably clear the gate without inventing facts.
+BODY_MIN_CHARS = 1500
 
 # Aspiration in prompts (models aim here; not a second hard gate).
-BODY_TARGET_MIN = 800
-BODY_TARGET_MAX = 2500
+BODY_TARGET_MIN = 2500
+BODY_TARGET_MAX = 3000
 
 # Soft upper guidance in prompts only — over-length is NOT rejected.
 BODY_SOFT_MAX_CHARS = 4000
