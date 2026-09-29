@@ -22,7 +22,7 @@ def test_confirm_same_event_uses_conservative_json_decision(monkeypatch):
     same_event, key_alias, model, usage = confirm_same_event(
         None,
         SimpleNamespace(
-            llm_provider_keys=lambda: [],
+            llm_provider_keys=lambda db=None: [],
             anthropic_model="anthropic",
             openai_model="openai",
             qwen_model="qwen",
