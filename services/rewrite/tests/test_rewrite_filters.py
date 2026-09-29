@@ -123,3 +123,5 @@ def test_run_rewrite_review_merges_deterministic_and_semantic(clean_db, monkeypa
     # Missing money figure is critical → gate fails.
     assert approved is False
     assert issues
+    # Do not spend semantic LLM tokens when filters 1–5 already block.
+    assert report["filters"]["semantic"].get("status") == "skipped"

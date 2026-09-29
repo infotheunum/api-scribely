@@ -335,6 +335,29 @@ def test_admin_ui_llm_providers(client, admin_user, clean_db):
     assert "LLM-провайдеры" in page.text
 
 
+def test_admin_ui_dedup_llm_settings(client, admin_user, clean_db):
+    headers = _auth_headers(client, admin_user)
+    client.post(
+        "/ui/admin/settings/dedup-llm",
+        data={
+            "llm_confirm_enabled": "1",
+            "confirmation_threshold": "0.85",
+            "max_confirmation_candidates": "2",
+        },
+        headers=headers,
+        follow_redirects=False,
+    )
+
+    from db.models import AppSetting
+
+    assert clean_db.get(AppSetting, "dedup.llm_confirm_enabled").value is True
+    assert clean_db.get(AppSetting, "dedup.confirmation_threshold").value == 0.85
+    assert clean_db.get(AppSetting, "dedup.max_confirmation_candidates").value == 2
+
+    page = client.get("/ui/admin/settings", headers=headers)
+    assert "Дедуп: LLM-confirm" in page.text
+
+
 def test_admin_ui_prompt_versions_create_and_activate(client, admin_user, clean_db):
     headers = _auth_headers(client, admin_user)
     resp = client.post(

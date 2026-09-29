@@ -64,6 +64,10 @@ def _raw_item(clean_db, source, title, embedding=None, **overrides) -> RawItem:
 
 
 def test_two_similar_items_join_one_cluster_then_third_starts_new(clean_db, monkeypatch):
+    from worker_app.dedup.clustering import LLM_CONFIRM_ENABLED_KEY
+
+    set_setting(clean_db, LLM_CONFIRM_ENABLED_KEY, True)
+    clean_db.commit()
     source = _source(clean_db)
     embeddings_by_title = {
         "en-article": TOPIC_A,
@@ -262,7 +266,8 @@ def test_rejected_borderline_match_creates_new_cluster(clean_db):
     assert incoming.cluster_id == result.id
 
 
-def test_confirmation_checks_next_candidate_after_rejection(clean_db):
+def test_confirmation_checks_only_top_candidate(clean_db):
+    """MAX_CONFIRMATION_CANDIDATES=1 — after reject, start a new cluster."""
     source = _source(clean_db)
     first = NewsCluster(embedding=TOPIC_A_VARIANT, trace_id="first")
     second = NewsCluster(embedding=TOPIC_A_SECOND_VARIANT, trace_id="second")
@@ -275,13 +280,34 @@ def test_confirmation_checks_next_candidate_after_rejection(clean_db):
         clean_db,
         incoming,
         candidate_clusters(clean_db),
-        confirm_duplicate=lambda _, candidate: calls.append(candidate.id)
-        or candidate.id == second.id,
+        confirm_duplicate=lambda _, candidate: calls.append(candidate.id) or False,
     )
 
     assert result is not None
-    assert result.id == second.id
-    assert calls == [first.id, second.id]
+    assert result.id not in {first.id, second.id}
+    assert calls == [first.id]
+
+
+def test_llm_confirm_disabled_skips_borderline_llm(clean_db, monkeypatch):
+    from worker_app.dedup.clustering import LLM_CONFIRM_ENABLED_KEY
+
+    set_setting(clean_db, LLM_CONFIRM_ENABLED_KEY, False)
+    clean_db.commit()
+    source = _source(clean_db)
+    cluster = NewsCluster(embedding=TOPIC_A_VARIANT, trace_id="t")
+    clean_db.add(cluster)
+    clean_db.commit()
+    incoming = _raw_item(clean_db, source, "possible-duplicate", embedding=TOPIC_A)
+
+    def _boom(*_a, **_k):
+        raise AssertionError("LLM confirm must not run when disabled")
+
+    monkeypatch.setattr("worker_app.dedup.clustering.confirm_duplicate_with_llm", _boom)
+
+    result = cluster_raw_item(clean_db, incoming, candidate_clusters(clean_db))
+    assert result is not None
+    assert result.id != cluster.id
+    assert incoming.cluster_id == result.id
 
 
 def test_confirmation_outage_defers_ambiguous_item(clean_db):
