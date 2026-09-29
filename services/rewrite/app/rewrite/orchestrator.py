@@ -37,35 +37,51 @@ logger = logging.getLogger(__name__)
 # One retry is enough once hard-min matches typical first-pass length.
 MAX_ATTEMPTS = 2
 QUALITY_REQUIRED_FACT_LIMIT = 12
+QUALITY_REQUIRED_NUMBER_LIMIT = 3
 
 
 def _quality_required_facts(facts_text: str) -> str:
     """Choose a reviewable critical-fact set without hiding the full registry.
 
     Enrichment intentionally extracts every number and date. Requiring a critic
-    to emit a JSON verdict for every item made the response truncate and
-    stopped the whole dispatch queue. Twelve facts still fit the reviewer
-    response budget while covering distinct source blocks beyond just the
-    headline, actor, date and first number.
+    (or deterministic missing-check) to keep every figure from a multi-article
+    cluster made nearly every rewrite dead-letter. Cap total facts and how many
+    ``number`` rows enter the must-keep set.
     """
     lines = [line for line in facts_text.splitlines() if line.lstrip().startswith("- [")]
     if len(lines) <= QUALITY_REQUIRED_FACT_LIMIT:
-        return facts_text
+        # Still cap numbers even on short registries.
+        selected: list[str] = []
+        numbers = 0
+        for line in lines:
+            if line.lstrip().startswith("- [number]"):
+                if numbers >= QUALITY_REQUIRED_NUMBER_LIMIT:
+                    continue
+                numbers += 1
+            selected.append(line)
+        return "\n".join(selected) if selected else facts_text
 
-    selected: list[str] = []
-    # A four-item response is reliable for the configured reviewer and covers
-    # the event, its principal actor, timing and its most material figure.
+    selected = []
+    numbers = 0
+    # Cover the event, principal actor, timing and first material figure first.
     for kind in ("essence", "who", "when", "number", "what"):
         marker = f"- [{kind}]"
         match = next((line for line in lines if line.lstrip().startswith(marker)), None)
         if match and match not in selected:
+            if kind == "number":
+                numbers += 1
             selected.append(match)
 
     for line in lines:
         if len(selected) >= QUALITY_REQUIRED_FACT_LIMIT:
             break
-        if line not in selected:
-            selected.append(line)
+        if line in selected:
+            continue
+        if line.lstrip().startswith("- [number]"):
+            if numbers >= QUALITY_REQUIRED_NUMBER_LIMIT:
+                continue
+            numbers += 1
+        selected.append(line)
     return "\n".join(selected[:QUALITY_REQUIRED_FACT_LIMIT])
 
 

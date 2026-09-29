@@ -391,8 +391,21 @@ def compare_facts(
     source_text: str,
     rewrite_text: str,
     facts_text: str = "",
+    required_text: str | None = None,
 ) -> dict[str, dict]:
-    """Run filters 1–3 and return filter result dicts plus coverage metadata."""
+    """Run filters 1–3 and return filter result dicts plus coverage metadata.
+
+    ``required_text`` (enrichment critical subset) is the must-keep set for
+    missing/distorted checks. Full ``source_text`` remains the allow-list for
+    invented checks so a long multi-article cluster does not require every
+    figure from every wire story in a ~2k rewrite.
+    """
+    required_corpus = (required_text or "").strip() or source_text
+    # Missing / distorted: only the reviewable critical set.
+    req_numbers = extract_numbers(required_corpus)
+    req_dates = extract_dates(required_corpus)
+    req_names = extract_names(required_corpus, facts_text)
+    # Invented: anything in the rewrite must appear somewhere in the sources.
     src_numbers = extract_numbers(source_text)
     rew_numbers = extract_numbers(rewrite_text)
     src_dates = extract_dates(source_text)
@@ -406,23 +419,24 @@ def compare_facts(
     invented_findings: list[dict] = []
     distorted_findings: list[dict] = []
 
-    matched_src_number_idxs: set[int] = set()
-    matched_rew_number_idxs: set[int] = set()
+    # --- numbers: missing/distorted against required set ---
+    matched_req_number_idxs: set[int] = set()
+    matched_rew_for_req: set[int] = set()
 
-    for i, src in enumerate(src_numbers):
+    for i, src in enumerate(req_numbers):
         for j, rew in enumerate(rew_numbers):
-            if j in matched_rew_number_idxs:
+            if j in matched_rew_for_req:
                 continue
             if abs(src.value - rew.value) <= max(1e-9, src.value * 1e-9):
-                matched_src_number_idxs.add(i)
-                matched_rew_number_idxs.add(j)
+                matched_req_number_idxs.add(i)
+                matched_rew_for_req.add(j)
                 break
 
-    for i, src in enumerate(src_numbers):
-        if i in matched_src_number_idxs:
+    for i, src in enumerate(req_numbers):
+        if i in matched_req_number_idxs:
             continue
         for j, rew in enumerate(rew_numbers):
-            if j in matched_rew_number_idxs:
+            if j in matched_rew_for_req:
                 continue
             if _is_magnitude_distortion(src.value, rew.value):
                 distorted_findings.append(
@@ -433,12 +447,12 @@ def compare_facts(
                         rewrite_span=rew.raw,
                     )
                 )
-                matched_src_number_idxs.add(i)
-                matched_rew_number_idxs.add(j)
+                matched_req_number_idxs.add(i)
+                matched_rew_for_req.add(j)
                 break
 
-    for i, src in enumerate(src_numbers):
-        if i in matched_src_number_idxs:
+    for i, src in enumerate(req_numbers):
+        if i in matched_req_number_idxs:
             continue
         missing_findings.append(
             finding(
@@ -449,8 +463,19 @@ def compare_facts(
             )
         )
 
+    # Invented numbers: must appear in the full source corpus, not only required.
+    matched_rew_in_sources: set[int] = set()
     for j, rew in enumerate(rew_numbers):
-        if j in matched_rew_number_idxs:
+        for src in src_numbers:
+            if abs(src.value - rew.value) <= max(1e-9, rew.value * 1e-9):
+                matched_rew_in_sources.add(j)
+                break
+            if _is_magnitude_distortion(src.value, rew.value):
+                # Distortion vs a non-required source figure is still invented/wrong.
+                matched_rew_in_sources.add(j)
+                break
+    for j, rew in enumerate(rew_numbers):
+        if j in matched_rew_in_sources:
             continue
         sev = "critical" if rew.kind in {"money", "crypto", "percent"} else "warning"
         invented_findings.append(
@@ -462,17 +487,18 @@ def compare_facts(
             )
         )
 
-    matched_src_dates: set[int] = set()
-    matched_rew_dates: set[int] = set()
-    for i, src in enumerate(src_dates):
+    # --- dates: missing/distorted against required set ---
+    matched_req_dates: set[int] = set()
+    matched_rew_dates_for_req: set[int] = set()
+    for i, src in enumerate(req_dates):
         for j, rew in enumerate(rew_dates):
-            if j in matched_rew_dates:
+            if j in matched_rew_dates_for_req:
                 continue
             if not _date_close(src, rew):
                 continue
             if _date_exact(src, rew):
-                matched_src_dates.add(i)
-                matched_rew_dates.add(j)
+                matched_req_dates.add(i)
+                matched_rew_dates_for_req.add(j)
                 break
             if src.year != rew.year:
                 distorted_findings.append(
@@ -483,12 +509,12 @@ def compare_facts(
                         rewrite_span=rew.raw,
                     )
                 )
-                matched_src_dates.add(i)
-                matched_rew_dates.add(j)
+                matched_req_dates.add(i)
+                matched_rew_dates_for_req.add(j)
                 break
 
-    for i, src in enumerate(src_dates):
-        if i in matched_src_dates:
+    for i, src in enumerate(req_dates):
+        if i in matched_req_dates:
             continue
         missing_findings.append(
             finding(
@@ -497,8 +523,15 @@ def compare_facts(
                 source_span=src.raw,
             )
         )
+
+    matched_rew_dates_in_sources: set[int] = set()
     for j, rew in enumerate(rew_dates):
-        if j in matched_rew_dates:
+        for src in src_dates:
+            if _date_close(src, rew):
+                matched_rew_dates_in_sources.add(j)
+                break
+    for j, rew in enumerate(rew_dates):
+        if j in matched_rew_dates_in_sources:
             continue
         invented_findings.append(
             finding(
@@ -508,7 +541,8 @@ def compare_facts(
             )
         )
 
-    for name in src_names:
+    # --- names: missing against required; invented against full sources ---
+    for name in req_names:
         if name.casefold() in rew_names_cf:
             continue
         tokens = name.split()
@@ -543,7 +577,7 @@ def compare_facts(
             )
         )
 
-    coverage_base = len(src_numbers) + len(src_dates) + len(src_names)
+    coverage_base = len(req_numbers) + len(req_dates) + len(req_names)
     missing = filter_result(missing_findings)
     missing["source_entity_count"] = coverage_base
     return {
