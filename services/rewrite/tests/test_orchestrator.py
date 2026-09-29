@@ -103,12 +103,33 @@ def test_quality_required_facts_keeps_critical_kinds_within_review_budget():
 
     selected = _quality_required_facts(facts).splitlines()
 
-    assert len(selected) == 12
+    assert len(selected) <= 12
     assert selected[0] == "- [essence] Компания открыла новый рынок для клиентов"
     assert "- [number] 100 долларов" in selected
     assert "- [when] 14 сентября" in selected
     assert "- [what] Компания открыла рынок" in selected
     assert "- [quote] Цитата руководителя" in selected
+    number_rows = [line for line in selected if line.lstrip().startswith("- [number]")]
+    assert len(number_rows) <= 3
+
+
+def test_quality_required_facts_caps_numbers_on_short_registry():
+    facts = "\n".join(
+        [
+            "- [essence] Event",
+            "- [who] Alice",
+            "- [number] $1",
+            "- [number] $2",
+            "- [number] $3",
+            "- [number] $4",
+            "- [number] $5",
+        ]
+    )
+    selected = _quality_required_facts(facts).splitlines()
+    number_rows = [line for line in selected if line.lstrip().startswith("- [number]")]
+    assert len(number_rows) == 3
+    assert "- [essence] Event" in selected
+    assert "- [who] Alice" in selected
 
 
 def test_rewrite_cluster_includes_source_proportional_target(
