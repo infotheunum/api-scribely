@@ -449,3 +449,37 @@ def test_empty_batch_mark_consumed(client, clean_db):
     )
     assert resp.status_code == 200
     assert resp.json()["marked"] == 0
+
+
+def test_integration_manual_burst_and_generation_hours(client, clean_db):
+    hours = client.get(
+        "/integrations/theunum/v1/pipeline/generation-hours",
+        headers=AUTH_HEADERS,
+    )
+    assert hours.status_code == 200
+    assert "manual_burst" in hours.json()
+
+    burst = client.post(
+        "/integrations/theunum/v1/pipeline/manual-burst",
+        headers=AUTH_HEADERS,
+        json={"quota": 10, "ttl_hours": 2},
+    )
+    assert burst.status_code == 200
+    body = burst.json()
+    assert body["quota"] == 10
+    assert body["remaining"] == 10
+    assert body["active"] is True
+
+    hours2 = client.get(
+        "/integrations/theunum/v1/pipeline/generation-hours",
+        headers=AUTH_HEADERS,
+    )
+    assert hours2.status_code == 200
+    assert hours2.json()["manual_burst"]["active"] is True
+
+    stopped = client.delete(
+        "/integrations/theunum/v1/pipeline/manual-burst",
+        headers=AUTH_HEADERS,
+    )
+    assert stopped.status_code == 200
+    assert stopped.json()["cancelled"] is True

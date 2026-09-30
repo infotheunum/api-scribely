@@ -390,3 +390,73 @@ def mark_consumed_batch(body: MarkConsumedBatch, db: Session = Depends(get_db)) 
             marked_ids.append(str(draft_id))
     db.commit()
     return MarkConsumedResponse(marked=len(marked_ids), draft_ids=marked_ids)
+
+
+class ManualBurstIn(BaseModel):
+    quota: int = Field(default=25, ge=1, le=200)
+    ttl_hours: int = Field(default=3, ge=1, le=12)
+
+
+class ManualBurstOut(BaseModel):
+    quota: int
+    created: int
+    remaining: int
+    expires_at: str
+    requested_at: str | None
+    requested_by: str | None
+    active: bool
+
+
+@router.get("/pipeline/generation-hours")
+def integration_generation_hours(db: Session = Depends(get_db)) -> dict:
+    """Same payload as admin GET /admin/pipeline/generation-hours — M2M token auth."""
+    from common.generation_hours import generation_hours_as_dict, load_generation_hours
+
+    return generation_hours_as_dict(load_generation_hours(db), db=db)
+
+
+@router.post("/pipeline/manual-burst", response_model=ManualBurstOut)
+def integration_start_manual_burst(
+    body: ManualBurstIn,
+    db: Session = Depends(get_db),
+) -> ManualBurstOut:
+    """Start generation burst via THEUNUM_INTEGRATION_TOKEN (no Scribely admin login)."""
+    from common.generation_hours import manual_burst_as_dict, request_manual_burst
+
+    request_manual_burst(
+        db,
+        quota=body.quota,
+        ttl_hours=body.ttl_hours,
+        requested_by=None,
+    )
+    db.add(
+        AuditLog(
+            action="theunum_manual_burst_start",
+            entity_type="AppSetting",
+            entity_id="pipeline.manual_generation_burst",
+            details={"quota": body.quota, "ttl_hours": body.ttl_hours, "source": "integration_api"},
+            trace_id=get_trace_id(),
+        )
+    )
+    db.commit()
+    payload = manual_burst_as_dict(db)
+    assert payload is not None
+    return ManualBurstOut(**payload)
+
+
+@router.delete("/pipeline/manual-burst")
+def integration_stop_manual_burst(db: Session = Depends(get_db)) -> dict:
+    from common.generation_hours import cancel_manual_burst
+
+    cancel_manual_burst(db, updated_by=None)
+    db.add(
+        AuditLog(
+            action="theunum_manual_burst_cancel",
+            entity_type="AppSetting",
+            entity_id="pipeline.manual_generation_burst",
+            details={"source": "integration_api"},
+            trace_id=get_trace_id(),
+        )
+    )
+    db.commit()
+    return {"cancelled": True}
