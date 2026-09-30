@@ -180,6 +180,30 @@ def test_upsert_setting_creates_then_updates(client, admin_user, clean_db):
     assert any(s["key"] == "dispatch.batch_size" and s["value"] == 5 for s in listed)
 
 
+def test_generation_hours_accepts_integration_bearer_token(client, admin_user, clean_db):
+    """Unum SCRIBELY_ADMIN_TOKEN = same opaque secret as export M2M token."""
+    headers = {"Authorization": "Bearer test-theunum-integration-token"}
+    resp = client.get("/admin/pipeline/generation-hours", headers=headers)
+    assert resp.status_code == 200
+    assert "manual_burst" in resp.json() or "within_hours" in resp.json()
+
+
+def test_manual_burst_accepts_integration_bearer_token(client, admin_user, clean_db):
+    headers = {"Authorization": "Bearer test-theunum-integration-token"}
+    started = client.post(
+        "/admin/pipeline/manual-burst",
+        json={"quota": 5, "ttl_hours": 1},
+        headers=headers,
+    )
+    assert started.status_code == 200
+    body = started.json()
+    assert body["active"] is True
+    assert body["quota"] == 5
+
+    stopped = client.delete("/admin/pipeline/manual-burst", headers=headers)
+    assert stopped.status_code == 200
+
+
 def test_generation_hours_get_and_put(client, admin_user, clean_db):
     headers = _auth_headers(client, admin_user)
     defaults = client.get("/admin/pipeline/generation-hours", headers=headers)
