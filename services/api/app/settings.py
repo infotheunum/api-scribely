@@ -18,7 +18,13 @@ class ApiSettings(CommonSettings):
     jwt_expire_minutes: int = 60 * 12
 
     # Machine-to-machine auth for api.theunum.io cron (integrations API).
+    # Same secret may authenticate Admin JSON (/admin/pipeline/*) as Bearer —
+    # Unum sets SCRIBELY_ADMIN_TOKEN to this value for manual-burst.
     theunum_integration_token: str = ""
+
+    # Optional dedicated Admin M2M secret (Bearer). If empty, integration token
+    # is accepted for Admin JSON routes as well.
+    admin_api_token: str = ""
 
     # Comma-separated browser origins; empty = CORS middleware disabled.
     cors_allowed_origins: str = ""

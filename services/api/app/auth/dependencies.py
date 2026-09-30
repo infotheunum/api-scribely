@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import secrets
 import uuid
 
 import jwt
@@ -8,6 +9,7 @@ from api_app.db import get_db
 from api_app.settings import ApiSettings
 from db.models import User
 from fastapi import Depends, HTTPException, Request, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 # Browser session cookie for the Review UI (ТЗ §6.3) — the JWT-issuing
@@ -46,9 +48,31 @@ def _decode_user(token: str, db: Session) -> User | None:
     return user
 
 
+def _service_admin_user(token: str, db: Session) -> User | None:
+    """Opaque M2M Bearer (ADMIN_API_TOKEN or THEUNUM_INTEGRATION_TOKEN) → admin."""
+    settings = ApiSettings()
+    candidates = [
+        value.strip()
+        for value in (settings.admin_api_token, settings.theunum_integration_token)
+        if value and value.strip()
+    ]
+    matched = False
+    for expected in candidates:
+        if secrets.compare_digest(token, expected):
+            matched = True
+            break
+    if not matched:
+        return None
+    return db.scalar(
+        select(User).where(User.role == "admin", User.is_active.is_(True)).limit(1)
+    )
+
+
 def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     token = extract_token(request)
-    user = _decode_user(token, db) if token else None
+    user = None
+    if token:
+        user = _service_admin_user(token, db) or _decode_user(token, db)
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -71,4 +95,6 @@ def get_current_user_optional(request: Request, db: Session = Depends(get_db)) -
     """Never raises — UI page routes (not the JSON API) use this and
     redirect to /ui/login themselves on None, instead of a raw 401."""
     token = extract_token(request)
-    return _decode_user(token, db) if token else None
+    if not token:
+        return None
+    return _service_admin_user(token, db) or _decode_user(token, db)
