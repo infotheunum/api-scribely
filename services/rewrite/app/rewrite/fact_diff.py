@@ -19,7 +19,9 @@ _COVERAGE_MIN_ANCHORS = 3
 
 _CURRENCY = r"(?:\$|€|£|¥|USD|EUR|RUB|USDT)"
 _SUFFIX = (
-    r"(?:\s*(?:млн|млрд|тыс\.?|million|billion|thousand|k|m|bn|btc|eth|%|pct|процент(?:а|ов)?))"
+    r"(?:\s*(?:млн|млрд|тыс\.?|"
+    r"миллион(?:а|ов)?|миллиард(?:а|ов)?|"
+    r"million|billion|thousand|k|m|bn|btc|eth|%|pct|процент(?:а|ов)?))"
 )
 _NUMBER_RE = re.compile(
     rf"(?i)(?<![A-Za-zА-Яа-я0-9])"
@@ -67,16 +69,43 @@ _DATE_RE = re.compile(
     r"(?P<day>\d{1,2})\s+"
     r"(?P<month_name>января|февраля|марта|апреля|мая|июня|июля|августа|"
     r"сентября|октября|ноября|декабря|january|february|march|april|may|june|"
-    r"july|august|september|october|november|december)"
+    r"july|august|september|october|november|december|"
+    r"jan\.?|feb\.?|mar\.?|apr\.?|jun\.?|jul\.?|aug\.?|sep(?:t)?\.?|oct\.?|nov\.?|dec\.?)"
     r"(?:\s+(?P<year1>20\d{2}))?"
     r"|"
     r"(?P<month_only>январе|феврале|марте|апреле|мае|июне|июле|августе|"
     r"сентябре|октябре|ноябре|декабре|january|february|march|april|may|june|"
-    r"july|august|september|october|november|december)"
+    r"july|august|september|october|november|december|"
+    r"jan\.?|feb\.?|mar\.?|apr\.?|jun\.?|jul\.?|aug\.?|sep(?:t)?\.?|oct\.?|nov\.?|dec\.?)"
     r"(?:\s+(?P<year2>20\d{2}))?"
+    r"|"
+    r"(?P<month_abbr>jan|feb|mar|apr|jun|jul|aug|sept?|oct|nov|dec)\.?"
+    r"\s+(?P<day2>\d{1,2})"
+    r"(?:,?\s+(?P<year3>20\d{2}))?"
     r"|"
     r"(?P<iso>20\d{2}-\d{2}-\d{2})"
     r")"
+)
+_YEAR_RE = re.compile(r"\b(20\d{2})\b")
+
+# EN↔RU place/org aliases for invented-name false positives.
+_PLACE_ALIASES: tuple[tuple[str, str], ...] = (
+    ("middle east", "ближний восток"),
+    ("central america", "центральной америки"),
+    ("central america", "центральная америка"),
+    ("united states", "соединённые штаты"),
+    ("united states", "соединенные штаты"),
+    ("wall street journal", "уолл-стрит джорнал"),
+    ("european central bank", "европейский центральный банк"),
+)
+
+# Narrow direction inversions (same sentence / short window).
+_DIRECTION_PAIRS: tuple[tuple[str, str], ...] = (
+    ("overbought", "oversold"),
+    ("перекуплен", "перепродан"),
+    ("перекупленность", "перепроданность"),
+    ("long position", "short position"),
+    ("длинн", "коротк"),  # длинные/короткие позиции
 )
 
 _NAME_EN_RE = re.compile(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b")
@@ -225,7 +254,9 @@ def _parse_number(raw: str) -> _NumberHit | None:
         return None
     lower = token.lower()
     kind = "plain"
-    if re.search(r"[\$€£¥]|usd|eur|rub|usdt|млн|млрд|million|billion", lower):
+    if re.search(
+        r"[\$€£¥]|usd|eur|rub|usdt|млн|млрд|миллион|миллиард|million|billion", lower
+    ):
         kind = "money"
     if re.search(r"\bbtc\b|\beth\b", lower):
         kind = "crypto"
@@ -241,9 +272,9 @@ def _parse_number(raw: str) -> _NumberHit | None:
 
     multiplier = 1.0
     # Match both "60k" / "$80k" (attached) and "60 k" / "60 thousand".
-    if re.search(r"млрд|billion|(?<![a-z])bn\b", lower):
+    if re.search(r"млрд|миллиард|billion|(?<![a-z])bn\b", lower):
         multiplier = 1_000_000_000
-    elif re.search(r"млн|million|(?<![a-z])m\b", lower) and not re.search(
+    elif re.search(r"млн|миллион|million|(?<![a-z])m\b", lower) and not re.search(
         r"\bbtc\b|\beth\b", lower
     ):
         multiplier = 1_000_000
@@ -252,7 +283,8 @@ def _parse_number(raw: str) -> _NumberHit | None:
 
     core = re.sub(r"(?i)^(?:\$|€|£|¥|usd|eur|rub|usdt)\s*", "", token)
     core = re.sub(
-        r"(?i)\s*(?:млн|млрд|тыс\.?|million|billion|thousand|k|m|bn|btc|eth|%|pct|"
+        r"(?i)\s*(?:млн|млрд|тыс\.?|миллион(?:а|ов)?|миллиард(?:а|ов)?|"
+        r"million|billion|thousand|k|m|bn|btc|eth|%|pct|"
         r"процент(?:а|ов)?)\s*$",
         "",
         core,
@@ -300,11 +332,26 @@ def extract_numbers(text: str) -> list[_NumberHit]:
 
 
 def _month_from_name(name: str) -> int | None:
-    lower = name.lower()
+    lower = name.lower().rstrip(".")
     for stem, month in _MONTHS.items():
         if lower.startswith(stem):
             return month
-    return None
+    # Abbreviated English: sept → september stem
+    abbrev = {
+        "jan": 1,
+        "feb": 2,
+        "mar": 3,
+        "apr": 4,
+        "jun": 6,
+        "jul": 7,
+        "aug": 8,
+        "sep": 9,
+        "sept": 9,
+        "oct": 10,
+        "nov": 11,
+        "dec": 12,
+    }
+    return abbrev.get(lower)
 
 
 def extract_dates(text: str) -> list[_DateHit]:
@@ -319,10 +366,16 @@ def extract_dates(text: str) -> list[_DateHit]:
                 raw, int(month_s), int(day_s), int(year_s), f"{year_s}-{month_s}-{day_s}"
             )
         else:
-            month_name = match.group("month_name") or match.group("month_only") or ""
+            month_name = (
+                match.group("month_name")
+                or match.group("month_only")
+                or match.group("month_abbr")
+                or ""
+            )
             month = _month_from_name(month_name)
-            day = int(match.group("day")) if match.group("day") else None
-            year_s = match.group("year1") or match.group("year2")
+            day_s = match.group("day") or match.group("day2")
+            day = int(day_s) if day_s else None
+            year_s = match.group("year1") or match.group("year2") or match.group("year3")
             year = int(year_s) if year_s else None
             hit = _DateHit(raw, month, day, year, f"{year or 0}-{month or 0}-{day or 0}")
         if hit.key in seen:
@@ -330,6 +383,10 @@ def extract_dates(text: str) -> list[_DateHit]:
         seen.add(hit.key)
         hits.append(hit)
     return hits
+
+
+def extract_years(text: str) -> set[int]:
+    return {int(m.group(1)) for m in _YEAR_RE.finditer(text or "")}
 
 
 def _looks_like_person_or_org(name: str) -> bool:
@@ -507,6 +564,14 @@ def name_supported_by_source(name: str, source_names: list[str], source_text: st
         return True
     if name.casefold() in source_text.casefold():
         return True
+    folded_name = _fold_name(name)
+    folded_source = _fold_name(source_text)
+    for en, ru in _PLACE_ALIASES:
+        if folded_name in _fold_name(ru) or folded_name in _fold_name(en):
+            if _fold_name(en) in folded_source or _fold_name(ru) in folded_source:
+                return True
+            if en in source_text.casefold() or ru in source_text.casefold():
+                return True
     for other in source_names:
         if names_fuzzy_match(name, other):
             return True
@@ -514,7 +579,7 @@ def name_supported_by_source(name: str, source_names: list[str], source_text: st
     if tokens and tokens[-1].casefold() in source_text.casefold():
         return True
     folded_last = _fold_name(tokens[-1]) if tokens else ""
-    if folded_last and folded_last in _fold_name(source_text):
+    if folded_last and folded_last in folded_source:
         return True
     for other in source_names:
         other_tokens = _name_tokens(_fold_name(other))
@@ -528,6 +593,16 @@ def _number_severity(hit: _NumberHit) -> str:
     if hit.kind in {"money", "crypto", "percent"}:
         return "critical"
     return "warning"
+
+
+def _has_magnitude_suffix(raw: str) -> bool:
+    return bool(
+        re.search(
+            r"(?i)(?:млн|млрд|миллион|миллиард|million|billion|thousand|"
+            r"(?<![a-z])(?:k|m|bn)\b)",
+            raw or "",
+        )
+    )
 
 
 def _same_significant_digits(a: float, b: float) -> bool:
@@ -555,16 +630,36 @@ def _is_magnitude_distortion(a: float, b: float) -> bool:
     return _same_significant_digits(a, b)
 
 
-def _date_close(a: _DateHit, b: _DateHit) -> bool:
-    if a.month and b.month and a.month != b.month:
+def _numbers_match(a: _NumberHit, b: _NumberHit) -> bool:
+    """Value-first match: kind differences (971 vs 971%) do not block."""
+    if abs(a.value - b.value) <= max(1e-9, max(a.value, b.value) * 1e-9):
+        return True
+    # Truncated money only: "$236.8 million" ↔ "$236,8" (no suffix on rewrite).
+    # Do NOT treat "$85 000" ↔ "$85 000 000" as a match — that is magnitude distortion.
+    hi, lo = (a, b) if a.value > b.value else (b, a)
+    if hi.kind == "money" and lo.kind in {"money", "plain"}:
+        if _has_magnitude_suffix(hi.raw) and not _has_magnitude_suffix(lo.raw):
+            for scale in (1_000.0, 1_000_000.0, 1_000_000_000.0):
+                if abs(hi.value - lo.value * scale) <= max(1e-6 * hi.value, 1e-3):
+                    return True
+    return False
+
+
+def _date_covers(src: _DateHit, rew: _DateHit) -> bool:
+    """True when rewrite date adequately covers a required source date."""
+    if src.month and rew.month and src.month != rew.month:
         return False
-    if a.day and b.day and a.day != b.day:
+    # Month-only source ("September") is covered by any day in that month.
+    if src.day is None and src.year is None:
+        return bool(src.month and rew.month == src.month)
+    if src.day and rew.day and src.day != rew.day:
         return False
+    if src.year and rew.year and src.year != rew.year:
+        return False
+    # Source without year, rewrite adds year — OK if months(/days) align.
+    if src.year is None and rew.year is not None:
+        return True
     return True
-
-
-def _date_exact(a: _DateHit, b: _DateHit) -> bool:
-    return a.month == b.month and a.day == b.day and a.year == b.year
 
 
 def _date_missing_severity(hit: _DateHit) -> str:
@@ -572,6 +667,36 @@ def _date_missing_severity(hit: _DateHit) -> str:
     if hit.day is None and hit.year is None:
         return "warning"
     return "critical"
+
+
+def find_direction_inversions(*, source_text: str, rewrite_text: str) -> list[dict]:
+    """Flag narrow antonym flips (overbought↔oversold, long↔short)."""
+    findings: list[dict] = []
+    src = (source_text or "").casefold()
+    rew = (rewrite_text or "").casefold()
+    for left, right in _DIRECTION_PAIRS:
+        left_cf, right_cf = left.casefold(), right.casefold()
+        if left_cf in src and right_cf in rew and left_cf not in rew:
+            findings.append(
+                finding(
+                    severity="critical",
+                    message=f"инверсия смысла: в источнике «{left}», в рерайте «{right}»",
+                    source_span=left,
+                    rewrite_span=right,
+                    category="direction",
+                )
+            )
+        elif right_cf in src and left_cf in rew and right_cf not in rew:
+            findings.append(
+                finding(
+                    severity="critical",
+                    message=f"инверсия смысла: в источнике «{right}», в рерайте «{left}»",
+                    source_span=right,
+                    rewrite_span=left,
+                    category="direction",
+                )
+            )
+    return findings
 
 
 def compare_facts(
@@ -613,7 +738,7 @@ def compare_facts(
         for j, rew in enumerate(rew_numbers):
             if j in matched_rew_for_req:
                 continue
-            if abs(src.value - rew.value) <= max(1e-9, src.value * 1e-9):
+            if _numbers_match(src, rew):
                 matched_req_number_idxs.add(i)
                 matched_rew_for_req.add(j)
                 break
@@ -640,6 +765,9 @@ def compare_facts(
     for i, src in enumerate(req_numbers):
         if i in matched_req_number_idxs:
             continue
+        # Plain counts (article length, tweet IDs already filtered) are advisory.
+        if src.kind == "plain":
+            continue
         missing_findings.append(
             finding(
                 severity=_number_severity(src),  # type: ignore[arg-type]
@@ -653,15 +781,25 @@ def compare_facts(
     matched_rew_in_sources: set[int] = set()
     for j, rew in enumerate(rew_numbers):
         for src in src_numbers:
-            if abs(src.value - rew.value) <= max(1e-9, rew.value * 1e-9):
+            if _numbers_match(src, rew):
                 matched_rew_in_sources.add(j)
                 break
             if _is_magnitude_distortion(src.value, rew.value):
                 # Distortion vs a non-required source figure is still invented/wrong.
                 matched_rew_in_sources.add(j)
+                distorted_findings.append(
+                    finding(
+                        severity="critical",
+                        message=f"искажена цифра: «{src.raw}» → «{rew.raw}»",
+                        source_span=src.raw,
+                        rewrite_span=rew.raw,
+                    )
+                )
                 break
     for j, rew in enumerate(rew_numbers):
         if j in matched_rew_in_sources:
+            continue
+        if rew.kind == "plain":
             continue
         sev = "critical" if rew.kind in {"money", "crypto", "percent"} else "warning"
         invented_findings.append(
@@ -676,17 +814,22 @@ def compare_facts(
     # --- dates: missing/distorted against required set ---
     matched_req_dates: set[int] = set()
     matched_rew_dates_for_req: set[int] = set()
+    source_years = extract_years(source_text) | extract_years(required_corpus)
+
     for i, src in enumerate(req_dates):
         for j, rew in enumerate(rew_dates):
             if j in matched_rew_dates_for_req:
                 continue
-            if not _date_close(src, rew):
+            if not _date_covers(src, rew):
                 continue
-            if _date_exact(src, rew):
-                matched_req_dates.add(i)
-                matched_rew_dates_for_req.add(j)
-                break
-            if src.year != rew.year:
+            # Same month/day but wrong year → distortion (when both have years).
+            if (
+                src.year is not None
+                and rew.year is not None
+                and src.year != rew.year
+                and (src.month is None or src.month == rew.month)
+                and (src.day is None or src.day == rew.day)
+            ):
                 distorted_findings.append(
                     finding(
                         severity="critical",
@@ -698,6 +841,9 @@ def compare_facts(
                 matched_req_dates.add(i)
                 matched_rew_dates_for_req.add(j)
                 break
+            matched_req_dates.add(i)
+            matched_rew_dates_for_req.add(j)
+            break
 
     for i, src in enumerate(req_dates):
         if i in matched_req_dates:
@@ -712,12 +858,52 @@ def compare_facts(
 
     matched_rew_dates_in_sources: set[int] = set()
     for j, rew in enumerate(rew_dates):
+        covered = False
         for src in src_dates:
-            if _date_close(src, rew):
-                matched_rew_dates_in_sources.add(j)
+            if _date_covers(src, rew) or _date_covers(rew, src):
+                # Year added in rewrite is OK if that year exists in source corpus.
+                if rew.year is not None and src.year is None:
+                    if rew.year in source_years:
+                        covered = True
+                        break
+                    # Year not in corpus → invent/distort below.
+                    continue
+                if (
+                    src.year is not None
+                    and rew.year is not None
+                    and src.year != rew.year
+                    and (src.month is None or rew.month is None or src.month == rew.month)
+                ):
+                    distorted_findings.append(
+                        finding(
+                            severity="critical",
+                            message=f"искажена дата: «{src.raw}» → «{rew.raw}»",
+                            source_span=src.raw,
+                            rewrite_span=rew.raw,
+                        )
+                    )
+                    covered = True
+                    break
+                covered = True
                 break
+        if covered:
+            matched_rew_dates_in_sources.add(j)
+        elif rew.year is not None and rew.year in source_years and rew.month is None:
+            # Bare year that already appears in sources.
+            matched_rew_dates_in_sources.add(j)
+
     for j, rew in enumerate(rew_dates):
         if j in matched_rew_dates_in_sources:
+            continue
+        # Invented year (e.g. 2023 when sources only have 2026).
+        if rew.year is not None and rew.year not in source_years:
+            invented_findings.append(
+                finding(
+                    severity="critical",
+                    message=f"этого нет в источнике: «{rew.raw}»",
+                    rewrite_span=rew.raw,
+                )
+            )
             continue
         invented_findings.append(
             finding(
@@ -726,6 +912,23 @@ def compare_facts(
                 rewrite_span=rew.raw,
             )
         )
+
+    # Standalone year tokens in rewrite that never appear in sources.
+    rewrite_years = extract_years(rewrite_text)
+    for year in sorted(rewrite_years - source_years):
+        invented_findings.append(
+            finding(
+                severity="critical",
+                message=f"этого нет в источнике: «{year}»",
+                rewrite_span=str(year),
+                category="invented_year",
+            )
+        )
+
+    # Direction inversions (narrow antonym pairs).
+    distorted_findings.extend(
+        find_direction_inversions(source_text=source_text, rewrite_text=rewrite_text)
+    )
 
     # --- names: missing against required; invented against full sources ---
     matched_req_names = 0

@@ -14,14 +14,14 @@ from sqlalchemy.orm import Session
 BANNED_PHRASES_KEY = "compliance.banned_phrases"
 BANNED_PHRASES_DESCRIPTION = (
     "Phrase blacklist for rewrite filter 5: JSON array of "
-    '{phrase, category} objects. Categories: investment, evaluation, '
-    "forecast, bureaucracy, bad_translation. Matches outside quotes only."
+    "{phrase, category} objects. Categories: investment, political, "
+    "bad_translation. Matches outside quotes only. Investment → critical."
 )
 
 # Seed inventory from style guide + editorial brief. Runtime SoT is AppSetting
 # merged with these defaults (DB can add/override; code adds never drop).
 DEFAULT_BANNED_PHRASES: list[dict[str, str]] = [
-    # investment advice tone
+    # investment advice tone → critical findings
     {"phrase": "следите", "category": "investment"},
     {"phrase": "требует внимания", "category": "investment"},
     {"phrase": "может предвещать", "category": "investment"},
@@ -42,45 +42,35 @@ DEFAULT_BANNED_PHRASES: list[dict[str, str]] = [
     {"phrase": "добиться прорыва", "category": "investment"},
     {"phrase": "гарантировать большую ликвидность", "category": "investment"},
     {"phrase": "хорошая возможность", "category": "investment"},
-    # evaluative intensifiers
-    {"phrase": "важный", "category": "evaluation"},
-    {"phrase": "важная", "category": "evaluation"},
-    {"phrase": "важное", "category": "evaluation"},
-    {"phrase": "значительный", "category": "evaluation"},
-    {"phrase": "значительная", "category": "evaluation"},
-    {"phrase": "впечатляющий", "category": "evaluation"},
-    {"phrase": "впечатляющая", "category": "evaluation"},
-    {"phrase": "колоссальный", "category": "evaluation"},
-    {"phrase": "беспрецедентный", "category": "evaluation"},
-    {"phrase": "ошеломляющий", "category": "evaluation"},
-    {"phrase": "поразительный", "category": "evaluation"},
-    # forecasts
-    {"phrase": "может привести", "category": "forecast"},
-    {"phrase": "ожидается", "category": "forecast"},
-    {"phrase": "эксперты ожидают", "category": "forecast"},
-    # bureaucracy / AI clichés
-    {"phrase": "в рамках", "category": "bureaucracy"},
-    {"phrase": "данный", "category": "bureaucracy"},
-    {"phrase": "данная", "category": "bureaucracy"},
-    {"phrase": "данное", "category": "bureaucracy"},
-    {"phrase": "таким образом", "category": "bureaucracy"},
-    {"phrase": "имеет место быть", "category": "bureaucracy"},
-    {"phrase": "на сегодняшний день", "category": "bureaucracy"},
-    {"phrase": "в настоящее время", "category": "bureaucracy"},
-    {"phrase": "следует отметить", "category": "bureaucracy"},
-    {"phrase": "важно отметить", "category": "bureaucracy"},
-    {"phrase": "стоит подчеркнуть", "category": "bureaucracy"},
-    {"phrase": "нельзя не сказать", "category": "bureaucracy"},
-    {"phrase": "подводя итог", "category": "bureaucracy"},
-    {"phrase": "в заключение", "category": "bureaucracy"},
-    # political / climate padding not in source (editorial false positives)
-    {"phrase": "глобального изменения климата", "category": "evaluation"},
-    {"phrase": "глобальное изменение климата", "category": "evaluation"},
+    {"phrase": "инвестиционная возможность", "category": "investment"},
+    {"phrase": "рекомендуем к покупке", "category": "investment"},
+    {"phrase": "время покупать", "category": "investment"},
+    {"phrase": "не упустите возможность", "category": "investment"},
+    {"phrase": "выгодная покупка", "category": "investment"},
+    {"phrase": "сигнал к покупке", "category": "investment"},
+    {"phrase": "сигнал на покупку", "category": "investment"},
+    {"phrase": "пора покупать", "category": "investment"},
+    {"phrase": "стоит обратить внимание инвесторам", "category": "investment"},
+    {"phrase": "для инвесторов это", "category": "investment"},
+    # political / climate padding not grounded in source
+    {"phrase": "изменение климата", "category": "political"},
+    {"phrase": "глобального изменения климата", "category": "political"},
+    {"phrase": "глобальное изменение климата", "category": "political"},
+    {"phrase": "климатический кризис", "category": "political"},
+    {"phrase": "администрация байдена", "category": "political"},
+    {"phrase": "администрация трампа", "category": "political"},
+    {"phrase": "геополитическ", "category": "political"},
+    {"phrase": "на фоне геополитики", "category": "political"},
+    {"phrase": "политическое давление", "category": "political"},
+    {"phrase": "санкционное давление", "category": "political"},
     # bad translation / glossary misses
     {"phrase": "лендинг", "category": "bad_translation"},
     {"phrase": "кредитный etf", "category": "bad_translation"},
     {"phrase": "кредитный ETF", "category": "bad_translation"},
 ]
+
+# Critical categories block advisory/strict gates; political stays warning.
+_CRITICAL_CATEGORIES = frozenset({"investment"})
 
 
 def parse_banned_phrases(raw: Any) -> list[dict[str, str]]:
@@ -145,8 +135,10 @@ def set_banned_phrases(
 
 
 def _phrase_pattern(phrase: str) -> re.Pattern[str]:
-    # Word-ish boundaries so «данный» does not fire inside longer tokens.
+    # Prefix stems (геополитическ…) match morphological endings.
     escaped = re.escape(phrase)
+    if phrase.endswith(("ск", "еск")):
+        return re.compile(rf"(?iu)(?<!\w){escaped}\w*")
     return re.compile(rf"(?iu)(?<!\w){escaped}(?!\w)")
 
 
@@ -169,9 +161,10 @@ def find_banned_phrases(
             if key in seen:
                 continue
             seen.add(key)
+            sev = "critical" if category in _CRITICAL_CATEGORIES else "warning"
             findings.append(
                 finding(
-                    severity="warning",
+                    severity=sev,  # type: ignore[arg-type]
                     message=f"плохая формулировка ({category}): «{match.group(0)}»",
                     rewrite_span=match.group(0),
                     category=category,
