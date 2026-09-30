@@ -33,6 +33,12 @@ _TITLE_RE = re.compile(
     r"директор\w+\s+по\s+\w+|president|президент\w*"
     r")\b"
 )
+_NAME_NEAR_TITLE = re.compile(
+    r"(?i)(?:\b[A-ZА-ЯЁ][\w.А-Яа-яЁё\-]{1,40}(?:\s+[A-ZА-ЯЁ][\w.А-Яа-яЁё\-]{1,40}){0,2}\b)"
+)
+
+_CYRILLIC_RE = re.compile(r"[А-Яа-яЁё]")
+_LATIN_RE = re.compile(r"[A-Za-z]")
 
 _FUZZY_DISTORTED = 0.72
 _FUZZY_OK = 0.92
@@ -60,8 +66,36 @@ def quote_spans(text: str) -> list[tuple[int, int]]:
     return [(q.start, q.end) for q in extract_quotes(text)]
 
 
-def _inside_any(pos: int, spans: list[tuple[int, int]]) -> bool:
-    return any(start <= pos < end for start, end in spans)
+def _script_kind(text: str) -> str:
+    has_cyr = bool(_CYRILLIC_RE.search(text or ""))
+    has_lat = bool(_LATIN_RE.search(text or ""))
+    if has_cyr and not has_lat:
+        return "cyrillic"
+    if has_lat and not has_cyr:
+        return "latin"
+    if has_cyr and has_lat:
+        return "mixed"
+    return "other"
+
+
+def _is_bilingual_quote(quote_text: str, source_text: str) -> bool:
+    """RU rewrite of an EN quote (or vice versa) cannot use SequenceMatcher."""
+    q = _script_kind(quote_text)
+    # Dominant script of quoted source material.
+    source_quotes = extract_quotes(source_text)
+    if source_quotes:
+        src_scripts = {_script_kind(sq.text) for sq in source_quotes}
+        if q == "cyrillic" and src_scripts <= {"latin", "other"}:
+            return True
+        if q == "latin" and src_scripts <= {"cyrillic", "other"}:
+            return True
+    # No source quotes: compare against whole source script.
+    s = _script_kind(source_text)
+    if q == "cyrillic" and s == "latin":
+        return True
+    if q == "latin" and s == "cyrillic":
+        return True
+    return False
 
 
 def _best_ratio(needle: str, haystack: str) -> float:
@@ -95,12 +129,19 @@ def _has_attribution(text: str, quote: QuoteHit) -> bool:
 
 
 def _title_inflation(source_text: str, rewrite_text: str, quote: QuoteHit) -> str | None:
-    window = rewrite_text[max(0, quote.start - 100) : min(len(rewrite_text), quote.end + 100)]
-    titles = _TITLE_RE.findall(window)
-    if not titles:
-        return None
-    for title in titles:
+    """Title only counts outside the quote marks and near a proper name."""
+    before = rewrite_text[max(0, quote.start - 100) : quote.start]
+    after = rewrite_text[quote.end : min(len(rewrite_text), quote.end + 100)]
+    outside = before + " " + after
+    for match in _TITLE_RE.finditer(outside):
+        title = match.group(1)
         if title.casefold() in source_text.casefold():
+            continue
+        # Require a nearby name so words inside quoted speech don't fire.
+        window_start = max(0, match.start() - 40)
+        window_end = min(len(outside), match.end() + 40)
+        vicinity = outside[window_start:window_end]
+        if not _NAME_NEAR_TITLE.search(vicinity):
             continue
         return title
     return None
@@ -109,8 +150,21 @@ def _title_inflation(source_text: str, rewrite_text: str, quote: QuoteHit) -> st
 def check_quotes(*, source_text: str, rewrite_text: str) -> dict:
     findings: list[dict] = []
     for quote in extract_quotes(rewrite_text):
+        bilingual = _is_bilingual_quote(quote.text, source_text)
         ratio = _best_ratio(quote.text, source_text)
-        if ratio >= _FUZZY_OK:
+        if bilingual and ratio < _FUZZY_OK:
+            # EN↔RU translation cannot be verified deterministically — advisory only.
+            findings.append(
+                finding(
+                    severity="warning",
+                    message="цитата переведена (проверка дословности пропущена)",
+                    source_span="",
+                    rewrite_span=quote.text,
+                    category="bilingual_quote",
+                )
+            )
+            status_msg = "bilingual"
+        elif ratio >= _FUZZY_OK:
             status_msg = None
         elif ratio >= _FUZZY_DISTORTED:
             findings.append(
