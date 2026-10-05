@@ -8,7 +8,6 @@ from api_app.db import get_db
 from api_app.integrations.freshness import FreshnessPreset, resolve_export_time_cutoffs
 from api_app.integrations.pipeline_status import build_list_meta, build_pipeline_status
 from api_app.routers.drafts import DEFAULT_QUEUE_STATUSES, DraftDetail
-from common.disclaimer import apply_disclaimer_to_bodies
 from common.export_language import ExportLanguage, project_export_item, resolve_export_language
 from common.integration_export_schema import build_export_schema_payload
 from common.integration_export_settings import (
@@ -46,23 +45,11 @@ def _to_integration_export(
     db: Session | None = None,
 ) -> IntegrationDraftExport:
     detail = DraftDetail.from_model(draft)
-    body_en = detail.body_en
-    body_ru = detail.body_ru
-    if draft.disclaimer_flag:
-        body_en, body_ru = apply_disclaimer_to_bodies(
-            db,
-            body_en=body_en,
-            body_ru=body_ru,
-            enabled=True,
-            category_slug=draft.pending_category_slug,
-        )
     payload = project_export_item(
         {
             **detail.model_dump(),
-            "body_en": body_en,
-            "body_ru": body_ru,
-            "body_en_html": body_to_html(body_en),
-            "body_ru_html": body_to_html(body_ru),
+            "body_en_html": body_to_html(detail.body_en),
+            "body_ru_html": body_to_html(detail.body_ru),
             "consumed_at": export_log.consumed_at if export_log else None,
         },
         language,

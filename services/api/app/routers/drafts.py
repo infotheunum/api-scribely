@@ -283,7 +283,6 @@ class DraftPatch(BaseModel):
     image_source_suggestion: str | None = None
     image_license_confirmed: bool | None = None
     pending_tags: list | None = None
-    disclaimer_flag: bool | None = None
 
 
 class ActionReasonBody(BaseModel):

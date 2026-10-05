@@ -169,26 +169,6 @@ def test_list_defaults_to_output_locales_ru(client, clean_db):
     assert resp.json()["meta"]["language"] == "ru"
 
 
-def test_export_appends_disclaimer_when_flag_set(client, clean_db):
-    from common.disclaimer import DEFAULT_DISCLAIMER_RU
-
-    source = _source(clean_db)
-    cluster = _cluster(clean_db, source)
-    _draft(
-        clean_db,
-        cluster,
-        body_ru="Лид абзац.\n\nСередина.\n\nФинал.",
-        disclaimer_flag=True,
-        pending_category_slug="crypto",
-    )
-
-    resp = client.get("/integrations/theunum/v1/drafts", headers=AUTH_HEADERS)
-    assert resp.status_code == 200
-    body_ru = resp.json()["items"][0]["body_ru"]
-    assert DEFAULT_DISCLAIMER_RU in body_ru
-    assert body_ru.count(DEFAULT_DISCLAIMER_RU) == 1
-
-
 def test_list_language_all_returns_bilingual(client, clean_db):
     source = _source(clean_db)
     cluster = _cluster(clean_db, source)

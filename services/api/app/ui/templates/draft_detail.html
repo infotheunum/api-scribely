@@ -137,19 +137,6 @@
 </div>
 
 <div class="card">
-  <h2>Дисклеймер</h2>
-  <label style="display:flex;align-items:center;gap:6px;">
-    <input type="checkbox" name="disclaimer_flag" value="true" style="width:auto;margin:0;" {{ 'checked' if draft.disclaimer_flag else '' }}>
-    Добавить дисклеймер в конец текста при публикации / export
-  </label>
-  {% if disclaimer_preview %}
-  <pre class="note" style="white-space:pre-wrap;margin-top:10px;padding:8px;background:#f6f6f6;border-radius:4px;">{{ disclaimer_preview }}</pre>
-  {% else %}
-  <p class="note" style="margin-top:8px;">Текст дисклеймера задаётся в Admin → Settings.</p>
-  {% endif %}
-</div>
-
-<div class="card">
   <h2>SEO</h2>
   <div class="grid2">
     <div>
