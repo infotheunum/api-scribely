@@ -8,6 +8,21 @@ from pathlib import Path
 from api_app.auth.dependencies import get_current_user_optional
 from api_app.db import get_db
 from api_app.routers import admin as admin_api
+from common.disclaimer import (
+    DEFAULT_DISCLAIMER_EN,
+    DEFAULT_DISCLAIMER_RU,
+    DEFAULT_DISCLAIMER_STRICT_EN,
+    DEFAULT_DISCLAIMER_STRICT_RU,
+    DEFAULT_DISCLAIMER_TECH_EN,
+    DEFAULT_DISCLAIMER_TECH_RU,
+    KEY_EN,
+    KEY_RU,
+    KEY_STRICT_EN,
+    KEY_STRICT_RU,
+    KEY_TECH_EN,
+    KEY_TECH_RU,
+    get_disclaimer_text,
+)
 from common.generation_hours import (
     WEEKDAY_DAILY_LIMIT_KEY,
     DayWindow,
@@ -365,6 +380,12 @@ def settings_page(
     dedup_llm_confirm = bool(get_setting(db, "dedup.llm_confirm_enabled", True))
     dedup_confirm_threshold = float(get_setting(db, "dedup.confirmation_threshold", 0.85))
     dedup_max_candidates = int(get_setting(db, "dedup.max_confirmation_candidates", 1))
+    disclaimer_ru = get_disclaimer_text(db, locale="ru", variant="crypto")
+    disclaimer_en = get_disclaimer_text(db, locale="en", variant="crypto")
+    disclaimer_tech_ru = get_disclaimer_text(db, locale="ru", variant="tech")
+    disclaimer_tech_en = get_disclaimer_text(db, locale="en", variant="tech")
+    disclaimer_strict_ru = get_disclaimer_text(db, locale="ru", variant="strict")
+    disclaimer_strict_en = get_disclaimer_text(db, locale="en", variant="strict")
     return templates.TemplateResponse(
         request,
         "admin_settings.html",
@@ -390,6 +411,12 @@ def settings_page(
             "dedup_llm_confirm": dedup_llm_confirm,
             "dedup_confirm_threshold": dedup_confirm_threshold,
             "dedup_max_candidates": dedup_max_candidates,
+            "disclaimer_ru": disclaimer_ru,
+            "disclaimer_en": disclaimer_en,
+            "disclaimer_tech_ru": disclaimer_tech_ru,
+            "disclaimer_tech_en": disclaimer_tech_en,
+            "disclaimer_strict_ru": disclaimer_strict_ru,
+            "disclaimer_strict_en": disclaimer_strict_en,
         },
     )
 
@@ -624,6 +651,43 @@ def upsert_review_source_translation_ui(
         description="Generate Russian translations of source articles for editorial review.",
         updated_by=user.id if user else None,
     )
+    db.commit()
+    return RedirectResponse("/ui/admin/settings", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/settings/disclaimers")
+def upsert_disclaimers_ui(
+    disclaimer_ru: str = Form(""),
+    disclaimer_en: str = Form(""),
+    disclaimer_tech_ru: str = Form(""),
+    disclaimer_tech_en: str = Form(""),
+    disclaimer_strict_ru: str = Form(""),
+    disclaimer_strict_en: str = Form(""),
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
+    redirect = _require_admin(user)
+    if redirect:
+        return redirect
+    uid = user.id if user else None
+    pairs = (
+        (KEY_RU, disclaimer_ru or DEFAULT_DISCLAIMER_RU, "Default crypto/invest disclaimer (RU)"),
+        (KEY_EN, disclaimer_en or DEFAULT_DISCLAIMER_EN, "Default crypto/invest disclaimer (EN)"),
+        (KEY_TECH_RU, disclaimer_tech_ru or DEFAULT_DISCLAIMER_TECH_RU, "AI/tech disclaimer (RU)"),
+        (KEY_TECH_EN, disclaimer_tech_en or DEFAULT_DISCLAIMER_TECH_EN, "AI/tech disclaimer (EN)"),
+        (
+            KEY_STRICT_RU,
+            disclaimer_strict_ru or DEFAULT_DISCLAIMER_STRICT_RU,
+            "Strict health/finance/legal disclaimer (RU)",
+        ),
+        (
+            KEY_STRICT_EN,
+            disclaimer_strict_en or DEFAULT_DISCLAIMER_STRICT_EN,
+            "Strict health/finance/legal disclaimer (EN)",
+        ),
+    )
+    for key, value, description in pairs:
+        set_setting(db, key, value.strip(), description=description, updated_by=uid)
     db.commit()
     return RedirectResponse("/ui/admin/settings", status_code=status.HTTP_303_SEE_OTHER)
 
