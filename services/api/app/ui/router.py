@@ -11,7 +11,6 @@ from api_app.db import get_db
 from api_app.routers import drafts as drafts_api
 from api_app.settings import ApiSettings
 from api_app.websocket.lock_manager import current_editor
-from common.disclaimer import get_disclaimer_text, resolve_disclaimer_variant
 from common.fulltext import fetch_full_text
 from common.tracing import get_trace_id
 from db.enums import DraftStatus, RejectReason, SourceType
@@ -180,8 +179,6 @@ def draft_detail_page(
         if editor
         else None
     )
-    variant = resolve_disclaimer_variant(detail.pending_category_slug)
-    disclaimer_preview = get_disclaimer_text(db, locale="ru", variant=variant)
     return templates.TemplateResponse(
         request,
         "draft_detail.html",
@@ -194,7 +191,6 @@ def draft_detail_page(
             "error": error,
             "lock": lock,
             "viewer_count": 1,
-            "disclaimer_preview": disclaimer_preview,
         },
     )
 
@@ -229,7 +225,6 @@ def save_draft(
     image_caption: str = Form(""),
     image_license_confirmed: str | None = Form(None),
     pending_tags: str = Form(""),
-    disclaimer_flag: str | None = Form(None),
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
@@ -264,7 +259,6 @@ def save_draft(
         image_alt=image_alt,
         image_caption=image_caption,
         image_license_confirmed=image_license_confirmed == "true",
-        disclaimer_flag=disclaimer_flag == "true",
     )
     try:
         drafts_api.patch_draft(draft_id, patch, db=db, user=user)
