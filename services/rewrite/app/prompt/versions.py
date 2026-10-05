@@ -10,6 +10,7 @@ from rewrite_app.prompt.style_guide import (
     V18_RU_EDITORIAL_PRECISION_APPENDIX,
     V19_FACTUAL_COVERAGE_APPENDIX,
     V20_FACT_PROPORTIONAL_VOLUME_APPENDIX,
+    V27_EDITORIAL_SESSION_APPENDIX,
 )
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -42,6 +43,12 @@ PROMPT_V19_NOTES = (
 PROMPT_V20_NOTES = (
     "v20 — fact-proportional length and flexible paragraph structure; seeded 2026-09-18"
 )
+PROMPT_V27_NOTES = (
+    "v27 — editorial session brief: ≥80% fact coverage, no invented years/names, "
+    "invest/direction/anglicism/evaluation guards; seeded 2026-10-05"
+)
+
+
 def _create_active(db: Session, *, notes: str) -> PromptVersion:
     version = PromptVersion(
         template=SYSTEM_PROMPT,
@@ -164,6 +171,23 @@ def create_v20_from_active(db: Session) -> PromptVersion:
         template=f"{active.template.rstrip()}\n\n{V20_FACT_PROPORTIONAL_VOLUME_APPENDIX}",
         status=PromptVersionStatus.DRAFT,
         notes=PROMPT_V20_NOTES,
+    )
+    db.add(version)
+    db.commit()
+    db.refresh(version)
+    return version
+
+
+def create_v27_from_active(db: Session) -> PromptVersion:
+    """Append editorial-session brief as DRAFT without replacing ACTIVE."""
+    existing = db.scalar(select(PromptVersion).where(PromptVersion.notes == PROMPT_V27_NOTES))
+    if existing is not None:
+        return existing
+    active = get_active_prompt_version(db)
+    version = PromptVersion(
+        template=f"{active.template.rstrip()}\n\n{V27_EDITORIAL_SESSION_APPENDIX}",
+        status=PromptVersionStatus.DRAFT,
+        notes=PROMPT_V27_NOTES,
     )
     db.add(version)
     db.commit()

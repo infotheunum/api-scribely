@@ -282,7 +282,7 @@ def test_filter_bilingual_quote_not_critical():
 
 def test_filter_title_inside_quote_not_inflation():
     source = 'Analyst said: "Every founder dreams of this."'
-    rewrite = 'Аналитик сказал: «Каждый founder мечтает об этом».'
+    rewrite = "Аналитик сказал: «Каждый founder мечтает об этом»."
     result = check_quotes(source_text=source, rewrite_text=rewrite)
     assert not any("должность" in f["message"] for f in result["findings"])
 
@@ -342,6 +342,15 @@ def test_political_phrase_is_warning():
     assert result["status"] != "critical" or any(
         f.get("category") == "investment" for f in result["findings"]
     )
+
+
+def test_evaluation_phrase_is_warning():
+    rewrite = "Это значительный шаг, который открывает новые горизонты для рынка."
+    result = find_banned_phrases(rewrite)
+    evaluation = [f for f in result["findings"] if f.get("category") == "evaluation"]
+    assert evaluation
+    assert all(f["severity"] == "warning" for f in evaluation)
+    assert result["status"] != "critical"
 
 
 def test_get_banned_phrases_merges_code_defaults_over_stale_db(clean_db):
