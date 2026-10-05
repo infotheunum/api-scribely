@@ -36,60 +36,6 @@
 </div>
 {% endif %}
 
-{% set summary = draft.review_report.get('summary') if draft.review_report else None %}
-{% if summary %}
-<div class="card">
-  <h2>Проверка рерайта</h2>
-  {% set verdict = summary.get('verdict', '') %}
-  <div style="margin-bottom:8px;">
-    {% if verdict == 'blocked' %}
-      <span class="pill flag">Вердикт: нельзя публиковать</span>
-    {% elif verdict == 'needs_attention' %}
-      <span class="pill flag warn">Вердикт: нужна правка</span>
-    {% else %}
-      <span class="pill flag info">Вердикт: можно публиковать</span>
-    {% endif %}
-    <span class="note">критичных: {{ summary.get('critical_count', 0) }}, предупреждений: {{ summary.get('warning_count', 0) }}</span>
-    {% if draft.review_report.get('quality_gate_mode') %}
-      <span class="note">· режим: {{ draft.review_report.get('quality_gate_mode') }}</span>
-    {% endif %}
-  </div>
-  <ul style="margin:0;padding-left:18px;">
-    <li class="note"><strong>Факты:</strong> {{ summary.get('facts_coverage_pct', '—') }}% перенесено</li>
-    <li class="note"><strong>Выдуманное:</strong> {{ summary.get('invented_count', 0) }} фрагмент(ов)</li>
-    <li class="note"><strong>Цитаты:</strong> {{ summary.get('quotes_issues', 0) }} замечаний</li>
-    {% set banned = summary.get('banned_counts') or {} %}
-    <li class="note"><strong>Инвестсоветы:</strong> {{ banned.get('investment', 0) }}</li>
-    <li class="note"><strong>Прогнозы / канцелярит / стиль:</strong>
-      {% set ns = namespace(shown=false) %}
-      {% for cat, count in banned.items() if cat != 'investment' %}
-        {% if ns.shown %}; {% endif %}{{ cat }}: {{ count }}{% set ns.shown = true %}
-      {% endfor %}
-      {% if not ns.shown %}чисто{% endif %}
-    </li>
-  </ul>
-  {% set filters = draft.review_report.get('filters') or {} %}
-  <div style="margin-top:10px;">
-    <strong>Места для правки</strong>
-    <ul style="margin:6px 0 0;padding-left:18px;">
-      {% for key, block in filters.items() if block is mapping %}
-        {% for item in block.get('findings') or [] if item is mapping %}
-        <li class="{{ 'error' if item.get('severity') == 'critical' else 'note' }}">
-          [{{ key }}] {{ item.get('message') }}
-          {% if item.get('rewrite_span') %}<span class="note"> — «{{ item.get('rewrite_span') }}»</span>{% endif %}
-        </li>
-        {% endfor %}
-      {% endfor %}
-    </ul>
-  </div>
-</div>
-{% else %}
-<div class="card">
-  <h2>Проверка рерайта</h2>
-  <p class="note">Нет вердикта / фактов / цитат / инвестфлагов — черновик собран до advisory QA или отчёт пустой. Перегенерируй после деплоя soft-quality.</p>
-</div>
-{% endif %}
-
 {% if draft.review_report.editorial_review_flags %}
 <div class="card">
   <h2>Нужна редакторская проверка</h2>
@@ -102,12 +48,62 @@
 {% if error %}<div class="error">{{ error }}</div>{% endif %}
 {% if saved %}<div class="flash-success">Сохранено.</div>{% endif %}
 
+{# Порядок: оригинал → теги → перевод → рерайт → проверка #}
+<div class="card">
+  <h2>Оригинал</h2>
+  <ul class="source-list">
+    {% for s in draft.sources %}
+    <li>
+      <strong>{{ s.source_name }}</strong> ({{ s.language }})
+      {% if s.is_full_text %}<span class="note">полный текст</span>{% else %}<span class="note">excerpt / RSS</span>{% endif %}
+      — <a href="{{ s.url }}" target="_blank" rel="noopener">{{ s.title }}</a>
+      {% if s.body %}
+      <pre class="source-body" style="white-space:pre-wrap;max-height:240px;overflow:auto;margin:8px 0 16px;padding:8px;background:#f6f6f6;border-radius:4px;font-size:13px;">{{ s.body }}</pre>
+      {% else %}
+      <div class="note" style="margin-top:8px;">Текст оригинала пуст</div>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  <div class="note">Атрибуция: {{ draft.attribution_urls|join(', ') }}</div>
+</div>
+
 <form method="post" action="/ui/drafts/{{ draft.id }}/save">
 <input type="hidden" name="version" value="{{ draft.version }}">
 
+<div class="card">
+  <h2>Теги и категория</h2>
+  <label>Теги — через запятую. Реальные CreateTag/EnsureCategory на theunum.io происходят на Publish.</label>
+  <input type="text" name="pending_tags" value="{{ draft.pending_tags|map(attribute='name')|join(', ') }}" placeholder="bitcoin, etf, halving">
+  {% if draft.category_id %}
+  <div class="note" style="margin-top:8px;">Категория (опубликовано): <strong>{{ draft.category_id }}</strong> · Теги: {{ draft.tag_ids|join(', ') or '—' }}</div>
+  {% elif draft.pending_category_slug %}
+  <div class="note" style="margin-top:8px;">Предложенная категория: {{ draft.pending_category_slug }}</div>
+  {% endif %}
+</div>
+
+{% set ns = namespace(has_translation=false) %}
+{% for s in draft.sources %}
+  {% if s.translation_ru %}{% set ns.has_translation = true %}{% endif %}
+{% endfor %}
+{% if ns.has_translation %}
+<div class="card">
+  <h2>Перевод оригинала</h2>
+  <ul class="source-list">
+    {% for s in draft.sources if s.translation_ru %}
+    <li>
+      <strong>{{ s.source_name }}</strong> — {{ s.title }}
+      <pre class="source-body" style="white-space:pre-wrap;max-height:240px;overflow:auto;margin:8px 0 16px;padding:8px;background:#f6f6f6;border-radius:4px;font-size:13px;">{{ s.translation_ru }}</pre>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
 {% if draft.title_en_variants or draft.title_ru_variants %}
 <div class="card">
-  <h2>Варианты заголовка</h2>
+  <h2>Варианты заголовка (анонс)</h2>
+  <p class="note">Анонс — короткий «что случилось» (до ~10 слов). Первое предложение текста — отдельно: суть + цифра/контекст.</p>
   <div class="grid2">
     <div>
       {% for v in draft.title_en_variants %}
@@ -126,18 +122,31 @@
 <div class="grid2">
   <div class="card">
     <div class="lang-label">EN</div>
-    <label for="title_en">Заголовок</label>
+    <label for="title_en">Заголовок анонса</label>
     <input type="text" id="title_en" name="title_en" value="{{ draft.title_en }}">
-    <label for="body_en">Текст</label>
+    <label for="body_en">Текст (первое предложение = лид с цифрой/контекстом)</label>
     <textarea id="body_en" name="body_en" rows="10">{{ draft.body_en }}</textarea>
   </div>
   <div class="card">
     <div class="lang-label">RU</div>
-    <label for="title_ru">Заголовок</label>
+    <label for="title_ru">Заголовок анонса</label>
     <input type="text" id="title_ru" name="title_ru" value="{{ draft.title_ru }}">
-    <label for="body_ru">Текст</label>
+    <label for="body_ru">Текст (первое предложение = лид с цифрой/контекстом)</label>
     <textarea id="body_ru" name="body_ru" rows="10">{{ draft.body_ru }}</textarea>
   </div>
+</div>
+
+<div class="card">
+  <h2>Дисклеймер</h2>
+  <label style="display:flex;align-items:center;gap:6px;">
+    <input type="checkbox" name="disclaimer_flag" value="true" style="width:auto;margin:0;" {{ 'checked' if draft.disclaimer_flag else '' }}>
+    Добавить дисклеймер в конец текста при публикации / export
+  </label>
+  {% if disclaimer_preview %}
+  <pre class="note" style="white-space:pre-wrap;margin-top:10px;padding:8px;background:#f6f6f6;border-radius:4px;">{{ disclaimer_preview }}</pre>
+  {% else %}
+  <p class="note" style="margin-top:8px;">Текст дисклеймера задаётся в Admin → Settings.</p>
+  {% endif %}
 </div>
 
 <div class="card">
@@ -197,38 +206,64 @@
   </label>
 </div>
 
-<div class="card">
-  <h2>Теги и категория</h2>
-  <label>Теги — через запятую. Реальные CreateTag/EnsureCategory на theunum.io происходят на Publish.</label>
-  <input type="text" name="pending_tags" value="{{ draft.pending_tags|map(attribute='name')|join(', ') }}" placeholder="bitcoin, etf, halving">
-  {% if draft.category_id %}
-  <div class="note" style="margin-top:8px;">Категория (опубликовано): <strong>{{ draft.category_id }}</strong> · Теги: {{ draft.tag_ids|join(', ') or '—' }}</div>
-  {% elif draft.pending_category_slug %}
-  <div class="note" style="margin-top:8px;">Предложенная категория: {{ draft.pending_category_slug }}</div>
-  {% endif %}
+<div class="actions">
+  <button class="btn btn-primary" type="submit">Сохранить</button>
 </div>
+</form>
 
+{% set summary = draft.review_report.get('summary') if draft.review_report else None %}
+{% if summary %}
 <div class="card">
-  <h2>Оригиналы и перевод для ревью</h2>
-  <ul class="source-list">
-    {% for s in draft.sources %}
-    <li>
-      <strong>{{ s.source_name }}</strong> ({{ s.language }})
-      {% if s.is_full_text %}<span class="note">полный текст</span>{% else %}<span class="note">excerpt / RSS</span>{% endif %}
-      — <a href="{{ s.url }}" target="_blank" rel="noopener">{{ s.title }}</a>
-      {% if s.body %}
-      <div class="note" style="margin-top:8px;">Оригинал без HTML-разметки</div>
-      <pre class="source-body" style="white-space:pre-wrap;max-height:240px;overflow:auto;margin:8px 0 16px;padding:8px;background:#f6f6f6;border-radius:4px;font-size:13px;">{{ s.body }}</pre>
-      {% endif %}
-      {% if s.translation_ru %}
-      <div class="note">Перевод на русский</div>
-      <pre class="source-body" style="white-space:pre-wrap;max-height:240px;overflow:auto;margin:8px 0 16px;padding:8px;background:#f6f6f6;border-radius:4px;font-size:13px;">{{ s.translation_ru }}</pre>
-      {% endif %}
+  <h2>Проверка рерайта</h2>
+  {% set verdict = summary.get('verdict', '') %}
+  <div style="margin-bottom:8px;">
+    {% if verdict == 'blocked' %}
+      <span class="pill flag">Вердикт: нельзя публиковать</span>
+    {% elif verdict == 'needs_attention' %}
+      <span class="pill flag warn">Вердикт: нужна правка</span>
+    {% else %}
+      <span class="pill flag info">Вердикт: можно публиковать</span>
+    {% endif %}
+    <span class="note">критичных: {{ summary.get('critical_count', 0) }}, предупреждений: {{ summary.get('warning_count', 0) }}</span>
+    {% if draft.review_report.get('quality_gate_mode') %}
+      <span class="note">· режим: {{ draft.review_report.get('quality_gate_mode') }}</span>
+    {% endif %}
+  </div>
+  <ul style="margin:0;padding-left:18px;">
+    <li class="note"><strong>Факты:</strong> {{ summary.get('facts_coverage_pct', '—') }}% перенесено</li>
+    <li class="note"><strong>Выдуманное:</strong> {{ summary.get('invented_count', 0) }} фрагмент(ов)</li>
+    <li class="note"><strong>Цитаты:</strong> {{ summary.get('quotes_issues', 0) }} замечаний</li>
+    {% set banned = summary.get('banned_counts') or {} %}
+    <li class="note"><strong>Инвестсоветы:</strong> {{ banned.get('investment', 0) }}</li>
+    <li class="note"><strong>Прогнозы / канцелярит / стиль:</strong>
+      {% set ns2 = namespace(shown=false) %}
+      {% for cat, count in banned.items() if cat != 'investment' %}
+        {% if ns2.shown %}; {% endif %}{{ cat }}: {{ count }}{% set ns2.shown = true %}
+      {% endfor %}
+      {% if not ns2.shown %}чисто{% endif %}
     </li>
-    {% endfor %}
   </ul>
-  <div class="note">Атрибуция: {{ draft.attribution_urls|join(', ') }}</div>
+  {% set filters = draft.review_report.get('filters') or {} %}
+  <div style="margin-top:10px;">
+    <strong>Места для правки</strong>
+    <ul style="margin:6px 0 0;padding-left:18px;">
+      {% for key, block in filters.items() if block is mapping %}
+        {% for item in block.get('findings') or [] if item is mapping %}
+        <li class="{{ 'error' if item.get('severity') == 'critical' else 'note' }}">
+          [{{ key }}] {{ item.get('message') }}
+          {% if item.get('rewrite_span') %}<span class="note"> — «{{ item.get('rewrite_span') }}»</span>{% endif %}
+        </li>
+        {% endfor %}
+      {% endfor %}
+    </ul>
+  </div>
 </div>
+{% else %}
+<div class="card">
+  <h2>Проверка рерайта</h2>
+  <p class="note">Нет вердикта / фактов / цитат / инвестфлагов — черновик собран до advisory QA или отчёт пустой. Перегенерируй после деплоя soft-quality.</p>
+</div>
+{% endif %}
 
 {% if draft.review_report.fact_checks %}
 <div class="card">
@@ -240,11 +275,6 @@
   </tbody></table>
 </div>
 {% endif %}
-
-<div class="actions">
-  <button class="btn btn-primary" type="submit">Сохранить</button>
-</div>
-</form>
 
 <div class="card">
   <h2>Решение</h2>

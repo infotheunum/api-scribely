@@ -177,6 +177,26 @@
 </div>
 
 <div class="card">
+  <h2>Дисклеймеры при публикации</h2>
+  <p class="note">Подставляются в конец body при export/Publish, если у черновика включён флаг disclaimer. Вариант выбирается по категории: crypto → базовый, ai/tech → tech, health/legal/finance → strict. Редактор может снять флаг на карточке черновика.</p>
+  <form method="post" action="/ui/admin/settings/disclaimers">
+    <label>Crypto / invest (RU)</label>
+    <textarea name="disclaimer_ru" rows="3">{{ disclaimer_ru }}</textarea>
+    <label>Crypto / invest (EN)</label>
+    <textarea name="disclaimer_en" rows="3">{{ disclaimer_en }}</textarea>
+    <label>AI / tech (RU)</label>
+    <textarea name="disclaimer_tech_ru" rows="2">{{ disclaimer_tech_ru }}</textarea>
+    <label>AI / tech (EN)</label>
+    <textarea name="disclaimer_tech_en" rows="2">{{ disclaimer_tech_en }}</textarea>
+    <label>Strict health/finance/legal (RU)</label>
+    <textarea name="disclaimer_strict_ru" rows="3">{{ disclaimer_strict_ru }}</textarea>
+    <label>Strict health/finance/legal (EN)</label>
+    <textarea name="disclaimer_strict_en" rows="3">{{ disclaimer_strict_en }}</textarea>
+    <div style="margin-top:10px;"><button class="btn btn-primary" type="submit">Сохранить дисклеймеры</button></div>
+  </form>
+</div>
+
+<div class="card">
   <h2>Export API — свежесть для VPS cron</h2>
   <p class="note">Дефолтный фильтр по <code>created_at</code> (дата создания черновика). Применяется, если VPS вызывает <code>GET /integrations/theunum/v1/drafts?consumed=false</code> <strong>без</strong> <code>freshness</code>, <code>max_age_hours</code> и <code>generated_since</code>. Явные query-параметры всегда важнее.</p>
   <form class="inline-form" method="post" action="/ui/admin/settings/export-freshness">

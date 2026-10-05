@@ -11,6 +11,7 @@ from rewrite_app.prompt.style_guide import (
     V19_FACTUAL_COVERAGE_APPENDIX,
     V20_FACT_PROPORTIONAL_VOLUME_APPENDIX,
     V27_EDITORIAL_SESSION_APPENDIX,
+    V28_TITLE_LEAD_APPENDIX,
 )
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -46,6 +47,10 @@ PROMPT_V20_NOTES = (
 PROMPT_V27_NOTES = (
     "v27 — editorial session brief: ≥80% fact coverage, no invented years/names, "
     "invest/direction/anglicism/evaluation guards; seeded 2026-10-05"
+)
+PROMPT_V28_NOTES = (
+    "v28 — announcement title ≠ lead sentence (digit/context in first sentence); "
+    "seeded 2026-10-05"
 )
 
 
@@ -188,6 +193,23 @@ def create_v27_from_active(db: Session) -> PromptVersion:
         template=f"{active.template.rstrip()}\n\n{V27_EDITORIAL_SESSION_APPENDIX}",
         status=PromptVersionStatus.DRAFT,
         notes=PROMPT_V27_NOTES,
+    )
+    db.add(version)
+    db.commit()
+    db.refresh(version)
+    return version
+
+
+def create_v28_from_active(db: Session) -> PromptVersion:
+    """Append title≠lead brief as DRAFT without replacing ACTIVE."""
+    existing = db.scalar(select(PromptVersion).where(PromptVersion.notes == PROMPT_V28_NOTES))
+    if existing is not None:
+        return existing
+    active = get_active_prompt_version(db)
+    version = PromptVersion(
+        template=f"{active.template.rstrip()}\n\n{V28_TITLE_LEAD_APPENDIX}",
+        status=PromptVersionStatus.DRAFT,
+        notes=PROMPT_V28_NOTES,
     )
     db.add(version)
     db.commit()

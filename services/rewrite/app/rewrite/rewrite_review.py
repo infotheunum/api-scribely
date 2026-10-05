@@ -15,6 +15,7 @@ from rewrite_app.rewrite.review_report import (
     empty_filters,
     fact_checks_from_filters,
 )
+from rewrite_app.rewrite.title_lead import check_title_lead_pairs
 from rewrite_app.settings import RewriteSettings
 from sqlalchemy.orm import Session
 
@@ -26,8 +27,9 @@ def run_filters_1_5(
     facts_text: str = "",
     required_text: str = "",
     banned_phrases: list[dict[str, str]] | None = None,
+    title_body_pairs: list[tuple[str, str, str]] | None = None,
 ) -> dict[str, Any]:
-    """Deterministic filters: missing / invented / distorted / quotes / banned."""
+    """Deterministic filters: missing / invented / distorted / quotes / banned / title_lead."""
     filters = empty_filters()
     fact_parts = compare_facts(
         source_text=source_text,
@@ -39,6 +41,8 @@ def run_filters_1_5(
     filters.update(fact_parts)
     filters["quotes"] = check_quotes(source_text=source_text, rewrite_text=rewrite_text)
     filters["banned"] = find_banned_phrases(rewrite_text, phrases=banned_phrases)
+    if title_body_pairs:
+        filters["title_lead"] = check_title_lead_pairs(title_body_pairs)
     return filters
 
 
@@ -53,6 +57,7 @@ def run_rewrite_review(
     rewrite_plain_text: str,
     translate_sources: bool,
     run_semantic: bool = True,
+    title_body_pairs: list[tuple[str, str, str]] | None = None,
 ) -> tuple[bool, list[str], dict[str, Any], str | None, str | None, Any]:
     """Run filters 1→5 then optional LLM filter 6; return gate-compatible tuple."""
     banned = get_banned_phrases(db)
@@ -62,6 +67,7 @@ def run_rewrite_review(
         facts_text=facts_text,
         required_text=required_facts_text or facts_text,
         banned_phrases=banned,
+        title_body_pairs=title_body_pairs,
     )
 
     usage = None
