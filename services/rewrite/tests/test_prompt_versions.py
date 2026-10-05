@@ -10,6 +10,7 @@ from rewrite_app.prompt.style_guide import (
     V17_READABILITY_APPENDIX,
     V18_RU_EDITORIAL_PRECISION_APPENDIX,
     V19_FACTUAL_COVERAGE_APPENDIX,
+    V27_EDITORIAL_SESSION_APPENDIX,
 )
 from rewrite_app.prompt.versions import (
     PROMPT_V14_NOTES,
@@ -18,11 +19,13 @@ from rewrite_app.prompt.versions import (
     PROMPT_V17_NOTES,
     PROMPT_V18_NOTES,
     PROMPT_V19_NOTES,
+    PROMPT_V27_NOTES,
     create_v15_from_active,
     create_v16_from_active,
     create_v17_from_active,
     create_v18_from_active,
     create_v19_from_active,
+    create_v27_from_active,
     get_active_prompt_version,
 )
 
@@ -180,3 +183,26 @@ def test_v19_candidate_extends_active_prompt_without_replacing_it(clean_db):
     assert candidate.notes == PROMPT_V19_NOTES
     assert candidate.template == f"working v18 rules\n\n{V19_FACTUAL_COVERAGE_APPENDIX}"
     assert clean_db.get(PromptVersion, active.id).status == PromptVersionStatus.ACTIVE
+
+
+def test_v27_candidate_extends_active_prompt_without_replacing_it(clean_db):
+    active = PromptVersion(
+        template="working v26 rules",
+        status=PromptVersionStatus.ACTIVE,
+        notes="v26",
+    )
+    clean_db.add(active)
+    clean_db.commit()
+
+    candidate = create_v27_from_active(clean_db)
+
+    assert candidate.status == PromptVersionStatus.DRAFT
+    assert candidate.notes == PROMPT_V27_NOTES
+    assert candidate.template == f"working v26 rules\n\n{V27_EDITORIAL_SESSION_APPENDIX}"
+    assert "НЕ «ТЕКСТ НА ТЕМУ»" in candidate.template
+    assert "перекупленность ≠ перепроданность" in candidate.template
+    assert "точка входа" in candidate.template
+    assert clean_db.get(PromptVersion, active.id).status == PromptVersionStatus.ACTIVE
+    # Idempotent
+    again = create_v27_from_active(clean_db)
+    assert again.id == candidate.id

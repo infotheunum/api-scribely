@@ -15,7 +15,8 @@ BANNED_PHRASES_KEY = "compliance.banned_phrases"
 BANNED_PHRASES_DESCRIPTION = (
     "Phrase blacklist for rewrite filter 5: JSON array of "
     "{phrase, category} objects. Categories: investment, political, "
-    "bad_translation. Matches outside quotes only. Investment → critical."
+    "evaluation, bad_translation. Matches outside quotes only. "
+    "Investment → critical; evaluation/political → warning."
 )
 
 # Seed inventory from style guide + editorial brief. Runtime SoT is AppSetting
@@ -52,6 +53,12 @@ DEFAULT_BANNED_PHRASES: list[dict[str, str]] = [
     {"phrase": "пора покупать", "category": "investment"},
     {"phrase": "стоит обратить внимание инвесторам", "category": "investment"},
     {"phrase": "для инвесторов это", "category": "investment"},
+    {"phrase": "рекомендуется", "category": "investment"},
+    # evaluative fluff not grounded in source (warning)
+    {"phrase": "значительный шаг", "category": "evaluation"},
+    {"phrase": "впечатляющий рост", "category": "evaluation"},
+    {"phrase": "открывает новые горизонты", "category": "evaluation"},
+    {"phrase": "усиливает подозрения", "category": "evaluation"},
     # political / climate padding not grounded in source
     {"phrase": "изменение климата", "category": "political"},
     {"phrase": "глобального изменения климата", "category": "political"},
