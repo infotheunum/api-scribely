@@ -7,10 +7,14 @@ from api_app.auth.integration import require_integration_token_dep
 from api_app.db import get_db
 from api_app.integrations.freshness import FreshnessPreset, resolve_export_time_cutoffs
 from api_app.integrations.pipeline_status import build_list_meta, build_pipeline_status
-from common.export_language import ExportLanguage, resolve_export_language, project_export_item
-from common.integration_export_settings import merge_export_freshness_query, merge_export_limit_query
-from common.integration_export_schema import build_export_schema_payload
 from api_app.routers.drafts import DEFAULT_QUEUE_STATUSES, DraftDetail
+from common.disclaimer import apply_disclaimer_to_bodies
+from common.export_language import ExportLanguage, project_export_item, resolve_export_language
+from common.integration_export_schema import build_export_schema_payload
+from common.integration_export_settings import (
+    merge_export_freshness_query,
+    merge_export_limit_query,
+)
 from common.rewrite_body_format import body_to_html
 from common.tracing import get_trace_id
 from db.models import AuditLog, Draft, DraftExportLog, NewsCluster, RawItem
@@ -39,13 +43,26 @@ def _to_integration_export(
     export_log: DraftExportLog | None,
     *,
     language: ExportLanguage = "all",
+    db: Session | None = None,
 ) -> IntegrationDraftExport:
     detail = DraftDetail.from_model(draft)
+    body_en = detail.body_en
+    body_ru = detail.body_ru
+    if draft.disclaimer_flag:
+        body_en, body_ru = apply_disclaimer_to_bodies(
+            db,
+            body_en=body_en,
+            body_ru=body_ru,
+            enabled=True,
+            category_slug=draft.pending_category_slug,
+        )
     payload = project_export_item(
         {
             **detail.model_dump(),
-            "body_en_html": body_to_html(detail.body_en),
-            "body_ru_html": body_to_html(detail.body_ru),
+            "body_en": body_en,
+            "body_ru": body_ru,
+            "body_en_html": body_to_html(body_en),
+            "body_ru_html": body_to_html(body_ru),
             "consumed_at": export_log.consumed_at if export_log else None,
         },
         language,
@@ -186,7 +203,12 @@ def _list_export_drafts_impl(
     next_cursor = str(page[-1].id) if has_more and page else None
 
     items = [
-        _to_integration_export(draft, draft.export_log if draft.export_log else None, language=language)
+        _to_integration_export(
+            draft,
+            draft.export_log if draft.export_log else None,
+            language=language,
+            db=db,
+        )
         for draft in page
     ]
 
@@ -332,6 +354,7 @@ def get_export_draft(
         draft,
         export_log,
         language=resolve_export_language(db, language),
+        db=db,
     )
 
 
@@ -380,7 +403,9 @@ def mark_consumed_one(
 
 
 @router.post("/drafts/mark-consumed", response_model=MarkConsumedResponse)
-def mark_consumed_batch(body: MarkConsumedBatch, db: Session = Depends(get_db)) -> MarkConsumedResponse:
+def mark_consumed_batch(
+    body: MarkConsumedBatch, db: Session = Depends(get_db)
+) -> MarkConsumedResponse:
     if not body.items:
         return MarkConsumedResponse(marked=0, draft_ids=[])
     marked_ids: list[str] = []

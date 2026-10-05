@@ -354,6 +354,10 @@ def rewrite_cluster(
                 )
                 and gate_strict,
                 run_semantic=gate_strict,
+                title_body_pairs=[
+                    ("en", result.title_en, result.body_en),
+                    ("ru", result.title_ru, result.body_ru),
+                ],
             )
             review_report["all_extracted_facts"] = facts_text
             review_report["quality_gate_required_facts"] = quality_required_facts

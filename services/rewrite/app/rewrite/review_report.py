@@ -14,6 +14,7 @@ FILTER_KEYS = (
     "distorted",
     "quotes",
     "banned",
+    "title_lead",
     "semantic",
 )
 
