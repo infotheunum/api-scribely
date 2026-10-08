@@ -483,3 +483,28 @@ def test_integration_manual_burst_and_generation_hours(client, clean_db):
     )
     assert stopped.status_code == 200
     assert stopped.json()["cancelled"] is True
+
+
+def test_integration_dispatch_pacing(client, clean_db):
+    got = client.get(
+        "/integrations/theunum/v1/pipeline/dispatch-pacing",
+        headers=AUTH_HEADERS,
+    )
+    assert got.status_code == 200
+    assert "target_per_hour" in got.json()
+    assert "max_item_age_hours" in got.json()
+
+    updated = client.put(
+        "/integrations/theunum/v1/pipeline/dispatch-pacing",
+        headers=AUTH_HEADERS,
+        json={"target_per_hour": 10, "max_item_age_hours": 20},
+    )
+    assert updated.status_code == 200
+    assert updated.json() == {"target_per_hour": 10, "max_item_age_hours": 20}
+
+    again = client.get(
+        "/integrations/theunum/v1/pipeline/dispatch-pacing",
+        headers=AUTH_HEADERS,
+    )
+    assert again.status_code == 200
+    assert again.json() == {"target_per_hour": 10, "max_item_age_hours": 20}

@@ -472,3 +472,70 @@ def integration_stop_manual_burst(db: Session = Depends(get_db)) -> dict:
     )
     db.commit()
     return {"cancelled": True}
+
+
+class DispatchPacingOut(BaseModel):
+    target_per_hour: int
+    max_item_age_hours: int
+
+
+class DispatchPacingIn(BaseModel):
+    target_per_hour: int = Field(..., ge=1, le=50)
+    max_item_age_hours: int = Field(..., ge=1, le=168)
+
+
+def _dispatch_pacing_payload(db: Session) -> dict[str, int]:
+    from db.app_settings import get_setting
+
+    return {
+        "target_per_hour": max(1, min(50, int(get_setting(db, "dispatch.target_per_hour", 13)))),
+        "max_item_age_hours": max(
+            1, min(168, int(float(get_setting(db, "ingestion.max_item_age_hours", 24))))
+        ),
+    }
+
+
+@router.get("/pipeline/dispatch-pacing", response_model=DispatchPacingOut)
+def integration_get_dispatch_pacing(db: Session = Depends(get_db)) -> DispatchPacingOut:
+    """Same payload as admin GET /admin/pipeline/dispatch-pacing — M2M token auth."""
+    return DispatchPacingOut(**_dispatch_pacing_payload(db))
+
+
+@router.put("/pipeline/dispatch-pacing", response_model=DispatchPacingOut)
+def integration_upsert_dispatch_pacing(
+    body: DispatchPacingIn,
+    db: Session = Depends(get_db),
+) -> DispatchPacingOut:
+    """Update hourly pace + freshness window via THEUNUM_INTEGRATION_TOKEN."""
+    from db.app_settings import set_setting
+
+    previous = _dispatch_pacing_payload(db)
+    set_setting(
+        db,
+        "dispatch.target_per_hour",
+        int(body.target_per_hour),
+        description="Soft hourly draft cap across the generation window.",
+        updated_by=None,
+    )
+    set_setting(
+        db,
+        "ingestion.max_item_age_hours",
+        int(body.max_item_age_hours),
+        description="Editorial freshness window (hours) for rewrite selection.",
+        updated_by=None,
+    )
+    db.add(
+        AuditLog(
+            action="theunum_dispatch_pacing_update",
+            entity_type="AppSetting",
+            entity_id="dispatch.pacing",
+            details={
+                "before": previous,
+                "after": body.model_dump(),
+                "source": "integration_api",
+            },
+            trace_id=get_trace_id(),
+        )
+    )
+    db.commit()
+    return DispatchPacingOut(**_dispatch_pacing_payload(db))
