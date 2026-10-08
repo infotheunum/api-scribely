@@ -427,6 +427,98 @@ def integration_generation_hours(db: Session = Depends(get_db)) -> dict:
     return generation_hours_as_dict(load_generation_hours(db), db=db)
 
 
+class GenerationDayIn(BaseModel):
+    weekday: int = Field(..., ge=0, le=6)
+    enabled: bool = True
+    start_hour: int = Field(6, ge=0, le=23)
+    end_hour: int = Field(18, ge=1, le=24)
+
+
+class GenerationHoursIn(BaseModel):
+    enabled: bool = True
+    timezone: str = "Europe/Minsk"
+    weekend_daily_limit: int = Field(25, ge=1, le=500)
+    weekday_daily_limit: int | None = Field(None, ge=1, le=1000)
+    days: list[GenerationDayIn] | None = None
+    start_hour: int = Field(6, ge=0, le=23)
+    end_hour: int = Field(18, ge=1, le=24)
+    working_days: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4])
+
+
+@router.put("/pipeline/generation-hours")
+def integration_upsert_generation_hours(
+    body: GenerationHoursIn,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Update generation window + daily caps via THEUNUM_INTEGRATION_TOKEN."""
+    from common.generation_hours import (
+        WEEKDAY_DAILY_LIMIT_KEY,
+        DayWindow,
+        default_schedule,
+        generation_hours_as_dict,
+        load_generation_hours,
+        save_generation_hours,
+    )
+    from db.app_settings import set_setting
+
+    previous = generation_hours_as_dict(load_generation_hours(db), db=db)
+    if body.days is not None:
+        by_weekday = {d.weekday: d for d in body.days}
+        base = list(default_schedule())
+        days = []
+        for i, fallback in enumerate(base):
+            item = by_weekday.get(i)
+            if item is None:
+                days.append(fallback)
+            else:
+                days.append(
+                    DayWindow(
+                        enabled=item.enabled,
+                        start_hour=item.start_hour,
+                        end_hour=item.end_hour,
+                    )
+                )
+        save_generation_hours(
+            db,
+            enabled=body.enabled,
+            timezone_name=body.timezone,
+            days=days,
+            weekend_daily_limit=body.weekend_daily_limit,
+            updated_by=None,
+        )
+    else:
+        save_generation_hours(
+            db,
+            enabled=body.enabled,
+            timezone_name=body.timezone,
+            start_hour=body.start_hour,
+            end_hour=body.end_hour,
+            working_days=body.working_days,
+            weekend_daily_limit=body.weekend_daily_limit,
+            updated_by=None,
+        )
+    if body.weekday_daily_limit is not None:
+        set_setting(
+            db,
+            WEEKDAY_DAILY_LIMIT_KEY,
+            int(body.weekday_daily_limit),
+            description="Weekday daily draft quota.",
+            updated_by=None,
+        )
+    after = generation_hours_as_dict(load_generation_hours(db), db=db)
+    db.add(
+        AuditLog(
+            action="theunum_generation_hours_update",
+            entity_type="AppSetting",
+            entity_id="pipeline.generation_hours",
+            details={"before": previous, "after": after, "source": "integration_api"},
+            trace_id=get_trace_id(),
+        )
+    )
+    db.commit()
+    return after
+
+
 @router.post("/pipeline/manual-burst", response_model=ManualBurstOut)
 def integration_start_manual_burst(
     body: ManualBurstIn,
@@ -472,3 +564,70 @@ def integration_stop_manual_burst(db: Session = Depends(get_db)) -> dict:
     )
     db.commit()
     return {"cancelled": True}
+
+
+class DispatchPacingOut(BaseModel):
+    target_per_hour: int
+    max_item_age_hours: int
+
+
+class DispatchPacingIn(BaseModel):
+    target_per_hour: int = Field(..., ge=1, le=50)
+    max_item_age_hours: int = Field(..., ge=1, le=168)
+
+
+def _dispatch_pacing_payload(db: Session) -> dict[str, int]:
+    from db.app_settings import get_setting
+
+    return {
+        "target_per_hour": max(1, min(50, int(get_setting(db, "dispatch.target_per_hour", 13)))),
+        "max_item_age_hours": max(
+            1, min(168, int(float(get_setting(db, "ingestion.max_item_age_hours", 24))))
+        ),
+    }
+
+
+@router.get("/pipeline/dispatch-pacing", response_model=DispatchPacingOut)
+def integration_get_dispatch_pacing(db: Session = Depends(get_db)) -> DispatchPacingOut:
+    """Same payload as admin GET /admin/pipeline/dispatch-pacing — M2M token auth."""
+    return DispatchPacingOut(**_dispatch_pacing_payload(db))
+
+
+@router.put("/pipeline/dispatch-pacing", response_model=DispatchPacingOut)
+def integration_upsert_dispatch_pacing(
+    body: DispatchPacingIn,
+    db: Session = Depends(get_db),
+) -> DispatchPacingOut:
+    """Update hourly pace + freshness window via THEUNUM_INTEGRATION_TOKEN."""
+    from db.app_settings import set_setting
+
+    previous = _dispatch_pacing_payload(db)
+    set_setting(
+        db,
+        "dispatch.target_per_hour",
+        int(body.target_per_hour),
+        description="Soft hourly draft cap across the generation window.",
+        updated_by=None,
+    )
+    set_setting(
+        db,
+        "ingestion.max_item_age_hours",
+        int(body.max_item_age_hours),
+        description="Editorial freshness window (hours) for rewrite selection.",
+        updated_by=None,
+    )
+    db.add(
+        AuditLog(
+            action="theunum_dispatch_pacing_update",
+            entity_type="AppSetting",
+            entity_id="dispatch.pacing",
+            details={
+                "before": previous,
+                "after": body.model_dump(),
+                "source": "integration_api",
+            },
+            trace_id=get_trace_id(),
+        )
+    )
+    db.commit()
+    return DispatchPacingOut(**_dispatch_pacing_payload(db))
