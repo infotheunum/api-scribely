@@ -278,6 +278,49 @@ def test_generation_hours_get_and_put(client, admin_user, clean_db):
     assert legacy.json()["weekend_daily_limit"] == 25
 
 
+def test_dispatch_pacing_get_and_put(client, admin_user, clean_db):
+    headers = _auth_headers(client, admin_user)
+    defaults = client.get("/admin/pipeline/dispatch-pacing", headers=headers)
+    assert defaults.status_code == 200
+    body = defaults.json()
+    assert body["target_per_hour"] >= 1
+    assert body["max_item_age_hours"] >= 1
+
+    updated = client.put(
+        "/admin/pipeline/dispatch-pacing",
+        json={"target_per_hour": 11, "max_item_age_hours": 18},
+        headers=headers,
+    )
+    assert updated.status_code == 200
+    assert updated.json() == {"target_per_hour": 11, "max_item_age_hours": 18}
+
+    again = client.get("/admin/pipeline/dispatch-pacing", headers=headers)
+    assert again.status_code == 200
+    assert again.json() == {"target_per_hour": 11, "max_item_age_hours": 18}
+
+    bad = client.put(
+        "/admin/pipeline/dispatch-pacing",
+        json={"target_per_hour": 0, "max_item_age_hours": 18},
+        headers=headers,
+    )
+    assert bad.status_code == 422
+
+
+def test_dispatch_pacing_accepts_integration_bearer_token(client, admin_user, clean_db):
+    headers = {"Authorization": "Bearer test-theunum-integration-token"}
+    resp = client.get("/admin/pipeline/dispatch-pacing", headers=headers)
+    assert resp.status_code == 200
+    assert "target_per_hour" in resp.json()
+
+    updated = client.put(
+        "/admin/pipeline/dispatch-pacing",
+        json={"target_per_hour": 12, "max_item_age_hours": 24},
+        headers=headers,
+    )
+    assert updated.status_code == 200
+    assert updated.json()["target_per_hour"] == 12
+
+
 def test_prompt_version_create_and_activate(client, admin_user, clean_db):
     headers = _auth_headers(client, admin_user)
     v1 = client.post(
