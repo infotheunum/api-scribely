@@ -49,7 +49,9 @@ EDITORIAL_TIMEZONE = ZoneInfo("Europe/Minsk")
 FAILED_QUEUE_SETTING_KEY = "dispatch.failed_cluster_queue"
 FAILED_QUEUE_DEFER_HOURS = 6
 TARGET_PER_HOUR_SETTING_KEY = "dispatch.target_per_hour"
-DEFAULT_TARGET_PER_HOUR = 18
+# ~100 weekday / ~12h window ≈ 8–9/h — spreads drafts through the day instead
+# of burning the daily quota by late morning (legacy default was 18).
+DEFAULT_TARGET_PER_HOUR = 9
 
 # The Railway worker is a single replica.  Three APScheduler dispatch jobs
 # share this process; reserve a cluster while its slow LLM call is in flight

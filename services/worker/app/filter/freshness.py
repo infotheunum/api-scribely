@@ -17,9 +17,9 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import ColumnElement
 
-# Editorial window: only news from roughly the last 1–2 days are worth
-# rewrite (ingest + dispatch). Overridable via AppSetting.
-DEFAULT_MAX_AGE_HOURS = 48.0
+# Editorial window: only news from roughly the last day are worth rewrite
+# (ingest + dispatch). Overridable via AppSetting.
+DEFAULT_MAX_AGE_HOURS = 24.0
 MAX_AGE_HOURS_SETTING_KEY = "ingestion.max_item_age_hours"
 
 

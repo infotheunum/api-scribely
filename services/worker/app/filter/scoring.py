@@ -11,10 +11,11 @@ from worker_app.filter.freshness import cluster_newest_effective_at
 # model — nothing here claims to be more precise than that.
 SOURCE_COUNT_WEIGHT = 10.0
 TIER_WEIGHT = 5.0
-FRESHNESS_WEIGHT = 20.0
-# Align with ingestion.max_item_age_hours default (1–2 day editorial window):
+# Prefer midday-fresh clusters over overnight backlog when source counts are close.
+FRESHNESS_WEIGHT = 30.0
+# Align with ingestion.max_item_age_hours default (24h editorial window):
 # freshness score hits zero as the item leaves the rewrite-eligible window.
-FRESHNESS_HALF_LIFE_HOURS = 48.0
+FRESHNESS_HALF_LIFE_HOURS = 24.0
 
 
 def compute_priority_score(cluster: NewsCluster, *, now: datetime | None = None) -> float:
