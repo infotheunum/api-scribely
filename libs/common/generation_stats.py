@@ -176,7 +176,7 @@ def build_generation_stats(
         },
         "llm_tokens": tokens,
         "targets": {
-            "weekday_kpi_band": [90, 110],
+            "weekday_kpi_band": [140, 160],
             "effective_daily_limit": daily_limit,
         },
     }
