@@ -485,6 +485,28 @@ def test_integration_manual_burst_and_generation_hours(client, clean_db):
     assert stopped.json()["cancelled"] is True
 
 
+def test_integration_put_generation_hours(client, clean_db):
+    updated = client.put(
+        "/integrations/theunum/v1/pipeline/generation-hours",
+        headers=AUTH_HEADERS,
+        json={
+            "enabled": True,
+            "timezone": "Europe/Minsk",
+            "weekend_daily_limit": 20,
+            "weekday_daily_limit": 120,
+            "days": [
+                {"weekday": i, "enabled": True, "start_hour": 7, "end_hour": 17}
+                for i in range(7)
+            ],
+        },
+    )
+    assert updated.status_code == 200
+    body = updated.json()
+    assert body["weekday_daily_limit"] == 120
+    assert body["weekend_daily_limit"] == 20
+    assert body["days"][0]["start_hour"] == 7
+
+
 def test_integration_dispatch_pacing(client, clean_db):
     got = client.get(
         "/integrations/theunum/v1/pipeline/dispatch-pacing",

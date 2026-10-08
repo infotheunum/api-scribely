@@ -1,6 +1,11 @@
 {% extends "admin_base.html" %}
 {% block title %}Настройки пайплайна — Admin Settings{% endblock %}
 {% block admin_content %}
+<p class="note" style="border-left:3px solid #2563eb;padding-left:0.75rem">
+  <strong>SoT для редакции — Unum Admin</strong>
+  (<code>/admin/news/settings</code>). Меняйте темп, промпты, источники и остальное там.
+  Этот экран — запасной контур для отладки.
+</p>
 <p class="note">Тонкие/грубые настройки пайплайна (ТЗ §4.21) — значение подхватывается на следующем тике воркера, без редеплоя. Значение можно задать числом, строкой, true/false или JSON.</p>
 
 <div class="card">
