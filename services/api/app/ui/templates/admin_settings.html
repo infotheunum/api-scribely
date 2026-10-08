@@ -61,6 +61,29 @@
 </div>
 
 <div class="card">
+  <h2>Темп и свежесть (чтобы не сжечь квоту утром)</h2>
+  <p class="note">
+    <code>target_per_hour</code> — сколько черновиков максимум за час (при лимите 100 и окне 12 ч
+    бери ~8–9). <code>max_item_age_hours</code> — не брать в рерайт сюжеты старше N часов
+    (отсекает ночной хвост, днём остаются более актуальные).
+  </p>
+  <form class="inline-form" method="post" action="/ui/admin/settings/dispatch-pacing">
+    <div class="field field-narrow">
+      <label>Черновиков в час</label>
+      <input type="number" name="target_per_hour" min="1" max="50" value="{{ dispatch_target_per_hour }}" required>
+    </div>
+    <div class="field field-narrow">
+      <label>Макс. возраст новости (часы)</label>
+      <input type="number" name="max_item_age_hours" min="1" max="168" value="{{ ingestion_max_item_age_hours }}" required>
+    </div>
+    <div class="field field-narrow">
+      <button class="btn btn-primary" type="submit">Сохранить темп</button>
+    </div>
+  </form>
+  <p class="note">Ключи: <code>dispatch.target_per_hour</code>, <code>ingestion.max_item_age_hours</code>.</p>
+</div>
+
+<div class="card">
   <h2>Ручная генерация (burst)</h2>
   <p class="note">
     Ручная генерация <strong>обходит суточный лимит</strong>: сколько укажешь — столько ещё

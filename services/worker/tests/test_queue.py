@@ -116,7 +116,7 @@ def test_selection_excludes_clusters_with_stale_published_at(clean_db):
     source = _source(clean_db, "s")
     now = datetime.now(UTC)
     fresh = _cluster(clean_db, source, score=10, published_at=now - timedelta(hours=12))
-    # High score but outside the 48h editorial window — must not enter rewrite.
+    # High score but outside the 24h editorial window — must not enter rewrite.
     _cluster(clean_db, source, score=99, published_at=now - timedelta(hours=60))
 
     selected = select_top_clusters(clean_db, limit=10, fairness_cap_ratio=1.0, now=now)
