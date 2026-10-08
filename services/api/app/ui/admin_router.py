@@ -365,6 +365,8 @@ def settings_page(
     dedup_llm_confirm = bool(get_setting(db, "dedup.llm_confirm_enabled", True))
     dedup_confirm_threshold = float(get_setting(db, "dedup.confirmation_threshold", 0.85))
     dedup_max_candidates = int(get_setting(db, "dedup.max_confirmation_candidates", 1))
+    dispatch_target_per_hour = int(get_setting(db, "dispatch.target_per_hour", 9))
+    ingestion_max_item_age_hours = float(get_setting(db, "ingestion.max_item_age_hours", 24))
     return templates.TemplateResponse(
         request,
         "admin_settings.html",
@@ -390,6 +392,8 @@ def settings_page(
             "dedup_llm_confirm": dedup_llm_confirm,
             "dedup_confirm_threshold": dedup_confirm_threshold,
             "dedup_max_candidates": dedup_max_candidates,
+            "dispatch_target_per_hour": dispatch_target_per_hour,
+            "ingestion_max_item_age_hours": int(ingestion_max_item_age_hours),
         },
     )
 
@@ -422,6 +426,37 @@ def upsert_export_freshness_ui(
         default_max_age_hours=hours,
         default_limit=limit,
         updated_by=user.id if user else None,
+    )
+    db.commit()
+    return RedirectResponse("/ui/admin/settings", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/settings/dispatch-pacing")
+def upsert_dispatch_pacing_ui(
+    target_per_hour: int = Form(9),
+    max_item_age_hours: int = Form(24),
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
+    redirect = _require_admin(user)
+    if redirect:
+        return redirect
+    uid = user.id if user else None
+    set_setting(
+        db,
+        "dispatch.target_per_hour",
+        max(1, min(50, int(target_per_hour))),
+        description=("Soft hourly draft cap so weekday ~100 spreads across the generation window."),
+        updated_by=uid,
+    )
+    set_setting(
+        db,
+        "ingestion.max_item_age_hours",
+        max(1, min(168, int(max_item_age_hours))),
+        description=(
+            "Editorial freshness window (hours). Older clusters are not selected for rewrite."
+        ),
+        updated_by=uid,
     )
     db.commit()
     return RedirectResponse("/ui/admin/settings", status_code=status.HTTP_303_SEE_OTHER)
