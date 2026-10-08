@@ -16,7 +16,7 @@ SELECTION_WINDOW = timedelta(hours=48)
 # Editorial daily target/cap. Dispatch counts drafts already created today,
 # so no more than this number is sent to review in one editorial day.
 # Overridable at runtime through AppSetting (ТЗ §4.21).
-DEFAULT_LIMIT = 100
+DEFAULT_LIMIT = 150
 LIMIT_SETTING_KEY = "queue.daily_limit"
 
 # No single source should fill more than this share of the selected

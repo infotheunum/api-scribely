@@ -215,7 +215,7 @@ def test_generation_hours_get_and_put(client, admin_user, clean_db):
     assert body["end_hour"] == 18
     assert body["working_days"] == [0, 1, 2, 3, 4, 5, 6]
     assert body["weekend_daily_limit"] == 25
-    assert body["weekday_daily_limit"] == 100
+    assert body["weekday_daily_limit"] == 150
     assert len(body["days"]) == 7
     assert body["days"][5]["start_hour"] == 2
     assert body["days"][5]["end_hour"] == 9

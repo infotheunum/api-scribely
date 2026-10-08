@@ -365,7 +365,7 @@ def settings_page(
     dedup_llm_confirm = bool(get_setting(db, "dedup.llm_confirm_enabled", True))
     dedup_confirm_threshold = float(get_setting(db, "dedup.confirmation_threshold", 0.85))
     dedup_max_candidates = int(get_setting(db, "dedup.max_confirmation_candidates", 1))
-    dispatch_target_per_hour = int(get_setting(db, "dispatch.target_per_hour", 9))
+    dispatch_target_per_hour = int(get_setting(db, "dispatch.target_per_hour", 13))
     ingestion_max_item_age_hours = float(get_setting(db, "ingestion.max_item_age_hours", 24))
     return templates.TemplateResponse(
         request,
@@ -433,7 +433,7 @@ def upsert_export_freshness_ui(
 
 @router.post("/settings/dispatch-pacing")
 def upsert_dispatch_pacing_ui(
-    target_per_hour: int = Form(9),
+    target_per_hour: int = Form(13),
     max_item_age_hours: int = Form(24),
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
@@ -466,7 +466,7 @@ def upsert_dispatch_pacing_ui(
 def upsert_generation_hours_ui(
     enabled: str | None = Form(None),
     timezone_name: str = Form("Europe/Minsk"),
-    weekday_daily_limit: int = Form(100),
+    weekday_daily_limit: int = Form(150),
     weekend_daily_limit: int = Form(25),
     day_0_enabled: str | None = Form(None),
     day_0_start: int = Form(6),
