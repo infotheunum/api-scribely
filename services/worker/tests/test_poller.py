@@ -156,3 +156,34 @@ def test_poll_source_skips_entries_older_than_max_age(clean_db, monkeypatch):
     assert created == 2
     ids = {item.external_id for item in clean_db.query(RawItem).all()}
     assert ids == {"fresh", "no-date"}
+
+
+def test_poll_source_skips_video_pages(clean_db, monkeypatch):
+    source = _make_source(clean_db)
+    entries = [
+        ParsedEntry(
+            external_id="video",
+            url="https://www.bloomberg.com/news/videos/2026-10-12/nobel-prize-video",
+            title="Watch this",
+            summary="A short video blurb with no article.",
+            published_at=None,
+        ),
+        ParsedEntry(
+            external_id="article",
+            url="https://www.bloomberg.com/news/articles/2026-10-12/goldman-note",
+            title="Goldman note",
+            summary="short",
+            published_at=None,
+        ),
+    ]
+    monkeypatch.setattr("worker_app.ingestion.poller.fetch_feed_entries", lambda *a, **kw: entries)
+    monkeypatch.setattr(
+        "worker_app.ingestion.poller.fetch_full_text", lambda *a, **kw: "the article body"
+    )
+
+    created = poll_source(clean_db, source)
+
+    assert created == 1
+    raw_item = clean_db.query(RawItem).one()
+    assert raw_item.external_id == "article"
+    assert raw_item.body == "the article body"
