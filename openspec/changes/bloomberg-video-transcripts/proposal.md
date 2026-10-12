@@ -1,40 +1,27 @@
 ## Why
 
-Редакция разбирает видео Bloomberg / YouTube как источник фактов, но сейчас
-ingestion — только RSS/API текст. Нужен отдельный пайплайн: субтитры → факты →
-черновик со связью «статья ← видео».
+С Bloomberg в ленту попадают страницы `/news/videos/`: в RSS только короткий
+анонс, полного текста нет, сверять факты не с чем. Видео редакции не нужно —
+в оригинал должен попадать только текст статьи.
 
-## Ownership (жёстко)
+Решение: видео-URL не сохранять. У статей забирать абзацы из
+`__NEXT_DATA__.story.body` (видимый HTML часто обрывается на AI-takeaway).
 
-| Слой | Где |
-|------|-----|
-| Получение субтитров / Whisper / чанки | worker/connector (может жить рядом со Scribely ingestion **или** Unum API job) |
-| Structured facts + связь с Article | **api.theunum.io** + **admin.theunum.io** |
-| Карточка редактора: URL видео, транскрипт, факты, черновик | **admin.theunum.io** (Article / отдельная entity) — **не** Scribely `draft_detail.html` |
-| Флаг «факт статьи ≠ транскрипт» | Unum admin QA + site publish gate |
-| Scribely | только если видео идёт как источник rewrite-пайплайна (export `disclaimer_flag`-style quality signals) |
+## Ownership
 
-## What Changes (будущая реализация)
+Ingestion в Scribely worker: пропуск видео-URL и текст статьи в `RawItem.body`.
+Админка уже показывает этот `body` как оригинал.
 
-- Этап 1: YouTube Transcript API; Bloomberg WebVTT/TTML; fallback Whisper.
-- Этап 2: чанки 30–60с → summary + structured facts.
-- Этап 3: Unum admin fields (источник=URL, транскрипт+таймкоды, факты, draft).
-- Этап 4: article ↔ video link; mismatch flag.
+## What Changes
 
-## Out of scope / wrong place
+- Poll пропускает URL с `/videos/` и YouTube.
+- `fetch_full_text` для статей Bloomberg берёт абзацы `story.body`, не плеер и не анонс.
+- Транскрипт, Whisper и плеер в админке не делаем.
 
-Не строить CMS-поля транскрипта/дисклеймер-текстов во втором admin (Scribely UI).
-Текст дисклеймера на сайте — i18n / `Article.showDisclaimer` в Unum.
+## Out of scope
 
-## Capabilities
-
-### New Capabilities
-
-- `video-transcript-ingestion`
-- `video-fact-extraction`
-- `video-draft-admin` (Unum admin)
-- `video-fact-link-check`
+Плеер, скачивание видео, субтитры, Whisper, отдельные поля транскрипта в админке.
 
 ## Impact
 
-Unum Prisma models, admin.theunum.io entity detail, optionally Scribely connector.
+`libs/common/fulltext.py`, `services/worker` poller. Уже сохранённые видео-черновики не удаляются.

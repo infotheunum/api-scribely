@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 
-from common.fulltext import fetch_full_text
+from common.fulltext import fetch_full_text, is_video_page_url
 from common.tracing import new_trace_id
 from db.enums import SourceTier, SourceType
 from db.models import RawItem, Source
@@ -69,7 +69,11 @@ def poll_source(db: Session, source: Source) -> int:
     cutoff = now - age_window
     created = 0
     skipped_stale = 0
+    skipped_video = 0
     for entry in entries:
+        if is_video_page_url(entry.url):
+            skipped_video += 1
+            continue
         if _raw_item_exists(db, source.id, entry.external_id):
             continue
         # RSS feeds often keep 7–30 days of history. Only keep items inside
@@ -104,12 +108,13 @@ def poll_source(db: Session, source: Source) -> int:
     record_success(source)
     db.commit()
     logger.info(
-        "polled source %s (%s): %d new items (%d skipped stale >%sh)",
+        "polled source %s (%s): %d new items (%d skipped stale >%sh, %d skipped video)",
         source.name,
         source.id,
         created,
         skipped_stale,
         int(age_window.total_seconds() // 3600),
+        skipped_video,
     )
     return created
 
