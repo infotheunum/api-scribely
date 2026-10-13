@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 
-from common.fulltext import fetch_full_text, is_video_page_url
+from common.fulltext import fetch_article, is_video_page_url
 from common.tracing import new_trace_id
 from db.enums import SourceTier, SourceType
 from db.models import RawItem, Source
@@ -70,6 +70,7 @@ def poll_source(db: Session, source: Source) -> int:
     created = 0
     skipped_stale = 0
     skipped_video = 0
+    skipped_withheld = 0
     for entry in entries:
         if is_video_page_url(entry.url):
             skipped_video += 1
@@ -85,9 +86,12 @@ def poll_source(db: Session, source: Source) -> int:
         body = entry.summary
         is_full_text = False
         if source.tier == SourceTier.TIER_1 and entry.looks_summary_only:
-            full_text = fetch_full_text(entry.url, user_agent=source.config.get("user_agent"))
-            if full_text:
-                body = full_text
+            fetched = fetch_article(entry.url, user_agent=source.config.get("user_agent"))
+            if fetched.withheld:
+                skipped_withheld += 1
+                continue
+            if fetched.text:
+                body = fetched.text
                 is_full_text = True
 
         db.add(
@@ -108,13 +112,15 @@ def poll_source(db: Session, source: Source) -> int:
     record_success(source)
     db.commit()
     logger.info(
-        "polled source %s (%s): %d new items (%d skipped stale >%sh, %d skipped video)",
+        "polled source %s (%s): %d new items "
+        "(%d skipped stale >%sh, %d skipped video, %d skipped withheld)",
         source.name,
         source.id,
         created,
         skipped_stale,
         int(age_window.total_seconds() // 3600),
         skipped_video,
+        skipped_withheld,
     )
     return created
 

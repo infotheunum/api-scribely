@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+from common.fulltext import ArticleFetch
 from db.enums import SourceTier, SourceType
 from db.models import RawItem, Source
 from worker_app.ingestion.circuit_breaker import CONSECUTIVE_FAILURE_THRESHOLD
@@ -46,7 +47,8 @@ def test_poll_source_creates_raw_items_and_is_idempotent(clean_db, monkeypatch):
     ]
     monkeypatch.setattr("worker_app.ingestion.poller.fetch_feed_entries", lambda *a, **kw: entries)
     monkeypatch.setattr(
-        "worker_app.ingestion.poller.fetch_full_text", lambda *a, **kw: "fetched full text"
+        "worker_app.ingestion.poller.fetch_article",
+        lambda *a, **kw: ArticleFetch(text="fetched full text"),
     )
 
     created = poll_source(clean_db, source)
@@ -72,7 +74,8 @@ def test_poll_source_fetches_full_text_for_summary_only_tier1(clean_db, monkeypa
     ]
     monkeypatch.setattr("worker_app.ingestion.poller.fetch_feed_entries", lambda *a, **kw: entries)
     monkeypatch.setattr(
-        "worker_app.ingestion.poller.fetch_full_text", lambda *a, **kw: "the real full article"
+        "worker_app.ingestion.poller.fetch_article",
+        lambda *a, **kw: ArticleFetch(text="the real full article"),
     )
 
     poll_source(clean_db, source)
@@ -148,7 +151,8 @@ def test_poll_source_skips_entries_older_than_max_age(clean_db, monkeypatch):
     ]
     monkeypatch.setattr("worker_app.ingestion.poller.fetch_feed_entries", lambda *a, **kw: entries)
     monkeypatch.setattr(
-        "worker_app.ingestion.poller.fetch_full_text", lambda *a, **kw: "fetched full text"
+        "worker_app.ingestion.poller.fetch_article",
+        lambda *a, **kw: ArticleFetch(text="fetched full text"),
     )
 
     created = poll_source(clean_db, source)
@@ -178,7 +182,8 @@ def test_poll_source_skips_video_pages(clean_db, monkeypatch):
     ]
     monkeypatch.setattr("worker_app.ingestion.poller.fetch_feed_entries", lambda *a, **kw: entries)
     monkeypatch.setattr(
-        "worker_app.ingestion.poller.fetch_full_text", lambda *a, **kw: "the article body"
+        "worker_app.ingestion.poller.fetch_article",
+        lambda *a, **kw: ArticleFetch(text="the article body"),
     )
 
     created = poll_source(clean_db, source)
@@ -187,3 +192,26 @@ def test_poll_source_skips_video_pages(clean_db, monkeypatch):
     raw_item = clean_db.query(RawItem).one()
     assert raw_item.external_id == "article"
     assert raw_item.body == "the article body"
+
+
+def test_poll_source_skips_withheld_article_body(clean_db, monkeypatch):
+    source = _make_source(clean_db)
+    entries = [
+        ParsedEntry(
+            external_id="metered",
+            url="https://thedefiant.io/news/security/ledger",
+            title="Ledger",
+            summary="short lede",
+            published_at=None,
+        )
+    ]
+    monkeypatch.setattr("worker_app.ingestion.poller.fetch_feed_entries", lambda *a, **kw: entries)
+    monkeypatch.setattr(
+        "worker_app.ingestion.poller.fetch_article",
+        lambda *a, **kw: ArticleFetch(withheld=True),
+    )
+
+    created = poll_source(clean_db, source)
+
+    assert created == 0
+    assert clean_db.query(RawItem).count() == 0

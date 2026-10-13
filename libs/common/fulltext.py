@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from dataclasses import dataclass
 from urllib.parse import urlparse
 
 import httpx
@@ -82,28 +83,65 @@ def bloomberg_story_text(html: str) -> str | None:
     return "\n\n".join(paragraphs)
 
 
-def fetch_full_text(
+# The Defiant (and the same meter) ships the lede in HTML and an empty
+# ``content`` array. The article body is behind /api/content, which is 401
+# without a login. A 100–400 character extract of that lede is not the story.
+_WITHHELD_BODY_RE = re.compile(
+    r'"contentAccess"\s*:\s*"(?:metered|pro)"'
+    r'(?:(?!"content"\s*:).){0,240}'
+    r'"content"\s*:\s*\[\s*\]',
+    re.DOTALL,
+)
+
+
+@dataclass(frozen=True)
+class ArticleFetch:
+    """``withheld`` means the page is public but the article body is not.
+
+    A network failure is ``text is None`` and ``withheld is False``: callers
+    may keep an RSS summary. A withheld page must not be stored as that summary.
+    """
+
+    text: str | None = None
+    withheld: bool = False
+
+
+def article_body_withheld(html: str) -> bool:
+    if _WITHHELD_BODY_RE.search(html):
+        return True
+    return _WITHHELD_BODY_RE.search(html.replace('\\"', '"')) is not None
+
+
+def fetch_article(
     url: str, *, user_agent: str | None = None, timeout: float = 15.0
-) -> str | None:
-    """Downloads a page and extracts the readable article body (ТЗ §4.12
-    fallback fetch, §4.1 manual inject). Returns None on any failure —
-    callers fall back to whatever summary they already have rather than
-    blocking the pipeline on one flaky page (ТЗ §5)."""
+) -> ArticleFetch:
+    """Downloads a page and extracts the readable article body (ТЗ §4.12)."""
     if is_video_page_url(url):
-        return None
+        return ArticleFetch(withheld=True)
     headers = {"User-Agent": user_agent or DEFAULT_USER_AGENT}
     try:
         response = httpx.get(url, headers=headers, timeout=timeout, follow_redirects=True)
         response.raise_for_status()
     except httpx.HTTPError:
         logger.warning("full-text fetch failed for %s", url, exc_info=True)
-        return None
+        return ArticleFetch()
+
+    if article_body_withheld(response.text):
+        logger.info("article body withheld for %s", url)
+        return ArticleFetch(withheld=True)
 
     story = bloomberg_story_text(response.text)
     extracted = trafilatura.extract(response.text, url=url, favor_precision=True)
     if story and (not extracted or len(story) >= len(extracted)):
-        return story
+        return ArticleFetch(text=story)
     if not extracted:
         logger.warning("full-text extraction produced no content for %s", url)
-        return None
-    return extracted
+        return ArticleFetch()
+    return ArticleFetch(text=extracted)
+
+
+def fetch_full_text(
+    url: str, *, user_agent: str | None = None, timeout: float = 15.0
+) -> str | None:
+    """Article text, or None when the fetch failed or the body is withheld."""
+    return fetch_article(url, user_agent=user_agent, timeout=timeout).text
