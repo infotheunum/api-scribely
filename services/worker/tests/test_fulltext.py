@@ -2,7 +2,14 @@ from __future__ import annotations
 
 import json
 
-from common.fulltext import bloomberg_story_text, fetch_full_text, is_video_page_url
+from common.fulltext import (
+    ArticleFetch,
+    article_body_withheld,
+    bloomberg_story_text,
+    fetch_article,
+    fetch_full_text,
+    is_video_page_url,
+)
 
 
 def test_video_page_urls():
@@ -51,6 +58,34 @@ def test_bloomberg_story_text_keeps_paragraphs_only():
 
 def test_bloomberg_story_text_missing_on_video_shell():
     assert bloomberg_story_text("<html><title>Watch this</title></html>") is None
+
+
+def test_metered_empty_content_is_withheld():
+    html = (
+        r'\"contentAccess\":\"metered\",\"meterPolicy\":\"pro-v2\",\"content\":[]'
+    )
+    assert article_body_withheld(html)
+    assert not article_body_withheld('{"contentAccess":"public","content":[{"type":"p"}]}')
+
+
+def test_fetch_article_withheld_does_not_return_lede(monkeypatch):
+    html = '{"contentAccess":"metered","meterPolicy":"pro-v2","content":[]}'
+
+    class _Response:
+        text = html
+
+        def raise_for_status(self):
+            return None
+
+    monkeypatch.setattr("common.fulltext.httpx.get", lambda *a, **kw: _Response())
+    monkeypatch.setattr(
+        "common.fulltext.trafilatura.extract",
+        lambda *a, **kw: "Ledger says the lede only.",
+    )
+
+    fetched = fetch_article("https://thedefiant.io/news/security/ledger")
+    assert fetched == ArticleFetch(withheld=True)
+    assert fetch_full_text("https://thedefiant.io/news/security/ledger") is None
 
 
 def test_fetch_full_text_skips_video_urls(monkeypatch):
