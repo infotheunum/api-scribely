@@ -1,16 +1,10 @@
 # UNUM Rewriter Tool
 
-Внутренний инструмент редакции UNUM (theunum.io): собирает инфоповоды,
-делает AI-рерайт (EN+RU) через OpenRouter, прогоняет через
-compliance-проверки и отдаёт редакции на ревью и публикацию.
+Scribely (`api-scribely`) — бэкенд-фабрика AI-черновиков новостей для UNUM (theunum.io): собирает инфоповоды из RSS, дедуплицирует их, делает AI-рерайт (EN+RU) через платных LLM-провайдеров (OpenAI / Qwen / Anthropic), прогоняет проверки качества и отдаёт черновики в Unum через Export API. Редакторы работают в Unum; основной пульт настроек — Unum Admin.
 
-Постановка задачи, архитектура и весь процесс принятия решений — в
-[CLAUDE.md](CLAUDE.md) и [docs/](docs/). Этот файл — только про то, как
-поднять репозиторий локально.
+Контекст проекта и карта кода — в [CLAUDE.md](CLAUDE.md), обязательный Git-flow — в [AGENTS.md](AGENTS.md), контракт интеграции — в [docs/Интеграция_theunum_Export_API.md](docs/Интеграция_theunum_Export_API.md). Этот файл — про то, как поднять репозиторий локально, и про интеграцию с theunum.io.
 
-**Статус:** Фазы 0–7 (полный пайплайн + Review UI + Publish) задеплоены на
-Railway; следующая — Фаза 8 (отчётность). Подробности — в
-[CLAUDE.md](CLAUDE.md) и [docs/План_Реализации_MVP.md](docs/План_Реализации_MVP.md).
+**Статус:** работает в проде на Railway, развивается командой через PR на GitHub (`<type>/<task>` → `dev` → `main`). [docs/План_Реализации_MVP.md](docs/План_Реализации_MVP.md) и ТЗ — исторические документы прототипа, текущее состояние по ним не определяется.
 
 ## Архитектура (кратко)
 
@@ -18,9 +12,9 @@ Railway; следующая — Фаза 8 (отчётность). Подроб�
 
 | Сервис | Роль | Протокол |
 |---|---|---|
-| `api` | Backend API + WebSocket + Review UI, Auth | HTTP |
-| `worker` | Scheduler, Ingestion, Dedup, Filter, Compliance | HTTP (health) |
-| `rewrite` | `scribely-rewrite`: Enrichment/Rewrite/SEO/Tags/Keywords/Style | только gRPC |
+| `api` | Export API и M2M для Unum, Admin REST, UI (`/ui`, `/ui/admin`), WebSocket, Auth | HTTP |
+| `worker` | Scheduler, Ingestion, Dedup, Filter, Dispatch на рерайт, Compliance, синк категорий CMS | HTTP (health) |
+| `rewrite` | `scribely-rewrite`: Enrichment/Rewrite/проверки качества/SEO/Tags; LLM-ключи только здесь | только gRPC |
 
 `api`/`worker` — gRPC-клиенты к `rewrite`; общий код — только в `libs/`
 (модели БД, gRPC-стабы, инфраструктурные утилиты), без общего импорта
@@ -141,7 +135,7 @@ flowchart LR
 
 Пустая очередь — **не ошибка**: HTTP 200, `items: []`, в `meta.reason_code`
 обычно `queue_empty`. Если очередь пуста из‑за проблем пайплайна
-(OpenRouter, rewrite недоступен и т.д.) — другой `reason_code`; cron
+(нет LLM-ключей, rewrite недоступен и т.д.) — другой `reason_code`; cron
 должен алертить (см. таблицу в
 [docs/Интеграция_theunum_Export_API.md](docs/Интеграция_theunum_Export_API.md)).
 
@@ -171,7 +165,7 @@ Auth: `Authorization: Bearer <token>` или заголовок
 | GET | `/drafts/{id}` | Полный черновик EN+RU |
 | POST | `/drafts/mark-consumed` | Batch-пометка «уже забрали» |
 | POST | `/drafts/{id}/mark-consumed` | Одна пометка |
-| GET | `/status` | Диагностика пайплайна и OpenRouter |
+| GET | `/status` | Диагностика пайплайна и LLM-ключей (поля и `reason_code` исторически называются `openrouter*`, но считают ключи всех включённых провайдеров) |
 
 Подробный контракт, `meta.reason_code` и псевдокод cron — в
 [docs/Интеграция_theunum_Export_API.md](docs/Интеграция_theunum_Export_API.md).
@@ -207,7 +201,7 @@ curl -s -o /dev/null -w "%{http_code}\n" \
 "$(dirname "$PYBIN")/ruff" format .
 ```
 
-Тесты `services/api` и `services/rewrite` (auth-флоу, миграции) требуют
+Тесты всех трёх сервисов (auth-флоу, миграции, пайплайн) требуют
 доступный Postgres — по умолчанию тест-конфиг ждёт его на
 `localhost:55432`; либо поднимите Postgres на этот порт, либо
 переопределите `DATABASE_URL` перед запуском (см.
