@@ -11,6 +11,8 @@ CoinJournal feeds were live-verified 2026-09-03 from
 https://coinjournal.net/feeds/.
 Category catalog feeds (CMS: crypto/economics/finance/technology/world/ai)
 were live-verified 2026-09-03 — 5–10 per category, see CATEGORY_RSS_SOURCES.
+SHEET_RSS_SOURCES — блок внизу реестра RSS (таблица, 2026-10-15). Ленты,
+которые с воркера отвечают 403, в список не входят.
 
 Usage: DATABASE_URL=... python scripts/seed_sources.py
 """
@@ -402,6 +404,166 @@ CATEGORY_RSS_SOURCES = [
     ),
 ]
 
+# Нижний блок таблицы RSS, 2026-10-15. Уже в сиде: PYMNTS, MarkTechPost.
+# С воркера 403 и не сидим: GlobeNewswire Earnings, Business Standard Markets,
+# Daily Investor, Renewable Energy World, BusinessTech.
+# TheStreet — канонический XML после 308 с /.rss/full/.
+SHEET_RSS_POLL_SECONDS = 1800
+SHEET_RSS_SOURCES = [
+    (
+        "BLS — CPI",
+        "https://www.bls.gov/feed/cpi.rss",
+        "en",
+        SourceTier.TIER_3,
+    ),
+    (
+        "BLS — Employment Situation",
+        "https://www.bls.gov/feed/empsit.rss",
+        "en",
+        SourceTier.TIER_3,
+    ),
+    (
+        "BLS — JOLTS",
+        "https://www.bls.gov/feed/jolts.rss",
+        "en",
+        SourceTier.TIER_3,
+    ),
+    (
+        "Eurostat",
+        "https://ec.europa.eu/eurostat/api/dissemination/catalogue/rss/en/statistics-update.rss",
+        "en",
+        SourceTier.TIER_3,
+    ),
+    (
+        "Bank of England",
+        "https://www.bankofengland.co.uk/rss/news",
+        "en",
+        SourceTier.TIER_3,
+    ),
+    (
+        "Bank of Japan",
+        "https://www.boj.or.jp/en/rss/whatsnew.xml",
+        "en",
+        SourceTier.TIER_3,
+    ),
+    (
+        "Reserve Bank of Australia",
+        "https://www.rba.gov.au/rss/rss-cb-media-releases.xml",
+        "en",
+        SourceTier.TIER_3,
+    ),
+    (
+        "Statistics Canada — Economic Accounts",
+        "https://www150.statcan.gc.ca/n1/rss/dai-quo/36-eng.atom",
+        "en",
+        SourceTier.TIER_3,
+    ),
+    (
+        "Statistics Canada — Prices",
+        "https://www150.statcan.gc.ca/n1/rss/dai-quo/18-eng.atom",
+        "en",
+        SourceTier.TIER_3,
+    ),
+    (
+        "Seeking Alpha",
+        "https://seekingalpha.com/market_currents.xml",
+        "en",
+        SourceTier.TIER_4,
+    ),
+    (
+        "TheStreet",
+        "https://www.thestreet.com/.rss/feed/a4a58455-5a41-4dfa-899c-86c49b653ed8.xml",
+        "en",
+        SourceTier.TIER_4,
+    ),
+    ("ValueWalk", "https://www.valuewalk.com/feed/", "en", SourceTier.TIER_4),
+    ("City A.M.", "https://www.cityam.com/feed/", "en", SourceTier.TIER_4),
+    (
+        "Invezz — Bond Market",
+        "https://invezz.com/news/bond-market/feed/",
+        "en",
+        SourceTier.TIER_4,
+    ),
+    ("Invezz — Forex", "https://invezz.com/news/forex/feed/", "en", SourceTier.TIER_4),
+    ("Action Forex", "https://www.actionforex.com/feed/", "en", SourceTier.TIER_4),
+    ("Banking Dive", "https://www.bankingdive.com/feeds/news/", "en", SourceTier.TIER_4),
+    ("HousingWire", "https://www.housingwire.com/feed/", "en", SourceTier.TIER_4),
+    (
+        "Mortgage News Daily",
+        "https://www.mortgagenewsdaily.com/rss/news",
+        "en",
+        SourceTier.TIER_4,
+    ),
+    ("FinTech Global", "https://fintech.global/feed/", "en", SourceTier.TIER_4),
+    ("Rigzone", "https://www.rigzone.com/news/rss/rigzone_latest.aspx", "en", SourceTier.TIER_4),
+    ("Offshore Energy", "https://www.offshore-energy.biz/feed", "en", SourceTier.TIER_4),
+    ("pv magazine", "https://www.pv-magazine.com/feed/", "en", SourceTier.TIER_4),
+    ("Utility Dive", "https://www.utilitydive.com/feeds/news/", "en", SourceTier.TIER_4),
+    (
+        "Barchart — Grain",
+        "https://www.barchart.com/news/rss/commodities/grain",
+        "en",
+        SourceTier.TIER_4,
+    ),
+    (
+        "Invezz — Commodities",
+        "https://invezz.com/news/commodities/feed/",
+        "en",
+        SourceTier.TIER_4,
+    ),
+    ("FreightWaves", "https://www.freightwaves.com/news/feed", "en", SourceTier.TIER_4),
+    (
+        "Hellenic Shipping News",
+        "https://www.hellenicshippingnews.com/feed/",
+        "en",
+        SourceTier.TIER_4,
+    ),
+    (
+        "Supply Chain Dive",
+        "https://www.supplychaindive.com/feeds/news/",
+        "en",
+        SourceTier.TIER_4,
+    ),
+    ("Retail Dive", "https://www.retaildive.com/feeds/news/", "en", SourceTier.TIER_4),
+    (
+        "Construction Dive",
+        "https://www.constructiondive.com/feeds/news/",
+        "en",
+        SourceTier.TIER_4,
+    ),
+    (
+        "Data Center Dynamics",
+        "https://www.datacenterdynamics.com/en/rss/",
+        "en",
+        SourceTier.TIER_4,
+    ),
+    ("The Next Platform", "https://www.nextplatform.com/feed/", "en", SourceTier.TIER_4),
+    ("ServeTheHome", "https://www.servethehome.com/feed/", "en", SourceTier.TIER_4),
+    ("TechSpot", "https://www.techspot.com/backend.xml", "en", SourceTier.TIER_4),
+    ("Light Reading", "https://www.lightreading.com/rss.xml", "en", SourceTier.TIER_4),
+    ("AI Business", "https://aibusiness.com/rss.xml", "en", SourceTier.TIER_4),
+    ("Unite.AI", "https://www.unite.ai/feed/", "en", SourceTier.TIER_4),
+    ("Crunchbase News", "https://news.crunchbase.com/feed/", "en", SourceTier.TIER_4),
+    ("Tech.eu", "https://tech.eu/feed/", "en", SourceTier.TIER_4),
+    ("EU-Startups", "https://www.eu-startups.com/feed/", "en", SourceTier.TIER_4),
+    ("BioPharma Dive", "https://www.biopharmadive.com/feeds/news/", "en", SourceTier.TIER_4),
+    ("Arab News", "https://www.arabnews.com/rss.xml", "en", SourceTier.TIER_4),
+    (
+        "Daily Sabah — Business",
+        "https://www.dailysabah.com/rss/business",
+        "en",
+        SourceTier.TIER_4,
+    ),
+    ("The Japan Times", "https://www.japantimes.co.jp/feed/", "en", SourceTier.TIER_4),
+    ("African Business", "https://african.business/feed", "en", SourceTier.TIER_4),
+    (
+        "ANSA — Economia",
+        "https://www.ansa.it/sito/notizie/economia/economia_rss.xml",
+        "it",
+        SourceTier.TIER_4,
+    ),
+]
+
 MANUAL_SOURCE_NAME = "Manual Inject"
 MANUAL_SOURCE_URL = "manual://inject"
 
@@ -450,6 +612,9 @@ def seed(db) -> None:
 
     for name, url, language, tier, poll_interval in CATEGORY_RSS_SOURCES:
         _add_rss(db, name, url, language, tier, poll_interval)
+
+    for name, url, language, tier in SHEET_RSS_SOURCES:
+        _add_rss(db, name, url, language, tier, SHEET_RSS_POLL_SECONDS)
 
     existing_manual = db.scalar(select(Source).where(Source.type == SourceType.MANUAL))
     if existing_manual is None:
