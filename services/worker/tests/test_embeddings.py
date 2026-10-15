@@ -44,6 +44,35 @@ def test_embed_texts_returns_one_vector_per_input(monkeypatch):
     assert embed_texts([]) == []
 
 
+def test_release_if_idle_keeps_a_warm_model(monkeypatch):
+    from worker_app.dedup import embeddings as emb
+
+    @emb.lru_cache
+    def _fake():
+        return object()
+
+    monkeypatch.setattr(emb, "_model", _fake)
+    emb._model()
+    emb._LAST_USED_AT = emb.time.monotonic()
+    assert emb.release_embedding_model_if_idle() is False
+    assert emb._model.cache_info().currsize == 1
+
+
+def test_release_if_idle_drops_model_after_quiet_gap(monkeypatch):
+    from worker_app.dedup import embeddings as emb
+
+    @emb.lru_cache
+    def _fake():
+        return object()
+
+    monkeypatch.setattr(emb, "_model", _fake)
+    emb._model()
+    emb._LAST_USED_AT = emb.time.monotonic() - 1_000
+    assert emb.release_embedding_model_if_idle(idle_seconds=180) is True
+    assert emb._model.cache_info().currsize == 0
+    assert emb._LAST_USED_AT is None
+
+
 def test_release_embedding_model_clears_lru_cache(monkeypatch):
     from worker_app.dedup import embeddings as emb
 

@@ -1,0 +1,3 @@
+- [x] Idle release after clustering ticks
+- [x] malloc_trim after dropping the model
+- [x] Tests: warm model kept, stale model dropped
