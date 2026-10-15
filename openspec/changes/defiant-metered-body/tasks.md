@@ -1,0 +1,3 @@
+- [x] Detect withheld Defiant/metered pages
+- [x] Skip them in the poller instead of storing the lede
+- [x] Unit tests

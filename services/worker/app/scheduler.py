@@ -45,7 +45,10 @@ def _run_cluster_tick() -> None:
     """Cross-language clustering (ТЗ §4.2) — separate job so slow CPU
     embedding does not block poll/filter/dispatch."""
     from worker_app.dedup.clustering import run_clustering_cycle
-    from worker_app.dedup.embeddings import release_embedding_model
+    from worker_app.dedup.embeddings import (
+        release_embedding_model,
+        release_embedding_model_if_idle,
+    )
 
     session = new_session()
     try:
@@ -53,6 +56,10 @@ def _run_cluster_tick() -> None:
             stats = run_clustering_cycle(session)
             if stats["attached"] or stats["created"]:
                 logger.info("clustering tick: %s", stats)
+            # Model stays warm for a few minutes after a real encode, then
+            # RSS is returned. Quiet ticks inside the work window must not
+            # keep torch resident until 18:00.
+            release_embedding_model_if_idle()
         else:
             # Outside generation hours (or cluster paused): free torch RSS.
             release_embedding_model()

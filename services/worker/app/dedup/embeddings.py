@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import ctypes
+import ctypes.util
 import gc
 import logging
 import os
+import time
 from functools import lru_cache
 
 # Multilingual (50+ languages incl. EN/RU), small enough for CPU
@@ -28,9 +31,14 @@ EMBED_TEXT_CHARS = 2_000
 DEFAULT_EMBED_BATCH_SIZE = 4
 EMBED_BATCH_SIZE_SETTING_KEY = "dedup.embed_batch_size"
 
+# Keep the model across a short burst of new items, then drop it. A tick
+# with nothing to encode must not pay ~4 GB RSS for the rest of the shift.
+EMBED_IDLE_RELEASE_SECONDS = 180
+
 logger = logging.getLogger(__name__)
 
 _TORCH_THREADS_CONFIGURED = False
+_LAST_USED_AT: float | None = None
 
 
 def _configure_torch_threads() -> None:
@@ -69,13 +77,28 @@ def _model():
     return SentenceTransformer(MODEL_NAME)
 
 
-def release_embedding_model() -> None:
-    """Drop the cached SentenceTransformer so RSS can fall outside gen hours.
+def _malloc_trim() -> None:
+    """Return glibc arenas to the OS. PyTorch keeps them after gc.collect()."""
+    try:
+        libc_name = ctypes.util.find_library("c")
+        if not libc_name:
+            return
+        libc = ctypes.CDLL(libc_name, use_errno=True)
+        trim = getattr(libc, "malloc_trim", None)
+        if trim is None:
+            return
+        trim.argtypes = [ctypes.c_size_t]
+        trim.restype = ctypes.c_int
+        trim(0)
+    except Exception:  # pragma: no cover - macOS libc has no malloc_trim
+        logger.debug("malloc_trim skipped", exc_info=True)
 
-    Torch allocators may keep some arena memory, but clearing the model is
-    still the largest controllable chunk of worker RAM (~$5+/period today).
-    """
+
+def release_embedding_model() -> None:
+    """Drop the cached SentenceTransformer and hand its RAM back to the OS."""
+    global _LAST_USED_AT
     _model.cache_clear()
+    _LAST_USED_AT = None
     gc.collect()
     try:
         import torch
@@ -84,6 +107,19 @@ def release_embedding_model() -> None:
             torch.cuda.empty_cache()
     except Exception:  # pragma: no cover
         logger.debug("torch empty_cache skipped", exc_info=True)
+    _malloc_trim()
+
+
+def release_embedding_model_if_idle(
+    idle_seconds: float = EMBED_IDLE_RELEASE_SECONDS,
+) -> bool:
+    """Release only after a quiet gap, so a burst of items reuses one load."""
+    if _model.cache_info().currsize == 0 or _LAST_USED_AT is None:
+        return False
+    if time.monotonic() - _LAST_USED_AT < idle_seconds:
+        return False
+    release_embedding_model()
+    return True
 
 
 def embedding_text(title: str, body: str | None) -> str:
@@ -103,12 +139,14 @@ def embed_texts(
         return []
     import numpy as np
 
+    global _LAST_USED_AT
     vectors = _model().encode(
         texts,
         batch_size=batch_size,
         normalize_embeddings=True,
         show_progress_bar=False,
     )
+    _LAST_USED_AT = time.monotonic()
     arr = np.atleast_2d(np.asarray(vectors))
     return [row.tolist() for row in arr]
 
