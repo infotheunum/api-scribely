@@ -593,6 +593,22 @@ def integration_get_dispatch_pacing(db: Session = Depends(get_db)) -> DispatchPa
     return DispatchPacingOut(**_dispatch_pacing_payload(db))
 
 
+@router.get("/pipeline/intake-funnel")
+def integration_intake_funnel(
+    hours: float = 4.0,
+    sample_limit: int = 15,
+    db: Session = Depends(get_db),
+) -> dict:
+    """RSS→rewrite drop funnel for the last N hours (titles + counts per reason)."""
+    from common.intake_funnel import build_intake_funnel
+
+    if hours < 1 or hours > 168:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="hours must be 1..168")
+    if sample_limit < 1 or sample_limit > 50:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="sample_limit must be 1..50")
+    return build_intake_funnel(db, hours=hours, sample_limit=sample_limit)
+
+
 @router.put("/pipeline/dispatch-pacing", response_model=DispatchPacingOut)
 def integration_upsert_dispatch_pacing(
     body: DispatchPacingIn,

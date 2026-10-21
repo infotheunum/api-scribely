@@ -606,6 +606,22 @@ def get_generation_stats(
     return GenerationStatsOut(**build_generation_stats(db, period=raw))
 
 
+@router.get("/pipeline/intake-funnel")
+def get_intake_funnel(
+    hours: float = 4.0,
+    sample_limit: int = 15,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Why dispatch is empty: RSS items in the last N hours by drop reason + titles."""
+    from common.intake_funnel import build_intake_funnel
+
+    if hours < 1 or hours > 168:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "hours must be 1..168")
+    if sample_limit < 1 or sample_limit > 50:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "sample_limit must be 1..50")
+    return build_intake_funnel(db, hours=hours, sample_limit=sample_limit)
+
+
 # ---------------------------------------------------------------------
 # LLM enabled providers (article rotation)
 # ---------------------------------------------------------------------
