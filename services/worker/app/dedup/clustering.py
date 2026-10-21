@@ -8,7 +8,7 @@ import grpc
 from common.grpc_client import build_rewrite_channel, rewrite_stub
 from common.tracing import new_trace_id
 from db.app_settings import get_setting
-from db.models import NewsCluster, RawItem
+from db.models import Draft, NewsCluster, RawItem
 from scribely.rewrite.v1 import rewrite_pb2
 from sqlalchemy import select
 from sqlalchemy.orm import Session, load_only, selectinload
@@ -110,6 +110,10 @@ def candidate_clusters(
             db, CLUSTER_WINDOW_HOURS_SETTING_KEY, CLUSTER_WINDOW.total_seconds() / 3600
         )
         window = timedelta(hours=float(hours))
+    # Keep drafted/rejected clusters in the match set so follow-up RSS on an
+    # already-handled story attaches to that event and never becomes a second
+    # rewrite candidate. Dispatch already skips any cluster that has a Draft.
+    # Novel coverage (no strong match in the window) still starts a new cluster.
     return list(
         db.scalars(
             select(NewsCluster)
@@ -139,6 +143,71 @@ def _rank_matches(
         if score:
             matches.append((cluster, score))
     return sorted(matches, key=lambda match: match[1], reverse=True)
+
+
+def _drafted_cluster_ids(db: Session, cluster_ids: list) -> set:
+    """Cluster ids that already have any Draft (ready/rejected/published/…)."""
+    if not cluster_ids:
+        return set()
+    return set(
+        db.scalars(select(Draft.cluster_id).where(Draft.cluster_id.in_(cluster_ids))).all()
+    )
+
+
+def _try_attach(
+    raw_item: RawItem,
+    matches: list[tuple[NewsCluster, float]],
+    *,
+    similarity_threshold: float,
+    confirmation_threshold: float,
+    use_llm_confirm: bool,
+    max_candidates: int,
+    confirm_duplicate: Callable[[RawItem, NewsCluster], bool | None] | None,
+    db: Session,
+) -> NewsCluster | None | bool:
+    """Try to attach ``raw_item`` to one of ``matches``.
+
+    Returns the matched cluster, ``False`` when confirmation is unavailable
+    (caller must defer), or ``None`` when nothing in this set matched.
+    """
+    for candidate, score in matches:
+        if score < similarity_threshold:
+            break
+        if score >= AUTO_ATTACH_THRESHOLD:
+            raw_item.cluster_id = candidate.id
+            logger.info(
+                "raw_item %s matched cluster %s (score=%.3f)", raw_item.id, candidate.id, score
+            )
+            return candidate
+
+    if use_llm_confirm:
+        plausible = [
+            (candidate, score)
+            for candidate, score in matches
+            if score >= confirmation_threshold
+        ][:max_candidates]
+        for candidate, score in plausible:
+            if confirm_duplicate is not None:
+                decision = confirm_duplicate(raw_item, candidate)
+            else:
+                decision = confirm_duplicate_with_llm(db, raw_item, candidate)
+            if decision is True:
+                raw_item.cluster_id = candidate.id
+                logger.info(
+                    "raw_item %s confirmed as duplicate of cluster %s (score=%.3f)",
+                    raw_item.id,
+                    candidate.id,
+                    score,
+                )
+                return candidate
+            if decision is None:
+                logger.warning(
+                    "deferring raw_item %s: duplicate confirmation unavailable "
+                    "for plausible match",
+                    raw_item.id,
+                )
+                return False
+    return None
 
 
 def _source_ref(item: RawItem) -> rewrite_pb2.SourceRef:
@@ -231,8 +300,19 @@ def cluster_raw_item(
     similarity_threshold: float | None = None,
     confirmation_threshold: float | None = None,
     confirm_duplicate: Callable[[RawItem, NewsCluster], bool | None] | None = None,
+    drafted_cluster_ids: set | None = None,
 ) -> NewsCluster | None:
-    """Assign an item to an existing event or start a new event cluster."""
+    """Assign an item to an existing event or start a new event cluster.
+
+    Matching is two-phase so already-handled stories (any Draft, including
+    rejected) are not re-queued for rewrite, while loosely related coverage
+    is not swallowed by those drafted events:
+
+    1. Prefer undrafted clusters (normal auto-attach / LLM confirm).
+    2. Only then absorb into a drafted/rejected cluster when it is a near-
+       duplicate — so dispatch never sees a second rewrite for that story.
+    3. Otherwise start a new undrafted cluster (novel to the system).
+    """
     if similarity_threshold is None:
         similarity_threshold = get_setting(
             db, SIMILARITY_THRESHOLD_SETTING_KEY, SIMILARITY_THRESHOLD
@@ -244,53 +324,53 @@ def cluster_raw_item(
             db, CONFIRMATION_THRESHOLD_SETTING_KEY, CONFIRMATION_THRESHOLD
         )
 
+    if drafted_cluster_ids is None:
+        drafted_cluster_ids = _drafted_cluster_ids(db, [c.id for c in clusters if c.id is not None])
+
     matches = _rank_matches(raw_item.embedding, clusters)
-    for candidate, score in matches:
-        if score < similarity_threshold:
-            break
-        if score >= AUTO_ATTACH_THRESHOLD:
-            raw_item.cluster_id = candidate.id
-            logger.info(
-                "raw_item %s matched cluster %s (score=%.3f)", raw_item.id, candidate.id, score
-            )
-            return candidate
+    open_matches = [(c, s) for c, s in matches if c.id not in drafted_cluster_ids]
+    drafted_matches = [(c, s) for c, s in matches if c.id in drafted_cluster_ids]
 
     # Tests inject confirm_duplicate and always exercise the LLM path.
     # Production: AppSetting dedup.llm_confirm_enabled (default true, high threshold).
     use_llm_confirm = confirm_duplicate is not None or _llm_confirm_enabled(db)
-    if use_llm_confirm:
-        max_candidates = (
-            MAX_CONFIRMATION_CANDIDATES
-            if confirm_duplicate is not None
-            else _max_confirmation_candidates(db)
-        )
-        plausible = [
-            (candidate, score)
-            for candidate, score in matches
-            if score >= confirmation_threshold
-        ][:max_candidates]
-        for candidate, score in plausible:
-            if confirm_duplicate is not None:
-                decision = confirm_duplicate(raw_item, candidate)
-            else:
-                decision = confirm_duplicate_with_llm(db, raw_item, candidate)
-            if decision is True:
-                raw_item.cluster_id = candidate.id
-                logger.info(
-                    "raw_item %s confirmed as duplicate of cluster %s (score=%.3f)",
-                    raw_item.id,
-                    candidate.id,
-                    score,
-                )
-                return candidate
-            if decision is None:
-                logger.warning(
-                    "deferring raw_item %s: duplicate confirmation unavailable "
-                    "for plausible match",
-                    raw_item.id,
-                )
-                return None
-    elif any(score >= confirmation_threshold for _, score in matches):
+    max_candidates = (
+        MAX_CONFIRMATION_CANDIDATES
+        if confirm_duplicate is not None
+        else _max_confirmation_candidates(db)
+    )
+
+    attached = _try_attach(
+        raw_item,
+        open_matches,
+        similarity_threshold=similarity_threshold,
+        confirmation_threshold=confirmation_threshold,
+        use_llm_confirm=use_llm_confirm,
+        max_candidates=max_candidates,
+        confirm_duplicate=confirm_duplicate,
+        db=db,
+    )
+    if attached is False:
+        return None
+    if attached is not None:
+        return attached
+
+    attached = _try_attach(
+        raw_item,
+        drafted_matches,
+        similarity_threshold=similarity_threshold,
+        confirmation_threshold=confirmation_threshold,
+        use_llm_confirm=use_llm_confirm,
+        max_candidates=max_candidates,
+        confirm_duplicate=confirm_duplicate,
+        db=db,
+    )
+    if attached is False:
+        return None
+    if attached is not None:
+        return attached
+
+    if not use_llm_confirm and any(score >= confirmation_threshold for _, score in matches):
         logger.info(
             "raw_item %s: LLM confirm disabled — new cluster for borderline match",
             raw_item.id,
@@ -315,12 +395,17 @@ def run_clustering_cycle(db: Session) -> dict[str, int]:
     _prefetch_embeddings(db, raw_items)
 
     clusters = candidate_clusters(db)
+    drafted_ids = _drafted_cluster_ids(db, [c.id for c in clusters if c.id is not None])
     stats = {"attached": 0, "created": 0}
     initial_cluster_ids = {c.id for c in clusters}
 
     for raw_item in raw_items:
         cluster = cluster_raw_item(
-            db, raw_item, clusters, similarity_threshold=similarity_threshold
+            db,
+            raw_item,
+            clusters,
+            similarity_threshold=similarity_threshold,
+            drafted_cluster_ids=drafted_ids,
         )
         if cluster is None:
             continue

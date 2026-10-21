@@ -3,8 +3,8 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from db.app_settings import set_setting
-from db.enums import SourceTier, SourceType
-from db.models import NewsCluster, RawItem, Source
+from db.enums import DraftStatus, SourceTier, SourceType
+from db.models import Draft, NewsCluster, RawItem, Source
 from sqlalchemy import inspect
 from worker_app.dedup.clustering import (
     candidate_clusters,
@@ -191,6 +191,102 @@ def test_candidate_clusters_exclude_old_events_to_bound_memory(clean_db):
     _raw_item(clean_db, source, "old-item", embedding=TOPIC_A, cluster_id=old.id)
 
     assert old.id not in {cluster.id for cluster in candidate_clusters(clean_db)}
+
+
+def test_candidate_clusters_include_already_drafted_events(clean_db):
+    """Drafted/rejected events stay matchable so we do not re-rewrite them."""
+    drafted = NewsCluster(embedding=TOPIC_A, trace_id="t-drafted")
+    open_cluster = NewsCluster(embedding=TOPIC_B, trace_id="t-open")
+    clean_db.add_all([drafted, open_cluster])
+    clean_db.commit()
+    clean_db.add(
+        Draft(
+            cluster_id=drafted.id,
+            trace_id="draft",
+            status=DraftStatus.REJECTED,
+            content_generated_at=datetime.now(UTC),
+        )
+    )
+    clean_db.commit()
+
+    ids = {cluster.id for cluster in candidate_clusters(clean_db)}
+    assert drafted.id in ids
+    assert open_cluster.id in ids
+
+
+def test_similar_item_attaches_to_drafted_cluster_instead_of_rewriting(clean_db):
+    """Same story after reject/ready must merge into the drafted event, not spawn a new one."""
+    source = _source(clean_db)
+    drafted = NewsCluster(embedding=TOPIC_A, trace_id="t-drafted")
+    clean_db.add(drafted)
+    clean_db.commit()
+    clean_db.add(
+        Draft(
+            cluster_id=drafted.id,
+            trace_id="draft",
+            status=DraftStatus.REJECTED,
+            content_generated_at=datetime.now(UTC),
+        )
+    )
+    clean_db.commit()
+    incoming = _raw_item(clean_db, source, "same-story-follow-up", embedding=TOPIC_A)
+
+    result = cluster_raw_item(clean_db, incoming, candidate_clusters(clean_db))
+
+    assert result.id == drafted.id
+    assert incoming.cluster_id == drafted.id
+
+
+def test_prefers_undrafted_cluster_over_drafted_duplicate(clean_db):
+    """Open events win over already-handled ones so novel coverage keeps flowing."""
+    source = _source(clean_db)
+    drafted = NewsCluster(embedding=TOPIC_A, trace_id="t-drafted")
+    open_cluster = NewsCluster(embedding=TOPIC_A, trace_id="t-open")
+    clean_db.add_all([drafted, open_cluster])
+    clean_db.commit()
+    clean_db.add(
+        Draft(
+            cluster_id=drafted.id,
+            trace_id="draft",
+            status=DraftStatus.REJECTED,
+            content_generated_at=datetime.now(UTC),
+        )
+    )
+    clean_db.commit()
+    incoming = _raw_item(clean_db, source, "same-story", embedding=TOPIC_A)
+
+    result = cluster_raw_item(clean_db, incoming, candidate_clusters(clean_db))
+
+    assert result.id == open_cluster.id
+    assert incoming.cluster_id == open_cluster.id
+
+
+def test_borderline_rejected_against_drafted_creates_novel_cluster(clean_db):
+    """Loose similarity to a rejected draft must not block a new undrafted event."""
+    source = _source(clean_db)
+    drafted = NewsCluster(embedding=TOPIC_A_VARIANT, trace_id="t-drafted")
+    clean_db.add(drafted)
+    clean_db.commit()
+    clean_db.add(
+        Draft(
+            cluster_id=drafted.id,
+            trace_id="draft",
+            status=DraftStatus.REJECTED,
+            content_generated_at=datetime.now(UTC),
+        )
+    )
+    clean_db.commit()
+    incoming = _raw_item(clean_db, source, "related-but-new", embedding=TOPIC_A)
+
+    result = cluster_raw_item(
+        clean_db,
+        incoming,
+        candidate_clusters(clean_db),
+        confirm_duplicate=lambda *_: False,
+    )
+
+    assert result.id != drafted.id
+    assert incoming.cluster_id == result.id
 
 
 def test_candidate_clusters_do_not_load_historical_article_text(clean_db):
