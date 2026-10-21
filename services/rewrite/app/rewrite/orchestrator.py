@@ -34,8 +34,9 @@ from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
-# One retry is enough once hard-min matches typical first-pass length.
-MAX_ATTEMPTS = 2
+# Short body_ru (<1500) is the main dead-letter path; give one extra regenerate
+# before deferring the cluster for six hours and starving the fresh queue.
+MAX_ATTEMPTS = 3
 QUALITY_REQUIRED_FACT_LIMIT = 12
 QUALITY_REQUIRED_NUMBER_LIMIT = 3
 
