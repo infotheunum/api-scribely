@@ -6,7 +6,7 @@ from common.fulltext import ArticleFetch
 from db.enums import SourceTier, SourceType
 from db.models import RawItem, Source
 from worker_app.ingestion.circuit_breaker import CONSECUTIVE_FAILURE_THRESHOLD
-from worker_app.ingestion.poller import due_sources, poll_source
+from worker_app.ingestion.poller import due_sources, poll_due_sources, poll_source
 from worker_app.ingestion.rss_connector import FeedFetchError, ParsedEntry
 
 
@@ -215,3 +215,88 @@ def test_poll_source_skips_withheld_article_body(clean_db, monkeypatch):
 
     assert created == 0
     assert clean_db.query(RawItem).count() == 0
+
+
+def test_poll_source_dedupes_duplicate_guids_inside_one_feed(clean_db, monkeypatch):
+    """Eurostat-style feeds repeat the same dataset URL many times in one RSS."""
+    source = _make_source(clean_db, tier=SourceTier.TIER_2)
+    entries = [
+        ParsedEntry(
+            external_id="https://example.com/dataset/A",
+            url="https://example.com/dataset/A",
+            title="A1",
+            summary="x",
+            published_at=None,
+        ),
+        ParsedEntry(
+            external_id="https://example.com/dataset/A",
+            url="https://example.com/dataset/A",
+            title="A2",
+            summary="y",
+            published_at=None,
+        ),
+        ParsedEntry(
+            external_id="https://example.com/dataset/B",
+            url="https://example.com/dataset/B",
+            title="B",
+            summary="z",
+            published_at=None,
+        ),
+    ]
+    monkeypatch.setattr("worker_app.ingestion.poller.fetch_feed_entries", lambda *a, **kw: entries)
+
+    created = poll_source(clean_db, source)
+
+    assert created == 2
+    assert clean_db.query(RawItem).count() == 2
+
+
+def test_poll_due_sources_continues_after_one_source_blows_up(clean_db, monkeypatch):
+    bad = _make_source(clean_db, name="Eurostat boom", url="https://example.com/bad")
+    _make_source(
+        clean_db,
+        name="Normal feed",
+        url="https://example.com/good",
+        poll_interval_seconds=1,
+    )
+    clean_db.query(Source).update({"last_polled_at": datetime.now(UTC) - timedelta(hours=1)})
+    clean_db.commit()
+
+    def _fetch(url, **kwargs):
+        if "bad" in url:
+            return [
+                ParsedEntry(
+                    external_id="dup",
+                    url="https://example.com/dup",
+                    title="Dup",
+                    summary="x",
+                    published_at=None,
+                )
+            ]
+        return [
+            ParsedEntry(
+                external_id="ok-1",
+                url="https://example.com/ok-1",
+                title="Ok",
+                summary="body",
+                published_at=None,
+            )
+        ]
+
+    monkeypatch.setattr("worker_app.ingestion.poller.fetch_feed_entries", _fetch)
+
+    from worker_app.ingestion import poller as poller_mod
+
+    real_poll = poller_mod.poll_source
+
+    def _leaky(db, source):
+        if source.id == bad.id:
+            raise RuntimeError("boom mid-poll")
+        return real_poll(db, source)
+
+    monkeypatch.setattr(poller_mod, "poll_source", _leaky)
+
+    results = poll_due_sources(clean_db)
+    assert results.get("Eurostat boom") == 0
+    assert results.get("Normal feed") == 1
+    assert clean_db.query(RawItem).filter_by(external_id="ok-1").count() == 1

@@ -8,6 +8,7 @@ from common.tracing import new_trace_id
 from db.enums import SourceTier, SourceType
 from db.models import RawItem, Source
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from worker_app.filter.freshness import max_item_age_window
 from worker_app.ingestion.circuit_breaker import is_paused, record_failure, record_success
@@ -40,14 +41,18 @@ def due_sources(db: Session, *, now: datetime | None = None) -> list[Source]:
     return due
 
 
-def _raw_item_exists(db: Session, source_id, external_id: str) -> bool:
-    return (
-        db.scalar(
-            select(RawItem.id).where(
-                RawItem.source_id == source_id, RawItem.external_id == external_id
+def _existing_external_ids(db: Session, source_id, external_ids: set[str]) -> set[str]:
+    """One round-trip for the whole feed — per-entry EXISTS was both slow and
+    blind to duplicates inside the same RSS payload (unflushed session rows)."""
+    if not external_ids:
+        return set()
+    return set(
+        db.scalars(
+            select(RawItem.external_id).where(
+                RawItem.source_id == source_id,
+                RawItem.external_id.in_(external_ids),
             )
         )
-        is not None
     )
 
 
@@ -71,49 +76,89 @@ def poll_source(db: Session, source: Source) -> int:
     skipped_stale = 0
     skipped_video = 0
     skipped_withheld = 0
-    for entry in entries:
-        if is_video_page_url(entry.url):
-            skipped_video += 1
-            continue
-        if _raw_item_exists(db, source.id, entry.external_id):
-            continue
-        # RSS feeds often keep 7–30 days of history. Only keep items inside
-        # the editorial window (~1–2 days): older news must not enter rewrite.
-        if entry.published_at is not None and entry.published_at < cutoff:
-            skipped_stale += 1
-            continue
+    skipped_dup = 0
 
-        body = entry.summary
-        is_full_text = False
-        if source.tier == SourceTier.TIER_1 and entry.looks_summary_only:
-            fetched = fetch_article(entry.url, user_agent=source.config.get("user_agent"))
-            if fetched.withheld:
-                skipped_withheld += 1
+    feed_ids = {entry.external_id for entry in entries if entry.external_id}
+    known_ids = _existing_external_ids(db, source.id, feed_ids)
+    seen_in_batch: set[str] = set()
+
+    try:
+        for entry in entries:
+            if is_video_page_url(entry.url):
+                skipped_video += 1
                 continue
-            if fetched.text:
-                body = fetched.text
-                is_full_text = True
+            if (
+                not entry.external_id
+                or entry.external_id in known_ids
+                or entry.external_id in seen_in_batch
+            ):
+                skipped_dup += 1
+                continue
+            # RSS feeds often keep 7–30 days of history. Only keep items inside
+            # the editorial window (~1–2 days): older news must not enter rewrite.
+            if entry.published_at is not None and entry.published_at < cutoff:
+                skipped_stale += 1
+                continue
 
-        db.add(
-            RawItem(
-                source_id=source.id,
-                external_id=entry.external_id,
-                url=entry.url,
-                title=entry.title or entry.url,
-                body=body,
-                is_full_text=is_full_text,
-                language=source.language,
-                published_at=entry.published_at,
-                trace_id=trace_id,
+            body = entry.summary
+            is_full_text = False
+            if source.tier == SourceTier.TIER_1 and entry.looks_summary_only:
+                fetched = fetch_article(entry.url, user_agent=source.config.get("user_agent"))
+                if fetched.withheld:
+                    skipped_withheld += 1
+                    continue
+                if fetched.text:
+                    body = fetched.text
+                    is_full_text = True
+
+            db.add(
+                RawItem(
+                    source_id=source.id,
+                    external_id=entry.external_id,
+                    url=entry.url,
+                    title=entry.title or entry.url,
+                    body=body,
+                    is_full_text=is_full_text,
+                    language=source.language,
+                    published_at=entry.published_at,
+                    trace_id=trace_id,
+                )
             )
-        )
-        created += 1
+            seen_in_batch.add(entry.external_id)
+            created += 1
 
-    record_success(source)
-    db.commit()
+        record_success(source)
+        db.commit()
+    except IntegrityError:
+        # Race with another tick or a feed edge-case: never poison the session
+        # or abort the rest of poll_due_sources.
+        db.rollback()
+        logger.warning(
+            "poll unique-violation for source %s (%s) — skipped this cycle",
+            source.name,
+            source.id,
+            exc_info=True,
+        )
+        try:
+            record_failure(db, source)
+            db.commit()
+        except Exception:
+            db.rollback()
+            logger.exception("failed to record circuit-breaker after unique-violation")
+        return 0
+    except Exception:
+        db.rollback()
+        logger.exception("poll failed for source %s (%s)", source.name, source.id)
+        try:
+            record_failure(db, source)
+            db.commit()
+        except Exception:
+            db.rollback()
+        return 0
+
     logger.info(
         "polled source %s (%s): %d new items "
-        "(%d skipped stale >%sh, %d skipped video, %d skipped withheld)",
+        "(%d skipped stale >%sh, %d skipped video, %d skipped withheld, %d skipped dup)",
         source.name,
         source.id,
         created,
@@ -121,6 +166,7 @@ def poll_source(db: Session, source: Source) -> int:
         int(age_window.total_seconds() // 3600),
         skipped_video,
         skipped_withheld,
+        skipped_dup,
     )
     return created
 
@@ -130,5 +176,16 @@ def poll_due_sources(db: Session) -> dict[str, int]:
     Returns {source_name: new_item_count} for logging/observability."""
     results: dict[str, int] = {}
     for source in due_sources(db):
-        results[source.name] = poll_source(db, source)
+        # Defense in depth: poll_source already swallows errors, but a bug
+        # must not stop the remaining ~200 feeds for the whole minute.
+        try:
+            results[source.name] = poll_source(db, source)
+        except Exception:
+            db.rollback()
+            logger.exception(
+                "poll_source leaked for %s (%s) — continuing with other sources",
+                source.name,
+                source.id,
+            )
+            results[source.name] = 0
     return results
