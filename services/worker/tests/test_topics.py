@@ -17,18 +17,22 @@ REAL_IN_TOPIC_EXAMPLES = [
 REAL_OUT_OF_TOPIC_EXAMPLES = [
     "Google Yanks Google Earth AI Image Tool Deepfake Fears",
     "FCC Bans Foreign Humanoid Robots China Roombas",
-    "Suno AI Music Copyright Case Germany",
-    "Researchers Tried Letting AI Do Science, It Failed",
+    "Chipmaker ships new GPU SKU for datacenter racks",
+]
+
+REAL_MIR_EXAMPLES = [
+    "UNESCO lists new festival tradition as world heritage",
+    "В мире прошёл международный кинофестиваль",
+    "Earthquake and tsunami warning issued after offshore quake",
 ]
 
 COMPILED = compile_topics(DEFAULT_TOPIC_KEYWORDS)
 
 
-def test_all_ten_redpolicy_scopes_are_present():
-    # §1.4 of the editorial policy lists exactly ten scopes — this
-    # dict is the actual seed data, so a silently-dropped category would
-    # mean silently-rejected in-scope news on a fresh Topic table.
-    assert len(DEFAULT_TOPIC_KEYWORDS) == 10
+def test_all_redpolicy_scopes_plus_mir_are_present():
+    # Original §1.4 ten scopes + editorial «Мир» expansion.
+    assert len(DEFAULT_TOPIC_KEYWORDS) == 11
+    assert "Мир" in DEFAULT_TOPIC_KEYWORDS
 
 
 def test_real_in_topic_examples_pass():
@@ -43,6 +47,13 @@ def test_real_out_of_topic_examples_are_rejected():
         in_topic, topic = classify(text, COMPILED)
         assert not in_topic, f"expected out-of-topic: {text!r}"
         assert topic is None
+
+
+def test_mir_topic_matches_world_and_culture_headlines():
+    for text in REAL_MIR_EXAMPLES:
+        in_topic, topic = classify(text, COMPILED)
+        assert in_topic, f"expected in-topic: {text!r}"
+        assert topic == "Мир", f"expected Мир for {text!r}, got {topic!r}"
 
 
 def test_classify_picks_the_best_matching_topic():
