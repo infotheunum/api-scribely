@@ -237,8 +237,11 @@ def test_list_filters_by_generated_since(client, clean_db):
     stale.content_generated_at = datetime.now(UTC) - timedelta(days=30)
     clean_db.commit()
 
-    since = (datetime.now(UTC) - timedelta(days=1)).replace(microsecond=0).isoformat().replace(
-        "+00:00", "Z"
+    since = (
+        (datetime.now(UTC) - timedelta(days=1))
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
     )
     resp = client.get(
         f"/integrations/theunum/v1/drafts?generated_since={since}",
@@ -441,6 +444,39 @@ def test_status_reports_degraded_openrouter(client, clean_db):
     assert body["openrouter"]["last_error_code"] == "openrouter_payment_required"
 
 
+def test_status_alerts_when_drafts_stuck_in_drafting(client, clean_db):
+    source = _source(clean_db)
+    cluster = _cluster(clean_db, source)
+    draft = _draft(clean_db, cluster, status=DraftStatus.DRAFTING)
+    draft.created_at = datetime.now(UTC) - timedelta(minutes=15)
+    clean_db.commit()
+
+    resp = client.get("/integrations/theunum/v1/drafts/today", headers=AUTH_HEADERS)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["items"] == []
+    assert body["meta"]["reason_code"] == "drafts_stuck_drafting"
+    assert body["meta"]["pipeline_status"] == "degraded"
+    assert body["meta"]["drafting_drafts"] == 1
+
+
+def test_status_alerts_when_worker_heartbeat_stale(client, clean_db):
+    set_setting(
+        clean_db,
+        "pipeline.last_worker_heartbeat_at",
+        (datetime.now(UTC) - timedelta(minutes=20)).isoformat(),
+        description="test",
+    )
+    clean_db.commit()
+
+    resp = client.get("/integrations/theunum/v1/status", headers=AUTH_HEADERS)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["reason_code"] == "worker_stale"
+    assert body["pipeline_status"] == "degraded"
+    assert body["queue"]["worker_stale"] is True
+
+
 def test_empty_batch_mark_consumed(client, clean_db):
     resp = client.post(
         "/integrations/theunum/v1/drafts/mark-consumed",
@@ -495,8 +531,7 @@ def test_integration_put_generation_hours(client, clean_db):
             "weekend_daily_limit": 20,
             "weekday_daily_limit": 120,
             "days": [
-                {"weekday": i, "enabled": True, "start_hour": 7, "end_hour": 17}
-                for i in range(7)
+                {"weekday": i, "enabled": True, "start_hour": 7, "end_hour": 17} for i in range(7)
             ],
         },
     )

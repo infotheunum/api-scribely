@@ -974,6 +974,8 @@ Authorization: Bearer <token>
 | `generation_outside_hours` | Вне окна генерации (будни 06:00–18:00 Europe/Minsk по умолчанию); сырьё есть, черновики намеренно не создаются | **Exit quietly**, без alert (как `queue_empty`) |
 | `rewrite_unavailable` | gRPC rewrite не отвечает | **Alert**, Railway |
 | `ingestion_disabled` | `pipeline.poll_enabled=false`, нет новых кластеров | Info |
+| `drafts_stuck_drafting` | Черновики есть, но застряли в `drafting` (>10 мин) и не попадают в Export | **Alert**, рестарт worker / compliance |
+| `worker_stale` | Worker не обновлял heartbeat >5 мин (Crashed/Killed/завис) | **Alert**, Railway service `worker` |
 
 ---
 

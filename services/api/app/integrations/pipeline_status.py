@@ -1,12 +1,17 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import grpc
-from common.generation_hours import generation_allowed, generation_hours_as_dict, load_generation_hours
+from common.generation_hours import (
+    generation_allowed,
+    generation_hours_as_dict,
+    load_generation_hours,
+)
 from common.grpc_client import check_rewrite_health
 from common.integration_reasons import (
     REASON_DISPATCH_DISABLED,
+    REASON_DRAFTS_STUCK_DRAFTING,
     REASON_GENERATION_OUTSIDE_HOURS,
     REASON_INGESTION_DISABLED,
     REASON_OK,
@@ -14,6 +19,7 @@ from common.integration_reasons import (
     REASON_PIPELINE_DEGRADED,
     REASON_QUEUE_EMPTY,
     REASON_REWRITE_UNAVAILABLE,
+    REASON_WORKER_STALE,
     human_reason_message,
 )
 from common.llm_token_totals import load_token_totals
@@ -24,6 +30,7 @@ from common.pipeline_telemetry import (
     KEY_LAST_ERROR_AT,
     KEY_LAST_ERROR_CODE,
     KEY_LAST_ERROR_MESSAGE,
+    KEY_LAST_WORKER_HEARTBEAT_AT,
 )
 from db.app_settings import get_setting
 from db.enums import DraftStatus, TopicStatus
@@ -31,18 +38,26 @@ from db.models import Draft, DraftExportLog, LLMRotationUsage, NewsCluster
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+# Poll ticks can run >2 min; allow slack before declaring worker dead.
+WORKER_STALE_AFTER = timedelta(minutes=5)
+# Fresh drafts must leave drafting via compliance within this window.
+DRAFTING_STUCK_AFTER = timedelta(minutes=10)
+
 
 def count_unconsumed_drafts(
     db: Session,
     *,
     statuses: list[str],
 ) -> int:
-    return db.scalar(
-        select(func.count())
-        .select_from(Draft)
-        .outerjoin(DraftExportLog, DraftExportLog.draft_id == Draft.id)
-        .where(Draft.status.in_(statuses), DraftExportLog.draft_id.is_(None))
-    ) or 0
+    return (
+        db.scalar(
+            select(func.count())
+            .select_from(Draft)
+            .outerjoin(DraftExportLog, DraftExportLog.draft_id == Draft.id)
+            .where(Draft.status.in_(statuses), DraftExportLog.draft_id.is_(None))
+        )
+        or 0
+    )
 
 
 def count_undrafted_in_topic_clusters(db: Session) -> int:
@@ -73,6 +88,39 @@ def _openrouter_keys_configured(db: Session) -> int:
     return int(get_setting(db, "openrouter.keys_configured", 0) or 0)
 
 
+def _parse_iso(raw: object) -> datetime | None:
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def count_drafting_drafts(db: Session) -> int:
+    return (
+        db.scalar(
+            select(func.count()).select_from(Draft).where(Draft.status == DraftStatus.DRAFTING)
+        )
+        or 0
+    )
+
+
+def oldest_drafting_age(db: Session, *, now: datetime | None = None) -> timedelta | None:
+    oldest = db.scalar(
+        select(func.min(Draft.created_at)).where(Draft.status == DraftStatus.DRAFTING)
+    )
+    if oldest is None:
+        return None
+    moment = now or datetime.now(UTC)
+    if oldest.tzinfo is None:
+        oldest = oldest.replace(tzinfo=UTC)
+    return moment - oldest
+
+
 def build_pipeline_status(
     db: Session,
     *,
@@ -100,12 +148,32 @@ def build_pipeline_status(
     last_dispatch_at = get_setting(db, KEY_LAST_DISPATCH_AT, None)
     last_dispatch_dispatched = get_setting(db, KEY_LAST_DISPATCH_DISPATCHED, 0)
     last_dispatch_failed = get_setting(db, KEY_LAST_DISPATCH_FAILED, 0)
+    last_worker_heartbeat_at = get_setting(db, KEY_LAST_WORKER_HEARTBEAT_AT, None)
+    drafting_count = count_drafting_drafts(db)
+    now = datetime.now(UTC)
+    heartbeat_at = _parse_iso(last_worker_heartbeat_at)
+    worker_stale = heartbeat_at is not None and (now - heartbeat_at) > WORKER_STALE_AFTER
+    # No heartbeat ever after deploy still looks "ok" until worker starts —
+    # only flag stale when we previously saw a heartbeat.
+    drafting_age = oldest_drafting_age(db, now=now)
+    drafting_stuck = (
+        drafting_count > 0
+        and drafting_age is not None
+        and drafting_age > DRAFTING_STUCK_AFTER
+        and unconsumed_drafts == 0
+    )
 
     reason_code = REASON_OK
     pipeline_status = "ok"
 
     if not rewrite_reachable:
         reason_code = REASON_REWRITE_UNAVAILABLE
+        pipeline_status = "degraded"
+    elif worker_stale:
+        reason_code = REASON_WORKER_STALE
+        pipeline_status = "degraded"
+    elif drafting_stuck:
+        reason_code = REASON_DRAFTS_STUCK_DRAFTING
         pipeline_status = "degraded"
     elif keys_configured == 0 and undrafted > 0:
         reason_code = REASON_OPENROUTER_NO_KEYS
@@ -125,7 +193,9 @@ def build_pipeline_status(
             reason_code = last_error_code
             pipeline_status = "degraded"
         elif undrafted > 0 and int(last_dispatch_failed or 0) > 0:
-            reason_code = last_error_code if last_error_code != REASON_OK else REASON_PIPELINE_DEGRADED
+            reason_code = (
+                last_error_code if last_error_code != REASON_OK else REASON_PIPELINE_DEGRADED
+            )
             pipeline_status = "degraded"
         else:
             reason_code = REASON_QUEUE_EMPTY
@@ -162,10 +232,15 @@ def build_pipeline_status(
         "queue": {
             "unconsumed_drafts": unconsumed_drafts,
             "undrafted_in_topic_clusters": undrafted,
-            "last_draft_created_at": last_draft_created_at.isoformat() if last_draft_created_at else None,
+            "drafting_drafts": drafting_count,
+            "last_draft_created_at": last_draft_created_at.isoformat()
+            if last_draft_created_at
+            else None,
             "last_dispatch_at": last_dispatch_at,
             "last_dispatch_dispatched": last_dispatch_dispatched,
             "last_dispatch_failed": last_dispatch_failed,
+            "last_worker_heartbeat_at": last_worker_heartbeat_at,
+            "worker_stale": worker_stale,
         },
         "openrouter": {
             "keys_configured": keys_configured,
@@ -190,6 +265,9 @@ def build_list_meta(db: Session, *, rewrite_channel: grpc.Channel | None, item_c
         "reason_message": status["reason_message"],
         "checked_at": status["checked_at"],
         "undrafted_in_topic_clusters": status["queue"]["undrafted_in_topic_clusters"],
+        "drafting_drafts": status["queue"]["drafting_drafts"],
         "last_draft_created_at": status["queue"]["last_draft_created_at"],
+        "last_worker_heartbeat_at": status["queue"]["last_worker_heartbeat_at"],
+        "worker_stale": status["queue"]["worker_stale"],
         "llm_tokens": status["llm_tokens"],
     }

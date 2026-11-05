@@ -4,6 +4,7 @@ import logging
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from common.generation_hours import generation_allowed
+from common.pipeline_telemetry import record_worker_heartbeat
 from db.app_settings import get_setting
 from worker_app.db import new_session
 from worker_app.settings import WorkerSettings
@@ -41,6 +42,16 @@ def _stage_enabled(session, stage: str) -> bool:
     return True
 
 
+def _heartbeat() -> None:
+    session = new_session()
+    try:
+        record_worker_heartbeat(session)
+    except Exception:
+        logger.exception("worker heartbeat failed")
+    finally:
+        session.close()
+
+
 def _run_cluster_tick() -> None:
     """Cross-language clustering (ТЗ §4.2) — separate job so slow CPU
     embedding does not block poll/filter/dispatch."""
@@ -50,6 +61,7 @@ def _run_cluster_tick() -> None:
         release_embedding_model_if_idle,
     )
 
+    _heartbeat()
     session = new_session()
     try:
         if _stage_enabled(session, "cluster"):
@@ -70,11 +82,11 @@ def _run_cluster_tick() -> None:
 
 
 def _run_poll_tick() -> None:
-    from worker_app.compliance.pipeline import run_compliance_cycle
     from worker_app.filter.pipeline import run_filter_cycle
     from worker_app.ingestion.poller import poll_due_sources
     from worker_app.lifecycle.archival import run_archival_cycle
 
+    _heartbeat()
     session = new_session()
     try:
         if _stage_enabled(session, "poll"):
@@ -99,19 +111,6 @@ def _run_poll_tick() -> None:
     finally:
         session.close()
 
-    # Policy/Compliance Checker gates every Draft in DRAFTING before it can
-    # reach the review queue.
-    session = new_session()
-    try:
-        if _stage_enabled(session, "compliance"):
-            stats = run_compliance_cycle(session)
-            if stats["reviewed"]:
-                logger.info("compliance tick: %s", stats)
-    except Exception:
-        logger.exception("compliance tick failed unexpectedly")
-    finally:
-        session.close()
-
     # TTL-архивация (ТЗ §4.20, §6.5, Фаза 6) — a draft that sat in
     # READY_FOR_REVIEW past the TTL without a human decision archives
     # itself; cheap query, fine to run every tick like everything else.
@@ -128,10 +127,34 @@ def _run_poll_tick() -> None:
         session.close()
 
 
+def _run_compliance_tick() -> None:
+    """Promote DRAFTING → review queue independently of RSS poll.
+
+    Compliance used to run at the end of `_run_poll_tick`. A long poll
+    (>1 min over ~200 feeds) skipped subsequent ticks, then similarity
+    embeddings OOMed the container — drafts stayed in drafting forever
+    and Export `/drafts/today` looked empty while status said ok.
+    """
+    from worker_app.compliance.pipeline import run_compliance_cycle
+
+    _heartbeat()
+    session = new_session()
+    try:
+        if _stage_enabled(session, "compliance"):
+            stats = run_compliance_cycle(session)
+            if stats["reviewed"]:
+                logger.info("compliance tick: %s", stats)
+    except Exception:
+        logger.exception("compliance tick failed unexpectedly")
+    finally:
+        session.close()
+
+
 def _run_dispatch_tick() -> None:
     """Keep slow LLM calls independent from RSS polling and classification."""
     from worker_app.dispatch.pipeline import run_dispatch_cycle
 
+    _heartbeat()
     session = new_session()
     try:
         if _stage_enabled(session, "dispatch"):
@@ -147,6 +170,7 @@ def _run_dispatch_tick() -> None:
 def _run_categories_sync_tick() -> None:
     from worker_app.sync.theunum_categories import run_theunum_categories_sync_if_due
 
+    _heartbeat()
     session = new_session()
     try:
         stats = run_theunum_categories_sync_if_due(session, WorkerSettings())
@@ -174,6 +198,14 @@ def build_scheduler() -> BackgroundScheduler:
         seconds=POLL_TICK_SECONDS,
         id="rewrite_dispatch",
         max_instances=3,
+        coalesce=True,
+    )
+    scheduler.add_job(
+        _run_compliance_tick,
+        "interval",
+        seconds=POLL_TICK_SECONDS,
+        id="compliance_gate",
+        max_instances=1,
         coalesce=True,
     )
     scheduler.add_job(
