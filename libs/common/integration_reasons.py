@@ -17,6 +17,8 @@ REASON_DISPATCH_DISABLED = "dispatch_disabled"
 REASON_INGESTION_DISABLED = "ingestion_disabled"
 REASON_REWRITE_UNAVAILABLE = "rewrite_unavailable"
 REASON_GENERATION_OUTSIDE_HOURS = "generation_outside_hours"
+REASON_DRAFTS_STUCK_DRAFTING = "drafts_stuck_drafting"
+REASON_WORKER_STALE = "worker_stale"
 
 OPENROUTER_ERROR_CODES = frozenset(
     {
@@ -131,6 +133,15 @@ def human_reason_message(reason_code: str, *, detail: str | None = None) -> str:
         REASON_GENERATION_OUTSIDE_HOURS: (
             "Генерация статей вне рабочего окна (по умолчанию будни "
             "06:00–18:00 Europe/Minsk). Это штатно — без alert."
+        ),
+        REASON_DRAFTS_STUCK_DRAFTING: (
+            "Черновики зависли в drafting и не доходят до Export "
+            "(/drafts/today). Обычно worker OOM на poll/compliance — "
+            "нужен рестарт worker и проверка логов."
+        ),
+        REASON_WORKER_STALE: (
+            "Worker не пишет heartbeat — сервис упал или завис. "
+            "Проверьте Railway service worker (Crashed/Killed)."
         ),
     }
     base = messages.get(reason_code, "Пайплайн scribely: см. detail.")

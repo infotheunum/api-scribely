@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from common.integration_reasons import REASON_OK, resolve_integration_error_code
 from db.app_settings import set_setting
 from sqlalchemy.orm import Session
+
+from common.integration_reasons import REASON_OK, resolve_integration_error_code
 
 KEY_LAST_ERROR_CODE = "pipeline.last_error_code"
 KEY_LAST_ERROR_MESSAGE = "pipeline.last_error_message"
@@ -12,6 +13,13 @@ KEY_LAST_ERROR_AT = "pipeline.last_error_at"
 KEY_LAST_DISPATCH_AT = "pipeline.last_dispatch_at"
 KEY_LAST_DISPATCH_DISPATCHED = "pipeline.last_dispatch_dispatched"
 KEY_LAST_DISPATCH_FAILED = "pipeline.last_dispatch_failed"
+KEY_LAST_WORKER_HEARTBEAT_AT = "pipeline.last_worker_heartbeat_at"
+
+
+def record_worker_heartbeat(db: Session) -> None:
+    """Touch every scheduler tick so API can detect a dead/hung worker."""
+    set_setting(db, KEY_LAST_WORKER_HEARTBEAT_AT, datetime.now(UTC).isoformat())
+    db.commit()
 
 
 def record_dispatch_cycle_result(
