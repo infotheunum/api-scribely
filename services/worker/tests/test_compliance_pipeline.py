@@ -57,6 +57,27 @@ def _draft(db, cluster, **overrides) -> Draft:
     return draft
 
 
+def test_compliance_cycle_batches_oldest_first(clean_db):
+    from datetime import UTC, datetime, timedelta
+
+    source = _source(clean_db)
+    older_cluster = _cluster_with_item(clean_db, source, body="older source body " * 8)
+    newer_cluster = _cluster_with_item(clean_db, source, body="newer source body " * 8)
+    older = _draft(clean_db, older_cluster)
+    newer = _draft(clean_db, newer_cluster)
+    older.created_at = datetime.now(UTC) - timedelta(minutes=30)
+    newer.created_at = datetime.now(UTC) - timedelta(minutes=1)
+    clean_db.commit()
+
+    stats = run_compliance_cycle(clean_db, limit=1)
+    assert stats["reviewed"] == 1
+    assert stats["batch_limit"] == 1
+    clean_db.refresh(older)
+    clean_db.refresh(newer)
+    assert older.status != DraftStatus.DRAFTING
+    assert newer.status == DraftStatus.DRAFTING
+
+
 def test_clean_draft_reaches_ready_for_review(clean_db):
     source = _source(clean_db)
     cluster = _cluster_with_item(clean_db, source)

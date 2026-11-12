@@ -17,6 +17,10 @@ from worker_app.compliance.similarity import similarity_gate_triggered
 
 logger = logging.getLogger(__name__)
 
+# Cap per tick: similarity gate embeds each draft+sources and can OOM the
+# worker if we process a large drafting backlog in one go after a crash.
+COMPLIANCE_BATCH_SIZE = 25
+
 
 def _draft_text(draft: Draft) -> str:
     return " ".join([draft.title_en, draft.body_en, draft.title_ru, draft.body_ru])
@@ -73,14 +77,29 @@ def _gate_draft(db: Session, draft: Draft) -> None:
         draft.status = DraftStatus.READY_FOR_REVIEW
 
 
-def run_compliance_cycle(db: Session) -> dict:
-    """Gates every freshly-dispatched Draft (Фаза 4 leaves them in
-    DRAFTING) through the rule-based Policy/Compliance Checker (ТЗ §4.6,
-    §4.20) before it can reach READY_FOR_REVIEW. Runs after dispatch in
-    the same scheduler tick so a Draft doesn't sit ungated until the
-    next cycle."""
-    drafts = db.scalars(select(Draft).where(Draft.status == DraftStatus.DRAFTING)).all()
-    stats = {"reviewed": 0, "ready": 0, "needs_fix": 0, "blocked": 0, "sensitive_hold": 0}
+def run_compliance_cycle(db: Session, *, limit: int = COMPLIANCE_BATCH_SIZE) -> dict:
+    """Gates freshly-dispatched Drafts (Фаза 4 leaves them in DRAFTING)
+    through the rule-based Policy/Compliance Checker (ТЗ §4.6, §4.20)
+    before they can reach READY_FOR_REVIEW / Export.
+
+    Oldest-first batch: a hung poll tick must not leave new drafts stuck
+    forever behind a giant backlog, and embedding all of them at once
+    OOMs the Railway worker."""
+    batch_limit = max(1, int(limit))
+    drafts = db.scalars(
+        select(Draft)
+        .where(Draft.status == DraftStatus.DRAFTING)
+        .order_by(Draft.created_at.asc())
+        .limit(batch_limit)
+    ).all()
+    stats = {
+        "reviewed": 0,
+        "ready": 0,
+        "needs_fix": 0,
+        "blocked": 0,
+        "sensitive_hold": 0,
+        "batch_limit": batch_limit,
+    }
     for draft in drafts:
         previous_status = draft.status
         _gate_draft(db, draft)
